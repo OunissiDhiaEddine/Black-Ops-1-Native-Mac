@@ -59,7 +59,7 @@ def read_trace(path):
     mm = mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ)
     view = memoryview(mm)
     magic, version, header_size, ptr, rec_hdr, n_if = struct.unpack_from("<8sIIIII", mm, 0)
-    if magic != b"BO1D3D9T" or version != 1 or rec_hdr != 16:
+    if magic != b"BO1D3D9T" or version not in (1, 2) or rec_hdr != 16:
         raise SystemExit(f"not a v1 trace: {magic!r} v{version}")
     off, end = header_size, len(mm)
     while off + 16 <= end:

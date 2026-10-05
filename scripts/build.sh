@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
-# Placeholder until P3/P4 define CMake targets.
+# Builds the native (arm64) targets with CMake + Ninja into ./build.
+#   scripts/build.sh [target...]
 set -euo pipefail
 cd "$(dirname "$0")/.."
-echo "No build targets yet (see TASKS.md)."
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE="${BUILD_TYPE:-RelWithDebInfo}" >/dev/null
+cmake --build build -- "$@"

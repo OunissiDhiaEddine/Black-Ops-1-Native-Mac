@@ -4,7 +4,8 @@
 // (stdcall entry). The thunk reports (iface, slot, pointer-to-frame) to trace_pre, then
 // tail-jumps to the original method, so the original sees an untouched frame.
 //
-// If trace_pre returns non-zero it wants to see the result as well: it has saved the real
+// If trace_pre returns non-zero it wants to see the call return (always while tracing, so that
+// nesting depth is exact): it has saved the real
 // return address in a per-thread shadow stack and returns the address of post_tramp, which
 // the thunk writes over the return address. When the original method returns (stdcall: it
 // has popped its own arguments) control lands in post_tramp with the result in eax;
@@ -54,6 +55,9 @@ _post_tramp:
 #define T_ib(i, name)        THUNK ib, 7, i ;
 #define T_surface(i, name)   THUNK surface, 8, i ;
 #define T_query(i, name)     THUNK query, 9, i ;
+#define T_vshader(i, name)   THUNK vshader, 10, i ;
+#define T_pshader(i, name)   THUNK pshader, 11, i ;
+#define T_vdecl(i, name)     THUNK vdecl, 12, i ;
 #define GEN_THUNKS(id, sym, com, METHODS, count) METHODS(T_##sym)
 FOR_EACH_IFACE(GEN_THUNKS)
 
@@ -69,6 +73,9 @@ FOR_EACH_IFACE(GEN_THUNKS)
 #define E_ib(i, name)        ENTRY ib, i ;
 #define E_surface(i, name)   ENTRY surface, i ;
 #define E_query(i, name)     ENTRY query, i ;
+#define E_vshader(i, name)   ENTRY vshader, i ;
+#define E_pshader(i, name)   ENTRY pshader, i ;
+#define E_vdecl(i, name)     ENTRY vdecl, i ;
 #define GEN_TABLE(id, sym, com, METHODS, count) \
     .globl _thunks_##sym ; _thunks_##sym: ; METHODS(E_##sym)
 FOR_EACH_IFACE(GEN_TABLE)

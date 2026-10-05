@@ -3,7 +3,7 @@ Status: TODO · NOW · DONE · BLOCKED. Only ONE task is NOW at a time. Mark DON
 Update this file at every checkpoint (see AGENTS.md rule 2).
 
 ## NOW
-- **T-031** (P3) Trace reader + replay harness skeleton (`tests/replay/`), null backend. In parallel: T-030 (ADR-004/005 proposals from the census).
+- **T-033** (P3) Shader translation prototype (SM3 -> MSL) on the real corpus (`artifacts/shaders/`), with T-030 (ADR-004/005 proposals).
 
 ## DONE
 - **T-001** (P0) DONE 2026-10-05 — game install present in `reference/`, `scripts/doctor.sh` run, tool availability recorded.
@@ -38,7 +38,7 @@ Update this file at every checkpoint (see AGENTS.md rule 2).
 
 ## P3 — Metal renderer (isolated)
 - [ ] **T-030** ADR-004 / ADR-005 proposals backed by the census; ask user.
-- [ ] **T-031** Trace reader + replay harness skeleton (`tests/replay/`), null backend.
+- [x] **T-031** DONE 2026-10-05 (evidence: `build/replay artifacts/traces/{menu,cuba,vorkuta,khe_sanh}.bin` — 17–25 M records each, 6–7 M records/s, null backend reports 0 unknown objects / 0 wrong kinds / 0 unmatched unlocks / 0 missing uploads). Trace reader + replay harness skeleton (`tests/replay/`), null backend.
 - [ ] **T-032** Metal backend: device/swapchain (CAMetalLayer), buffers, textures, samplers.
 - [ ] **T-033** Shader translation prototype on 10 real shaders; expand to full corpus; disk cache.
 - [ ] **T-034** Render-state -> PSO mapping + cache; first triangle from trace; then main menu frame.

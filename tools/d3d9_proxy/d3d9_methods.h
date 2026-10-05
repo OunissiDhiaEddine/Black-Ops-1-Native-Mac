@@ -99,6 +99,18 @@
     X(5, GetDataSize) X(6, Issue) X(7, GetData)
 #define IDIRECT3DQUERY9_COUNT 8
 
+#define IDIRECT3DVERTEXSHADER9_METHODS(X) \
+    X(0, QueryInterface) X(1, AddRef) X(2, Release) X(3, GetDevice) X(4, GetFunction)
+#define IDIRECT3DVERTEXSHADER9_COUNT 5
+
+#define IDIRECT3DPIXELSHADER9_METHODS(X) \
+    X(0, QueryInterface) X(1, AddRef) X(2, Release) X(3, GetDevice) X(4, GetFunction)
+#define IDIRECT3DPIXELSHADER9_COUNT 5
+
+#define IDIRECT3DVERTEXDECLARATION9_METHODS(X) \
+    X(0, QueryInterface) X(1, AddRef) X(2, Release) X(3, GetDevice) X(4, GetDeclaration)
+#define IDIRECT3DVERTEXDECLARATION9_COUNT 5
+
 // Interface ids: index into the proxy's interface table, first byte of every trace record,
 // and the first macro argument of FOR_EACH_IFACE. Keep in sync with docs/TRACE_FORMAT.md.
 #define IFACE_D3D9 0
@@ -111,7 +123,10 @@
 #define IFACE_IB 7
 #define IFACE_SURFACE 8
 #define IFACE_QUERY 9
-#define IFACE_COUNT 10
+#define IFACE_VSHADER 10
+#define IFACE_PSHADER 11
+#define IFACE_VDECL 12
+#define IFACE_COUNT 13
 #define IFACE_MAX_SLOTS 119
 
 // F(id, symbol, COM interface, method-list macro, count)
@@ -125,4 +140,7 @@
     F(6, vb, IDirect3DVertexBuffer9, IDIRECT3DVERTEXBUFFER9_METHODS, IDIRECT3DVERTEXBUFFER9_COUNT) \
     F(7, ib, IDirect3DIndexBuffer9, IDIRECT3DINDEXBUFFER9_METHODS, IDIRECT3DINDEXBUFFER9_COUNT) \
     F(8, surface, IDirect3DSurface9, IDIRECT3DSURFACE9_METHODS, IDIRECT3DSURFACE9_COUNT) \
-    F(9, query, IDirect3DQuery9, IDIRECT3DQUERY9_METHODS, IDIRECT3DQUERY9_COUNT)
+    F(9, query, IDirect3DQuery9, IDIRECT3DQUERY9_METHODS, IDIRECT3DQUERY9_COUNT) \
+    F(10, vshader, IDirect3DVertexShader9, IDIRECT3DVERTEXSHADER9_METHODS, IDIRECT3DVERTEXSHADER9_COUNT) \
+    F(11, pshader, IDirect3DPixelShader9, IDIRECT3DPIXELSHADER9_METHODS, IDIRECT3DPIXELSHADER9_COUNT) \
+    F(12, vdecl, IDirect3DVertexDeclaration9, IDIRECT3DVERTEXDECLARATION9_METHODS, IDIRECT3DVERTEXDECLARATION9_COUNT)

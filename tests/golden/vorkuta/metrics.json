@@ -1,29 +1,29 @@
 {
  "scenario": "vorkuta",
  "map": "vorkuta",
- "run_stamp": "20261005-163719",
+ "run_stamp": "20261005-172727",
  "window_frames": [
   5200,
   5260
  ],
- "frames_presented": 5714,
+ "frames_presented": 5653,
  "frame_time_window": {
   "frames": 61,
-  "mean_ms": 44.05,
-  "median_ms": 49.27,
-  "p95_ms": 51.42,
-  "max_ms": 54.06,
-  "fps_mean": 22.7
+  "mean_ms": 43.68,
+  "median_ms": 52.33,
+  "p95_ms": 59.56,
+  "max_ms": 85.93,
+  "fps_mean": 22.9
  },
  "frame_time_last_600": {
   "frames": 601,
-  "mean_ms": 42.17,
-  "median_ms": 40.23,
-  "p95_ms": 51.21,
-  "max_ms": 268.06,
-  "fps_mean": 23.7
+  "mean_ms": 44.11,
+  "median_ms": 38.91,
+  "p95_ms": 61.99,
+  "max_ms": 287.78,
+  "fps_mean": 22.7
  },
  "note": "Baseline = WineCX 24.0.7 + wined3d under Rosetta 2, 800x600 windowed, com_maxfps 60, with the tracing proxy active. Frame times measure the BASELINE under tracing, not the game's potential.",
- "git": "d5c2d41",
+ "git": "d856ce1",
  "trace_stopped_early": false
 }

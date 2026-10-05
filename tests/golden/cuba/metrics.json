@@ -1,29 +1,29 @@
 {
  "scenario": "cuba",
  "map": "cuba",
- "run_stamp": "20261005-163404",
+ "run_stamp": "20261005-172413",
  "window_frames": [
   5200,
   5260
  ],
- "frames_presented": 5924,
+ "frames_presented": 5663,
  "frame_time_window": {
   "frames": 61,
-  "mean_ms": 41.8,
-  "median_ms": 42.0,
-  "p95_ms": 46.68,
-  "max_ms": 53.55,
-  "fps_mean": 23.9
+  "mean_ms": 53.08,
+  "median_ms": 51.18,
+  "p95_ms": 61.67,
+  "max_ms": 122.22,
+  "fps_mean": 18.8
  },
  "frame_time_last_600": {
   "frames": 601,
-  "mean_ms": 51.77,
-  "median_ms": 47.4,
-  "p95_ms": 73.63,
-  "max_ms": 729.79,
-  "fps_mean": 19.3
+  "mean_ms": 53.18,
+  "median_ms": 51.87,
+  "p95_ms": 81.68,
+  "max_ms": 257.73,
+  "fps_mean": 18.8
  },
  "note": "Baseline = WineCX 24.0.7 + wined3d under Rosetta 2, 800x600 windowed, com_maxfps 60, with the tracing proxy active. Frame times measure the BASELINE under tracing, not the game's potential.",
- "git": "d5c2d41",
+ "git": "d856ce1",
  "trace_stopped_early": false
 }

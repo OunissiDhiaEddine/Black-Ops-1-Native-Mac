@@ -1,4 +1,4 @@
-# D3D9 trace format (v1)
+# D3D9 trace format (v2; v1 is still readable)
 
 Written by `tools/d3d9_proxy` when `BO1_TRACE_FILE` is set (`scripts/run_baseline.sh --trace --record`),
 read by `tools/trace_reader.py`. Little-endian, 32-bit guest pointers. One file per run in
@@ -8,11 +8,11 @@ read by `tools/trace_reader.py`. Little-endian, 32-bit guest pointers. One file 
 | Offset | Type | Value |
 |---|---|---|
 | 0 | char[8] | `BO1D3D9T` |
-| 8 | u32 | version = 1 |
+| 8 | u32 | version = 2 (1 = first captures: `depth` not exact, 10 interfaces) |
 | 12 | u32 | header size = 40 |
 | 16 | u32 | guest pointer size = 4 |
 | 20 | u32 | record header size = 16 |
-| 24 | u32 | interface count = 10 |
+| 24 | u32 | interface count = 13 |
 | 28 | u32[3] | reserved |
 
 ## Record
@@ -23,7 +23,7 @@ One record per COM method call on a hooked interface, in the order the calls wer
 |---|---|---|
 | 0 | u8 | `iface` — interface id (table below) |
 | 1 | u8 | `flags` — bit 0: `result` is valid (the call was recorded after it returned) |
-| 2 | u8 | `depth` — number of recorded-on-return calls in progress on this thread. `depth > 0` means the call was made by the D3D9 implementation itself while servicing another call; replayers skip those |
+| 2 | u8 | `depth` — number of hooked calls in progress on this thread when this call was made. **v2: exact** (every call is tracked from entry to return), so `depth > 0` means the call was made by the D3D9 implementation itself while servicing a game call, or is a tail call out of one; replayers skip those. In v1 only calls recorded on return were counted |
 | 3 | u8 | `nblobs` |
 | 4 | u16 | `slot` — vtable slot = method (names: `tools/d3d9_proxy/d3d9_methods.h`) |
 | 6 | u16 | `nwords` |
@@ -67,9 +67,12 @@ trailing fill); 3 = dynamic upload outside the `BO1_TRACE_FRAMES` window, not re
 | 7 | IDirect3DIndexBuffer9 | Lock, Release |
 | 8 | IDirect3DSurface9 | LockRect, Release |
 | 9 | IDirect3DQuery9 | GetData, Release |
+| 10 | IDirect3DVertexShader9 | Release |
+| 11 | IDirect3DPixelShader9 | Release |
+| 12 | IDirect3DVertexDeclaration9 | Release |
 
-Vertex declarations, shaders and state blocks are identified by their OUT pointer only; their own
-methods (AddRef/Release) are not hooked.
+State blocks are identified by their OUT pointer only (the game creates none). The proxy's own D3D
+use (back-buffer capture, `GetDesc` queries) is never recorded.
 
 ## Semantics a replayer relies on
 - **Frame boundary** = `IDirect3DSwapChain9::Present` (slot 3). The game never calls the device's Present.
@@ -80,6 +83,7 @@ methods (AddRef/Release) are not hooked.
   no data: buffer locks with DISCARD/NOOVERWRITE, and any sub-resource rewritten more than 4 times.
   Static resources (written a few times) are complete. Limitation: a resource that was rewritten
   more than 4 times before the window and is used but not rewritten inside it has no data.
+- **Validation:** `build/replay <trace> --frames A-B` (null backend) checks that every object used was created and is alive, locks pair with unlocks, and no upload is missing inside the window. The four golden traces pass with zero findings.
 - A trace may end mid-record (the game is usually killed); readers stop at the first incomplete record.
 - Not captured: calls made through interfaces of a second vtable for the same interface type (the
   proxy logs a WARNING in the census if it ever sees one), D3DX calls, anything the implementation

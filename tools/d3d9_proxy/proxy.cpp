@@ -60,6 +60,9 @@
 #define CHK_ib(i, name) CHK(IDirect3DIndexBuffer9, i, name)
 #define CHK_surface(i, name) CHK(IDirect3DSurface9, i, name)
 #define CHK_query(i, name) CHK(IDirect3DQuery9, i, name)
+#define CHK_vshader(i, name) CHK(IDirect3DVertexShader9, i, name)
+#define CHK_pshader(i, name) CHK(IDirect3DPixelShader9, i, name)
+#define CHK_vdecl(i, name) CHK(IDirect3DVertexDeclaration9, i, name)
 #define GEN_CHK(id, sym, com, METHODS, count)                                                      \
     METHODS(CHK_##sym) static_assert(sizeof(com##Vtbl) == (count) * sizeof(void *), #com " size"); \
     static_assert((count) <= IFACE_MAX_SLOTS, #com " too many slots");
@@ -83,6 +86,9 @@ template <class R, class... A> constexpr unsigned char nw(R(__stdcall *)(A...)) 
 #define NW_ib(i, name) NWX(IDirect3DIndexBuffer9, name)
 #define NW_surface(i, name) NWX(IDirect3DSurface9, name)
 #define NW_query(i, name) NWX(IDirect3DQuery9, name)
+#define NW_vshader(i, name) NWX(IDirect3DVertexShader9, name)
+#define NW_pshader(i, name) NWX(IDirect3DPixelShader9, name)
+#define NW_vdecl(i, name) NWX(IDirect3DVertexDeclaration9, name)
 #define NAME(i, name) #name,
 
 #define GEN_STORAGE(id, sym, com, METHODS, count)                         \
@@ -128,6 +134,10 @@ static char g_events[65536]; // device creation, dialogs, captures, diagnostics
 static size_t g_events_len;
 static DWORD g_t0;
 static void write_census(void);
+struct ThreadState;
+static ThreadState *thread_state(void);
+static void proxy_calls_begin(void);
+static void proxy_calls_end(void);
 static void write_import_census(void);
 static LONG g_d3dx_compiles; // D3DXCompileShader calls seen (IAT hook)
 
@@ -145,7 +155,7 @@ static void event(const char *fmt, ...) {
 }
 
 // ---- binary trace writer (docs/TRACE_FORMAT.md) -------------------------------------------
-#define TRACE_VERSION 1
+#define TRACE_VERSION 2
 #define TBUF_SIZE (8u << 20)
 enum { // blob tags
     TB_OUT = 1,      // u32: object pointer returned through an out parameter
@@ -440,7 +450,11 @@ static void on_present(IDirect3DDevice9 *dev) {
         QueryPerformanceCounter(&now);
         g_ft[fr - 1] = (DWORD)((now.QuadPart - g_qpc0.QuadPart) * 1000000 / g_qpf.QuadPart);
     }
-    if (g_capture_every > 0 && fr % g_capture_every == 0 && g_captures < CAPTURE_MAX) capture_backbuffer(dev, fr);
+    if (g_capture_every > 0 && fr % g_capture_every == 0 && g_captures < CAPTURE_MAX) {
+        proxy_calls_begin(); // the capture's own surfaces must not appear in census or trace
+        capture_backbuffer(dev, fr);
+        proxy_calls_end();
+    }
 }
 
 // ---- scripted input: BO1_KEYS="ms:vk,ms:vk,..." posts key presses to the game window --------
@@ -536,8 +550,8 @@ static const OutSpec g_outs[] = {
     {IFACE_DEVICE, 36, 5, IFACE_SURFACE},   {IFACE_DEVICE, 38, 2, IFACE_SURFACE},
     {IFACE_DEVICE, 40, 1, IFACE_SURFACE},   {IFACE_DEVICE, 59, 2, -1},
     {IFACE_DEVICE, 61, 1, -1},              {IFACE_DEVICE, 64, 2, -1},
-    {IFACE_DEVICE, 86, 2, -1},              {IFACE_DEVICE, 91, 2, -1},
-    {IFACE_DEVICE, 106, 2, -1},             {IFACE_DEVICE, 118, 2, IFACE_QUERY},
+    {IFACE_DEVICE, 86, 2, IFACE_VDECL},     {IFACE_DEVICE, 91, 2, IFACE_VSHADER},
+    {IFACE_DEVICE, 106, 2, IFACE_PSHADER},  {IFACE_DEVICE, 118, 2, IFACE_QUERY},
     {IFACE_SWAPCHAIN, 5, 3, IFACE_SURFACE}, {IFACE_TEXTURE, 18, 2, IFACE_SURFACE},
     {IFACE_CUBE, 18, 3, IFACE_SURFACE},     {IFACE_VOLUME, 18, 2, -1},
 };
@@ -703,13 +717,14 @@ static void collect_inputs(unsigned k, unsigned slot, const DWORD *w, Emit &e) {
 }
 
 // Unlock*: describe the lock and dump the bytes the game wrote, BEFORE the real unlock.
-static void collect_unlock(unsigned k, unsigned slot, const DWORD *w, Emit &e) {
+static void collect_unlock(unsigned k, unsigned slot, const DWORD *w, Emit &e, int depth) {
     void *obj = (void *)w[0];
     DWORD sub = 0;
     if (k == IFACE_TEXTURE && slot == 20) sub = w[1];
     else if (k == IFACE_CUBE && slot == 20) sub = w[2] | (w[1] << 8);
     else if (k == IFACE_VOLUME && slot == 20) sub = w[1];
     else if (!((k == IFACE_VB || k == IFACE_IB) && slot == 12) && !(k == IFACE_SURFACE && slot == 14)) return;
+    if (depth > 0) return; // the implementation unlocking a sub-object: the outer call has the data
     Pending *p = pending_find(obj, sub, false);
     if (!p) return;
     LockDesc &d = e.lock = p->d;
@@ -767,7 +782,11 @@ static void collect_outputs(unsigned k, unsigned slot, DWORD result, const DWORD
     }
     if (!tracing) return;
     void *obj = (void *)w[0];
-    if (slot == 2 && k >= IFACE_TEXTURE && result == 0) pending_forget(obj); // object destroyed
+    struct Guard { // the GetDesc/GetLevelDesc queries below are ours, not the game's
+        Guard() { proxy_calls_begin(); }
+        ~Guard() { proxy_calls_end(); }
+    } guard;
+    if (slot == 2 && k >= IFACE_TEXTURE && k <= IFACE_SURFACE && result == 0) pending_forget(obj); // destroyed
     if (FAILED((HRESULT)result)) return;
     LockDesc d;
     memset(&d, 0, sizeof(d));
@@ -789,6 +808,7 @@ static void collect_outputs(unsigned k, unsigned slot, DWORD result, const DWORD
         d.width = total;
         d.lock_flags = w[4];
         d.data_ptr = w[3] ? *(DWORD *)w[3] : 0;
+        if (depth > 0) d.data_ptr = 0; // nested lock: describe only
         // A whole-buffer DISCARD lock says nothing about how much will be written (the game locks
         // its 8 MiB dynamic buffer like this every frame). Contents are undefined after DISCARD,
         // so fill with a sentinel and let Unlock trim the dump to the bytes actually written.
@@ -797,7 +817,7 @@ static void collect_outputs(unsigned k, unsigned slot, DWORD result, const DWORD
             for (DWORD i = 0, nd = d.size / 4; i < nd; i++) q[i] = SENTINEL;
             d.dumped = 2;
         }
-        p = pending_find(obj, 0, true);
+        p = depth > 0 ? NULL : pending_find(obj, 0, true);
     } else if ((k == IFACE_TEXTURE && slot == 19) || (k == IFACE_CUBE && slot == 19) || (k == IFACE_SURFACE && slot == 13)) {
         // Texture: LockRect(this, Level, pLocked, pRect, Flags)   Cube: (this, Face, Level, pLocked, pRect, Flags)
         // Surface: LockRect(this, pLocked, pRect, Flags)
@@ -825,7 +845,7 @@ static void collect_outputs(unsigned k, unsigned slot, DWORD result, const DWORD
         }
         // A surface lock made by the implementation while it services a texture lock (depth > 0)
         // would duplicate the texture's data: describe it, but do not track it for a dump.
-        p = (k == IFACE_SURFACE && depth > 0) ? NULL : pending_find(obj, sub, true);
+        p = depth > 0 ? NULL : pending_find(obj, sub, true);
     } else if (k == IFACE_VOLUME && slot == 19) { // LockBox(this, Level, pLockedBox, pBox, Flags)
         D3DVOLUME_DESC vd;
         memset(&vd, 0, sizeof(vd));
@@ -845,7 +865,7 @@ static void collect_outputs(unsigned k, unsigned slot, DWORD result, const DWORD
             d.left = bx->Left; d.top = bx->Top; d.right = bx->Right; d.bottom = bx->Bottom;
             d.front = bx->Front; d.back = bx->Back;
         }
-        p = pending_find(obj, w[1], true);
+        p = depth > 0 ? NULL : pending_find(obj, w[1], true);
     } else if (k == IFACE_QUERY && slot == 7) { // GetData(this, pData, dwSize, dwGetDataFlags)
         if (result == S_OK) e.add(TB_DATA, (void *)w[1], w[2]);
         return;
@@ -861,13 +881,17 @@ struct Frame {
     void *ret;
     void **frame;
     BYTE iface, slot, nwords;
+    bool emit; // record this call when it returns (false: it was recorded on entry)
     DWORD w[16];
 };
 struct ThreadState {
     int depth;
+    int in_proxy; // > 0 while the proxy itself is calling D3D: nothing those calls trigger is recorded
     Frame f[24];
 };
 static DWORD g_tls = TLS_OUT_OF_INDEXES;
+static void proxy_calls_begin(void) { thread_state()->in_proxy++; }
+static void proxy_calls_end(void) { thread_state()->in_proxy--; }
 static ThreadState *thread_state(void) {
     // Read the slot straight from the TEB: TlsGetValue would reset the caller's last error.
     void **slots = (void **)((BYTE *)NtCurrentTeb() + 0xE10);
@@ -883,6 +907,7 @@ static ThreadState *thread_state(void) {
 
 // ---- hot path: called by every thunk before the original method runs ------------------------
 extern "C" void *__stdcall trace_pre(unsigned k, unsigned slot, void **frame) {
+    if (g_tls != TLS_OUT_OF_INDEXES && thread_state()->in_proxy) return NULL; // our own D3D use
     const Iface &f = g_if[k];
     LONG n = InterlockedIncrement(&f.calls[slot]);
     const DWORD *w = (const DWORD *)(frame + 1);
@@ -900,14 +925,13 @@ extern "C" void *__stdcall trace_pre(unsigned k, unsigned slot, void **frame) {
         dump_pp("CreateDevice", (const D3DPRESENT_PARAMETERS *)w[5]);
     }
     bool tracing = g_trace_on != 0;
-    bool want_post = (k == IFACE_D3D9 && slot == 16) || (tracing && g_want_post[k][slot]);
-    if (!tracing && !want_post) return NULL;
+    bool create_device = k == IFACE_D3D9 && slot == 16;
+    if (!tracing && !create_device) return NULL;
     ThreadState *t = thread_state();
     // Shadow frames still in progress sit at HIGHER addresses than this call's frame. Anything
-    // lower was unwound by an exception. An equal address is a tail call out of a post-hooked
-    // method (d3d9's surface AddRef/Release forward to the parent texture with `jmp`): the return
-    // slot already holds post_tramp, and the outer frame must stay so that its post hook receives
-    // the tail-called method's result.
+    // lower was unwound by an exception. An equal address is a tail call out of a hooked method
+    // (d3d9's surface AddRef/Release forward to the parent texture with `jmp`): the return slot
+    // already holds post_tramp, and the outer frame must stay so that it receives the result.
     bool tail = false;
     while (t->depth > 0) {
         void **top = t->f[t->depth - 1].frame;
@@ -918,24 +942,29 @@ extern "C" void *__stdcall trace_pre(unsigned k, unsigned slot, void **frame) {
         if (top > frame) break;
         t->depth--;
     }
-    if (!want_post || tail || t->depth >= 24) {
-        if (tracing) {
-            Emit e;
-            e.nb = 0;
-            collect_inputs(k, slot, w, e);
-            EnterCriticalSection(&g_tlock); // the pending-lock table is shared with collect_outputs
-            collect_unlock(k, slot, w, e);
-            LeaveCriticalSection(&g_tlock);
-            t_emit(k, slot, 0, (BYTE)t->depth, 0, w, nwords, e.b, e.nb);
-        }
-        return NULL;
+    // While tracing, EVERY call gets a shadow frame so that `depth` counts all hooked calls in
+    // progress: depth > 0 then reliably means "made by the D3D9 implementation, not the game".
+    // Calls whose result or out-parameters matter are recorded when they return; the rest are
+    // recorded here, before they run (Unlock* must read the data before the real unlock).
+    bool emit_on_return = create_device || g_want_post[k][slot];
+    bool can_push = !tail && t->depth < 24;
+    if (tracing && (!emit_on_return || !can_push)) {
+        Emit e;
+        e.nb = 0;
+        collect_inputs(k, slot, w, e);
+        EnterCriticalSection(&g_tlock); // the pending-lock table is shared with collect_outputs
+        collect_unlock(k, slot, w, e, t->depth);
+        LeaveCriticalSection(&g_tlock);
+        t_emit(k, slot, 0, (BYTE)t->depth, 0, w, nwords, e.b, e.nb);
     }
+    if (!can_push) return NULL;
     Frame &fr = t->f[t->depth++];
     fr.ret = frame[0];
     fr.frame = frame;
     fr.iface = (BYTE)k;
     fr.slot = (BYTE)slot;
     fr.nwords = (BYTE)(nwords > 16 ? 16 : nwords);
+    fr.emit = emit_on_return;
     memcpy(fr.w, w, fr.nwords * 4);
     return (void *)post_tramp;
 }
@@ -945,6 +974,7 @@ extern "C" void *__stdcall trace_post(unsigned result) {
     ThreadState *t = thread_state();
     Frame fr = t->f[--t->depth];
     unsigned k = fr.iface, slot = fr.slot;
+    if (!fr.emit) return fr.ret; // recorded on entry; the frame only existed to track nesting
     bool tracing = g_trace_on != 0;
     Emit e;
     e.nb = 0;

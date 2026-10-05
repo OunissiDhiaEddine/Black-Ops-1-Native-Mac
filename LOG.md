@@ -2,7 +2,7 @@
 
 ## STATE  (OVERWRITE this block at every checkpoint — it is the resume point)
 - **Date/time:** 2026-10-05 ~17:35
-- **Phase / task:** P2 complete, ADRs decided (see entry 17:45). **P3 started: T-031 (replay harness) + T-030.**
+- **Phase / task:** P3 — T-031 DONE. **NOW: T-033 (SM3 -> MSL translator prototype in `src/shaders/`, checker tool in `tools/sm3c/`), then T-030 ADR proposals.** `src/shaders/sm3.h` (interface) exists; parser/emitter not written yet.
 - **Last completed:** platform map with runtime import census; host-call ABI spec; ADR proposals 006, 008–012.
 - **Next exact step:** after the user's answers: mark the ADRs ACCEPTED/changed in `docs/DECISIONS.md`; then P3 — T-030 (ADR-004 / ADR-005 proposals from the census: thin D3D9-shaped RHI + own SM3 -> MSL translator look sufficient), T-031 trace reader + replay harness skeleton in `tests/replay/` against `artifacts/traces/menu.bin` (C++; format in `docs/TRACE_FORMAT.md`), T-032 Metal device/swapchain.
 - **Standard commands:** baseline `scripts/run_baseline.sh --wine cx --net --trace …`; golden `scripts/capture_golden.sh`; traces `tools/trace_reader.py`, `tools/trace_census.py`; platform map `tools/platform_map.py`; COM/Steam survey `tools/com_steam_usage.py`.
@@ -148,3 +148,8 @@ Entry template:
 - Did: user approved ADR-006, 008, 009, 011, 012 -> ACCEPTED. User rejected the Steam-client bridge (will not install Steam) and decided the port keeps using the shipped `steam_api.dll` -> ADR-010 rewritten: the DLL runs unmodified in an embedded x86 interpreter; it is not unpacked, patched or re-implemented (HOST_ABI §7a). Follow-up spike T-024 added. P3 approved.
 - Evidence: `docs/DECISIONS.md`, `docs/HOST_ABI.md` §7a.
 - Next: P3 — T-031 replay harness, T-030 ADR-004/005 proposals.
+
+### 2026-10-05 ~17:40 — T-031 DONE — replay harness + trace format v2
+- Did: C++ trace reader and replay harness (`tests/replay/`, CMake target `replay`, `scripts/build.sh`) with a validating null backend. Its first run exposed two recorder flaws: (1) calls the D3D9 implementation makes inside a call recorded on entry showed up as game calls; (2) shaders and vertex declarations never reported destruction, so reused pointers looked like wrong-kind objects. Fixed in the proxy: every call now gets a shadow frame (exact depth), 3 more interfaces hooked, the proxy's own D3D use is excluded. Trace format v2; all four scenarios re-captured.
+- Evidence: validator output for the four traces — 0 findings each (menu 16.9 M records, cuba 24.8 M, vorkuta 23.4 M, khe_sanh 24.3 M); `tests/golden/*/metrics.json` refreshed.
+- Next: T-033 shader translator prototype; T-030 ADR-004/005 proposals.
