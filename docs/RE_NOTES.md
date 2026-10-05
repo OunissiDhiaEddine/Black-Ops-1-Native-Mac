@@ -280,6 +280,24 @@ Source: `tools/trace_census.py artifacts/traces/trace-20261005-162759.bin --name
 - No failed D3D calls in either trace.
 (Superseded by the consolidated section above for the D3DXCompileShader question.)
 
+## Metal replay results (P3)
+`scripts/replay_check.sh` (build -> `build/replay <trace> --backend metal --frames A-(A+42) --dump …` -> `tools/compare_frames.py` against `tests/golden/<name>/`), 2026-10-05, Apple M1. Summary committed in `re/replay_check.json`. CONFIRMED (tool output).
+
+| Scenario | Draws replayed (44 frames) | Skipped | Pipelines | Shader functions | SSIM vs Wine golden | Pixels differing > 16/255 |
+|---|---|---|---|---|---|---|
+| menu | 67,431 | 0 | 171 | 182 | 0.982–0.984 | 4.2–4.3% |
+| cuba | 69,710 | 0 | 155 | 243 | 0.9989–0.9992 | 0.0–0.1% |
+| vorkuta | 70,021 | 0 | 120 | 187 | 0.9977–0.9991 | 0.0–0.1% |
+| khe_sanh | 118,432 | 0 | 131 | 209 | 0.968–0.978 | 3.0–9.4% |
+
+- Shader corpus: 6,845 / 6,845 translate and compile (`re/shader_translation_report.json`).
+- Metal validation layer (`MTL_DEBUG_LAYER=1`, cuba, 2 frames): **no errors or failed assertions**; ~38,000 warnings, all "redundant set…" (the replay backend re-sets state per draw by design) and "unused vertex binding at buffer index 16" (the default-attribute buffer).
+- **Differences from the baseline, by cause:**
+  1. menu: the TV screens are green in the replay — Bink frame textures are not recorded unless `--record-video` is used (by design, CONFIRMED: the difference image is confined to the two screens).
+  2. menu: small red specks scattered over the baseline image are absent in the replay. Which side is right is unknown — GUESS: either a particle layer the replay drops or a wined3d artifact. Needs a native D3D9 reference.
+  3. khe_sanh: sky and far background differ — the replay shows a bright sky and a blurred far field (depth-of-field-like), the baseline a darker dusty sky with a sharp background. Everything nearer matches. Unknown which is right (GUESS: an effect that reads depth, handled differently by wined3d and by this backend). Needs a native D3D9 reference.
+- What D3D9 behaviour the backend had to implement to get here (all in `tests/replay/metal_backend.mm`): viewport reset on `SetRenderTarget`; clears clipped to viewport/scissor/rect list (as quads); `NULL`-FOURCC colour targets as depth-only passes; sampled depth textures via comparison samplers and a per-draw shader variant; L8/A8L8/X8/G16R16/R32F channel swizzles (as views on render targets, which Metal does not allow to be swizzled); DISCARD locks as fresh buffers; clockwise front faces with D3D cull modes; alpha test in the pixel shader; half-pixel offset in the vertex shader; missing vertex elements from a constant (0,0,0,1) buffer.
+
 ## Baseline status (P1) — what runs, what does not
 **RESOLVED 2026-10-05 15:55: the baseline is WineCX 24.0.7 (ADR-007).** On it the game boots, passes the title screen (scripted Space at t=32 s) and renders the **main menu** — the 3D interrogation room with CAMPAIGN / MULTIPLAYER / ZOMBIES / SETTINGS / QUIT (`tests/golden/baseline_cx_main_menu_f1350_800x600.png`) — and the settings pages (`…_settings_sound_f2400…`). 2 of 2 runs, 2,276 and 2,496 frames, no crash. The 2.85 GB heap request (`size aa010000`) also fails on this stack and the game carries on, so it is benign. Main-menu workload (65 s run, 2,276 frames): **~807 `DrawIndexedPrimitive` per frame on average**, 1.84 M draws, 2.1 M `SetTexture`, 2.7 M `SetPixelShaderConstantF`, 330 k `SetRenderState`; still the same 37 device methods.
 The rest of this section is the record of what failed on the WineHQ 11.18 builds.

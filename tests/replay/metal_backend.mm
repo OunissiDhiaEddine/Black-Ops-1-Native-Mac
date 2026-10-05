@@ -561,7 +561,6 @@ private:
         float z;
         uint32_t zbits = r.arg(5);
         memcpy(&z, &zbits, 4);
-        if (r.arg(1)) problem("Clear with a rect list");
         if (!begin_pass()) return;
         MTLScissorRect area = viewport_rect();
         if (rs_[174]) { // intersect with the scissor rect
@@ -597,10 +596,25 @@ private:
         [enc_ setCullMode:MTLCullModeNone];
         MTLViewport full = {0, 0, (double)pass_w_, (double)pass_h_, 0, 1};
         [enc_ setViewport:full];
-        [enc_ setScissorRect:area];
         [enc_ setVertexBytes:&u length:sizeof(u) atIndex:0];
         [enc_ setFragmentBytes:&u length:sizeof(u) atIndex:0];
-        [enc_ drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];
+        // Optional rect list (D3DRECT[Count]): each rect is clipped to the viewport/scissor area.
+        const Blob *rects = r.blob(kRectA);
+        size_t nrects = rects ? rects->data.size() / 16 : 0;
+        if (r.arg(1) && !nrects) problem("Clear with a rect list that was not recorded");
+        for (size_t i = 0; i < std::max<size_t>(nrects, 1); i++) {
+            MTLScissorRect a = area;
+            if (nrects) {
+                int32_t q[4];
+                memcpy(q, rects->data.data() + i * 16, 16);
+                NSUInteger x0 = std::max<NSUInteger>(area.x, (NSUInteger)std::max(q[0], 0)), y0 = std::max<NSUInteger>(area.y, (NSUInteger)std::max(q[1], 0));
+                NSUInteger x1 = std::min<NSUInteger>(area.x + area.width, (NSUInteger)std::max(q[2], 0)), y1 = std::min<NSUInteger>(area.y + area.height, (NSUInteger)std::max(q[3], 0));
+                if (x1 <= x0 || y1 <= y0) continue;
+                a = {x0, y0, x1 - x0, y1 - y0};
+            }
+            [enc_ setScissorRect:a];
+            [enc_ drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];
+        }
     }
 
     // StretchRect(src, srcRect, dst, dstRect, filter) — only whole-surface copies occur.

@@ -3,3 +3,5 @@ pefile
 capstone
 lief
 unicorn
+numpy
+pillow

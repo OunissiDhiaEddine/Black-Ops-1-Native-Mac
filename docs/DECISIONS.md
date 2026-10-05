@@ -10,11 +10,17 @@ Full manual decompilation is the end-state at best, not the starting point. Lift
 ## ADR-003 — 32-bit guest address space inside a 64-bit host process — ACCEPTED
 Lifted code uses `uint32_t` guest pointers over a reserved arena + base register. Avoids rewriting every struct for 64-bit pointers. Clean 64-bit pointers arrive only in `src/native/` modules.
 
-## ADR-004 — Renderer interface shape — OPEN (decide in P3)
-(a) D3D9-semantics shim over Metal (fast integration, less optimal) vs (b) minimal RHI with translation at the edge (cleaner, more work). Decide using the D3D9 census.
+## ADR-004 — Renderer interface shape — PROPOSED 2026-10-05 (needs user approval)
+**Proposal: (a) a D3D9-semantics layer directly over Metal.** The guest-visible COM objects (HOST_ABI §4.3) call a thin C++ device that keeps D3D9 state and translates it to Metal at draw time — the design the replay backend (`tests/replay/metal_backend.mm`) already implements and validates.
+**Evidence:** the game uses 37 device methods, one render thread, one draw path, no fixed function (RE_NOTES § D3D9 census — consolidated). With that surface a general RHI adds a second vocabulary without removing any work: the state-to-PSO mapping, vertex-declaration linking, clear/StretchRect emulation and hazard handling are needed either way. The D3D9-shaped replay backend reproduces all four golden scenarios at SSIM 0.968–0.999 with 0 skipped draws.
+**Later:** option (b) (a renderer-native interface with batching) belongs to P6, when the lifted draw-submission code is replaced by native code and the D3D9 call stream disappears.
 
-## ADR-005 — Shader translation route — OPEN (decide in P3)
-(a) own SM2/3 -> MSL translator vs (b) SM3 -> SPIR-V -> SPIRV-Cross -> MSL. Evaluate on real shader blobs: correctness, compile time, cache size, maintainability.
+## ADR-005 — Shader translation route — PROPOSED 2026-10-05 (needs user approval)
+**Proposal: (a) our own SM3 bytecode -> MSL translator** (`src/shaders/sm3_msl.cpp`, ~600 lines, no dependencies).
+**Evidence:** `build/sm3c artifacts/shaders/all` — **6,845 / 6,845 unique shaders translate and compile with Metal** (260 VS, 6,585 PS; 1,142,172 instructions; translation of the whole corpus takes 0.6 s). In replay, the translated shaders render the menu and three missions to within SSIM 0.968–0.999 of the Wine baseline. `D3DXCompileShader` is never called at runtime, so bytecode is the only input.
+**Measured cost that is independent of the route:** Metal compiles the generated source at ~10 shaders/s on this M1 (855 s for the corpus); a mission's ~5,000 shaders cannot be compiled at load time. A persistent cache (translated source keyed by bytecode hash + `MTLBinaryArchive` for pipelines) is required and is the main remaining shader work.
+**Option (b), vkd3d-shader -> SPIR-V -> SPIRV-Cross -> MSL: not measured.** It would need `brew install vkd3d spirv-cross` and the same D3D9-specific handling outside the tools (half-pixel offset, alpha test, shadow-sampler variants, varying linking). Given 100% coverage from (a), measuring (b) is only worth it if (a) later shows correctness problems that are hard to fix.
+**Known gaps in (a), all visible in code:** shadow-sampler variants are chosen per draw from the bound texture's format; every vertex shader writes a fixed varying set (TEXCOORD0–15, COLOR0–1) so any pixel shader links; numerical corner cases (`nrm` of a zero vector, `rsq(0)`, `pow` of negatives) follow the D3D reference but are unverified against a native D3D9 image.
 
 ## ADR-006 — Platform layer: SDL3 vs raw AppKit/GameController — ACCEPTED 2026-10-05 (proposed and approved by the user the same day)
 **Proposal: SDL3** for window, events, keyboard/mouse, gamepads, clipboard, message boxes and the audio device; the Metal layer is taken from SDL (`SDL_Metal_CreateView` -> `CAMetalLayer`) and the renderer never calls SDL after that.

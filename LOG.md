@@ -1,19 +1,16 @@
 # LOG
 
 ## STATE  (OVERWRITE this block at every checkpoint — it is the resume point)
-- **Date/time:** 2026-10-05 ~18:15
-- **Phase / task:** P3 — T-031 DONE; **T-033 prototype working** (translator `src/shaders/sm3_msl.cpp`, checker `tools/sm3c`); next **T-032/T-034: Metal replay backend** (`tests/replay/metal_backend.mm`, not started), then T-035 frame comparison. T-030 (ADR-004/005 proposals) to be written and shown to the user.
-- **Last completed:** 6,845/6,845 corpus shaders translate to MSL; all 260 VS + a 299-PS sample compile with Metal; full-corpus compile was started in the background (`artifacts/baseline/sm3c_full.out`, report `re/shader_translation_report.json`) — check its result first.
-- **Next exact step:**
-  1. `cat artifacts/baseline/sm3c_full.out` — expect "compiled by Metal 6845"; fix any compile-error class it lists (`build/sm3c <dir>` on the failing example).
-  2. Write `tests/replay/metal_backend.mm` (Backend interface in `tests/replay/backend.h`): D3D9 state machine over the trace records -> MTLTexture/MTLBuffer objects, lazy shader translation, PSO/depth/sampler caches, offscreen back buffer, PNG dump of frames inside `--frames A-B`. Plan notes: buffers locked with DISCARD get a fresh MTLBuffer; texture uploads go through blit encoders to stay in command order; clears with a partial viewport need a quad; D3D cull CCW = Metal cullMode Back with clockwise front; half-pixel offset in `Consts.extra.xy = (1/W, -1/H)`; alpha test via `Consts.extra` in the PS; samplers bound to depth textures use the translator's `shadow_samplers` variant.
-  3. `build/replay artifacts/traces/menu.bin --backend metal --frames 1700-1760 --dump artifacts/replay/menu` and compare with `tests/golden/menu/frame_0017{00,20,40,60}.png` (T-035: SSIM script).
-- **Standard commands:** `scripts/build.sh`; `build/replay <trace> [--frames A-B]`; `build/sm3c [--out DIR] [--no-compile] <dir>`; baseline/golden scripts as before.
-- **Files in flight:** none uncommitted except the background compile's outputs.
-- **Open questions for the user:** ADR-004 / ADR-005 proposals (to be written up): D3D9-shaped renderer interface; own SM3 -> MSL translator (measured) vs vkd3d-shader + SPIRV-Cross (not measured; needs `brew install vkd3d spirv-cross`).
-- **Half-done / how to resume:** translator known gaps (by design, need the backend): shadow-sampler variants chosen at draw time; fixed varying superset (TEXCOORD0–15, COLOR0–1); numerical edge cases unverified until frames are compared.
-- **Machine:** Apple M1 (arm64), 8 GB RAM, macOS 27.0.1, Xcode 27.0, ~41 GB free. brew: cmake, ninja, ffmpeg, sevenzip, ghidra, openjdk@21, mingw-w64. Wine baseline: `artifacts/wine/cx` (WineCX 24.0.7) + `Wine Staging.app` (support dylibs), prefix `artifacts/wineprefix-cx`.
-- **Reference copy / decisions:** user owns BO1 (stated 2026-10-05); `reference/` read-only; working copy `artifacts/game`. ADR-006/008/009/011/012 ACCEPTED; ADR-010 = shipped steam_api.dll runs unmodified in an embedded x86 interpreter (user decision; spike T-024 pending).
+- **Date/time:** 2026-10-05 ~19:10
+- **Phase / task:** **P3 exit review done (PASS with open items). Waiting for the user: ADR-004/005 approval and Gate G1.**
+- **Last completed:** SM3 -> MSL translator (6,845/6,845 shaders compile), Metal replay backend, frame comparison; all four golden scenarios replay at SSIM 0.968–0.999 with 0 skipped draws; Metal validation layer shows no errors.
+- **Next exact step:** after the user's answer — if G1 = go: expand P4 into tasks (lifter design doc first: instruction coverage from `re/float_census.json`, function list from `re/ghidra_export`, dispatcher/ABI from `docs/HOST_ABI.md`; milestone M4a = lift one leaf function and diff-test it under Unicorn). Independent of G1: T-036 (shader/pipeline disk cache), T-037 (native D3D9 reference from the Windows PC), T-038 (video textures), T-024 (steam_api.dll spike).
+- **Standard commands:** `scripts/build.sh`; `scripts/replay_check.sh [threshold]`; `build/replay <trace> --backend metal|null --frames A-B --dump DIR`; `build/sm3c [--out DIR] [--no-compile] <dir>`; `tools/compare_frames.py GOLDEN REPLAY --diff OUT`; baseline: `scripts/run_baseline.sh --wine cx --net --trace …`, `scripts/capture_golden_all.sh`.
+- **Files in flight:** none uncommitted.
+- **Open questions for the user:** (1) approve ADR-004 (D3D9-shaped renderer) and ADR-005 (own shader translator)? (2) G1: proceed to P4? (3) can they run the proxy on their Windows PC for native reference frames (T-037)?
+- **Half-done / how to resume:** nothing half-done. The renderer lives in `tests/replay/` as a replay backend; `src/rhi` and `src/metal` are still empty (production backend = P5).
+- **Machine:** Apple M1 (arm64), 8 GB RAM, macOS 27.0.1, Xcode 27.0, ~40 GB free. brew: cmake, ninja, ffmpeg, sevenzip, ghidra, openjdk@21, mingw-w64. venv: pefile, capstone, lief, unicorn, numpy, pillow. Wine baseline: `artifacts/wine/cx` (WineCX 24.0.7) + `Wine Staging.app` (support dylibs), prefix `artifacts/wineprefix-cx`.
+- **Reference copy / decisions:** user owns BO1 (stated 2026-10-05); `reference/` read-only; working copy `artifacts/game`. ADR-006/008/009/011/012 ACCEPTED; ADR-010 = shipped steam_api.dll unmodified in an embedded x86 interpreter (spike T-024 pending); ADR-004/005 PROPOSED.
 
 ---
 ## SESSION LOG (append-only; newest at the bottom)
@@ -162,3 +159,11 @@ Entry template:
 - Evidence: `build/sm3c --no-compile artifacts/shaders/all` -> 6845/6845 translated in 0.6 s (1,142,172 instructions, 65 MiB of MSL); first full compile: 260/260 VS OK, all PS failed on one missing `[[stage_in]]`; after the fix a 299-PS sample compiles 299/299; full re-run in the background.
 - Learned: Metal compiles ~11 shaders/s here (~90 ms each) -> a mission's ~5,000 shaders would take minutes on first use: the on-disk shader/pipeline cache planned in docs/PLAN.md is mandatory, whichever translation route is chosen.
 - Next: see STATE.
+
+### 2026-10-05 ~19:10 — T-030, T-032..T-035, P3 exit review
+- Did: Metal replay backend (`tests/replay/metal_backend.mm`): D3D9 state machine -> Metal objects, lazy shader translation with shadow-sampler variants, pipeline/depth/sampler caches, quad clears, StretchRect, PNG dump. `tools/compare_frames.py` (SSIM/MAE + diff images), `scripts/replay_check.sh`. ADR-004/005 proposals.
+- Evidence: `re/replay_check.json`, `re/shader_translation_report.json`, `artifacts/replay/<name>/` + `<name>_diff/`; RE_NOTES § Metal replay results.
+- **P3 exit criteria (docs/PLAN.md):** "replayed main-menu and in-game traces match golden frames within threshold" — met at SSIM >= 0.95 (menu 0.982, cuba 0.999, vorkuta 0.998, khe_sanh 0.968); "Metal validation layer clean" — no errors/assertions, only redundant-state warnings. -> **P3 exit: PASS**, with three explained/open differences (video textures not recorded; menu red specks; khe_sanh sky/far blur) and one piece of deferred work (shader/pipeline disk cache).
+- Learned: first-run fidelity is high because the D3D9 surface is small; Metal forbids swizzled render targets (sample through a view); fragment inputs need `[[stage_in]]`; Metal compiles ~10 generated shaders/s -> caching is mandatory.
+- Problems: which side is right for the two open differences cannot be decided without a native D3D9 image.
+- Next: user decisions (STATE).

@@ -3,7 +3,7 @@ Status: TODO · NOW · DONE · BLOCKED. Only ONE task is NOW at a time. Mark DON
 Update this file at every checkpoint (see AGENTS.md rule 2).
 
 ## NOW
-- **T-033** (P3) Shader translation prototype (SM3 -> MSL) on the real corpus (`artifacts/shaders/`), with T-030 (ADR-004/005 proposals).
+- **P3 exit review done — waiting for the user: ADR-004 / ADR-005 approval and Gate G1** (continue to P4 static recompilation?). Optional first: native D3D9 reference frames from the user's Windows PC to settle the two open rendering differences.
 
 ## DONE
 - **T-001** (P0) DONE 2026-10-05 — game install present in `reference/`, `scripts/doctor.sh` run, tool availability recorded.
@@ -37,13 +37,16 @@ Update this file at every checkpoint (see AGENTS.md rule 2).
 - [x] **T-023** DONE 2026-10-05 (evidence: `docs/HOST_ABI.md`). Specify host-call ABI (guest -> host trampolines, guest-visible COM vtables).
 
 ## P3 — Metal renderer (isolated)
-- [ ] **T-030** ADR-004 / ADR-005 proposals backed by the census; ask user.
+- [x] **T-030** DONE 2026-10-05 — both PROPOSED with evidence in docs/DECISIONS.md; awaiting user approval. ADR-004 / ADR-005 proposals backed by the census; ask user.
 - [x] **T-031** DONE 2026-10-05 (evidence: `build/replay artifacts/traces/{menu,cuba,vorkuta,khe_sanh}.bin` — 17–25 M records each, 6–7 M records/s, null backend reports 0 unknown objects / 0 wrong kinds / 0 unmatched unlocks / 0 missing uploads). Trace reader + replay harness skeleton (`tests/replay/`), null backend.
-- [ ] **T-032** Metal backend: device/swapchain (CAMetalLayer), buffers, textures, samplers.
-- [ ] **T-033** Shader translation prototype on 10 real shaders; expand to full corpus; disk cache.
-- [ ] **T-034** Render-state -> PSO mapping + cache; first triangle from trace; then main menu frame.
-- [ ] **T-035** Golden-frame comparison (SSIM + diff image) automated in CI script.
-- **P3 exit review + Gate G1 with user.**
+- [x] **T-032** DONE 2026-10-05 as the replay backend `tests/replay/metal_backend.mm` (offscreen target instead of CAMetalLayer; the windowed swap chain comes with P5). Evidence: `scripts/replay_check.sh`. Metal backend: device/swapchain (CAMetalLayer), buffers, textures, samplers.
+- [x] **T-033** DONE 2026-10-05 (evidence: `re/shader_translation_report.json` — 6,845/6,845 translate and compile). Disk cache NOT done -> T-036. Shader translation prototype on 10 real shaders; expand to full corpus; disk cache.
+- [x] **T-034** DONE 2026-10-05 (evidence: menu + 3 mission frames rendered, 0 skipped draws; RE_NOTES § Metal replay results). Render-state -> PSO mapping + cache; first triangle from trace; then main menu frame.
+- [x] **T-035** DONE 2026-10-05 (evidence: `scripts/replay_check.sh` exit 0 at SSIM >= 0.95; `re/replay_check.json`). Golden-frame comparison (SSIM + diff image) automated in CI script.
+- [ ] **T-036** Persistent shader/pipeline cache (translated MSL by bytecode hash + MTLBinaryArchive); target: second run of a scenario compiles nothing.
+- [ ] **T-037** Settle the two open differences (menu red specks, khe_sanh sky/far blur) against native D3D9 frames from the user's Windows PC (the proxy DLL works on Windows unchanged).
+- [ ] **T-038** Record video textures (`--record-video`) for one scenario and confirm the TV screens match.
+- **P3 exit review** — DONE 2026-10-05 (LOG): PASS with the open items above. **Gate G1 with the user pending.**
 
 - [ ] **T-024** (P2 follow-up, before P5) Spike for ADR-010: measure which Windows APIs the shipped `steam_api.dll` calls (baseline, `GetProcAddress` log / relay for that module), then run its `DllMain` + `SteamAPI_Init` under Unicorn with stub shims. Evidence: list of APIs + init returning.
 
