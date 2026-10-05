@@ -1,15 +1,15 @@
 # LOG
 
 ## STATE  (OVERWRITE this block at every checkpoint — it is the resume point)
-- **Date/time:** 2026-10-05 ~17:00
-- **Phase / task:** **P1 COMPLETE** (T-010..T-015 DONE). Waiting for the user's go-ahead for P2.
-- **Last completed:** four golden scenarios (menu, cuba, vorkuta, khe_sanh) with frames, traces, timings; consolidated D3D9 census; D3DXCompileShader confirmed unused at runtime.
-- **Next exact step:** on go-ahead -> P2/T-020: classify all 334 imports of `re/imports.csv` into shim / lift / stub / not needed (RE_NOTES § Platform map), then T-021..T-023. P3 can start in parallel from the traces if the user prefers (T-031 trace replay harness against `artifacts/traces/menu.bin`).
-- **Standard commands:** baseline `scripts/run_baseline.sh --wine cx --net --trace [--record --record-frames A-B] [--keys ...] [--cmds "42000|devmap <map>"]`; golden `scripts/capture_golden.sh <name> <map|-> <first_frame> [seconds]` / `scripts/capture_golden_all.sh`; trace tools `tools/trace_reader.py`, `tools/trace_census.py`.
+- **Date/time:** 2026-10-05 ~17:35
+- **Phase / task:** **P2 COMPLETE** (T-020..T-023 DONE). Six ADRs are PROPOSED and need the user's decision; then P3.
+- **Last completed:** platform map with runtime import census; host-call ABI spec; ADR proposals 006, 008–012.
+- **Next exact step:** after the user's answers: mark the ADRs ACCEPTED/changed in `docs/DECISIONS.md`; then P3 — T-030 (ADR-004 / ADR-005 proposals from the census: thin D3D9-shaped RHI + own SM3 -> MSL translator look sufficient), T-031 trace reader + replay harness skeleton in `tests/replay/` against `artifacts/traces/menu.bin` (C++; format in `docs/TRACE_FORMAT.md`), T-032 Metal device/swapchain.
+- **Standard commands:** baseline `scripts/run_baseline.sh --wine cx --net --trace …`; golden `scripts/capture_golden.sh`; traces `tools/trace_reader.py`, `tools/trace_census.py`; platform map `tools/platform_map.py`; COM/Steam survey `tools/com_steam_usage.py`.
 - **Files in flight:** none uncommitted.
-- **Open questions for the user:** (1) go-ahead for P2 — or P3 first? (2) may the obsolete WineHQ prefixes and the DXVK download be deleted (`artifacts/wineprefix`, `artifacts/wineprefix-staging`, `artifacts/dxvk`)? `artifacts/crossover/` is unused and can go too.
+- **Open questions for the user:** (1) approve ADR-006 (SDL3), ADR-008 (Bink via FFmpeg), ADR-009 (FAudio), ADR-011 (real sockets), ADR-012 (minimal exceptions)? (2) ADR-010: Steam bridged to the real Steam client — needs Steam for Mac installed and logged in with the account that owns BO1; is that acceptable? (3) go-ahead for P3; later `brew install sdl3 faudio` will be needed (P5, not yet).
 - **Half-done / how to resume:** nothing half-done.
-- **Machine:** Apple M1 (arm64), 8 GB RAM, macOS 27.0.1 (26A434), Xcode 27.0, ~41 GB free (traces 7.6 GB, shader corpus 93 MB). Rosetta 2 installed; Screen Recording granted. brew: cmake, ninja, ffmpeg, sevenzip, ghidra 12.1.4, openjdk@21, mingw-w64 14.0.0. Wine: `artifacts/wine/cx/wswine.bundle` (WineCX 24.0.7 = baseline), `Wine Staging.app` (11.18; supplies libinotify/libintl/freetype to the cx engine — keep).
+- **Machine:** Apple M1 (arm64), 8 GB RAM, macOS 27.0.1 (26A434), Xcode 27.0, ~41 GB free. Rosetta 2 installed; Screen Recording granted. brew: cmake, ninja, ffmpeg 9.0.2, sevenzip, ghidra 12.1.4, openjdk@21, mingw-w64 14.0.0. Wine baseline: `artifacts/wine/cx/wswine.bundle` (WineCX 24.0.7) + `Wine Staging.app` (support dylibs), prefix `artifacts/wineprefix-cx`. Removed 2026-10-05 with the user's OK: WineHQ prefixes, DXVK download (the CrossOver copy was already gone).
 - **Reference copy:** user confirmed (2026-10-05) they own BO1; `reference/` read-only; working copy `artifacts/game` (APFS clone). User also has a Windows PC available.
 
 ---
@@ -134,3 +134,12 @@ Entry template:
 - Input for G1 / ADRs: SM3-only precompiled shaders, 25 VS + 34 PS opcodes, no runtime compile -> ADR-005 option (a) (own SM3 -> MSL translator) looks sufficient; single render thread, 37 device methods, one draw path, no fixed function -> ADR-004 can be a thin D3D9-shaped RHI. Workload up to ~3,100 draws / 720k triangles per frame.
 - Problems: baseline is slow (18–31 fps traced) — fine for an oracle. Later mission content and non-default settings are untraced.
 - Next: ask the user before P2.
+
+### 2026-10-05 ~17:35 — T-020..T-023, P2 exit review — P2 complete
+- Did: proxy import census (all 334 IAT slots counted with transparent stubs), dynamic-import logging (`LoadLibraryA`/`GetProcAddress`), `tools/platform_map.py` -> `re/platform_map.csv`, `tools/com_steam_usage.py` -> `re/com_steam_usage.json`, `docs/HOST_ABI.md`, ADR proposals 006 and 008–012. Cleanup of obsolete artifacts.
+- Evidence: `re/platform_map.csv`; `artifacts/baseline/import_census-20261005-{165933,170331,170721}.csv`; RE_NOTES § Platform map.
+- **P2 exit criterion (docs/PLAN.md):** "RE_NOTES § Platform map: every import -> {shim | lift | stub | not needed}" — met: 286 shim / 46 stub / 2 not needed, 0 unclassified ("lift" applies to no import: the only liftable DLL, binkw32, is proposed as a shim in ADR-008). -> **P2 exit: PASS.**
+- Learned: 184 of 334 imports are called from boot to mission; sync primitives dominate (InterlockedExchange ~35 M calls per run); exceptions are not used on the normal path beyond 13 thread-name raises; async file I/O (ReadFileEx + SleepEx) is used; Bink, Steam polling and sockets are all live in single player; no D3DX call at all; only XAudio2 2.7 is created through COM.
+- Problems: first census build crashed the game at start — stubs were 13 bytes in 12-byte slots, each overwriting the previous stub's last address byte; fixed (16-byte slots).
+- Decision flagged for the user: ADR-010 — the Steam layer will be a bridge to the real Steam client; an emulating stand-in is out of scope under ground rule 1.
+- Next: see STATE.

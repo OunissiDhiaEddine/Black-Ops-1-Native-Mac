@@ -3,7 +3,7 @@ Status: TODO · NOW · DONE · BLOCKED. Only ONE task is NOW at a time. Mark DON
 Update this file at every checkpoint (see AGENTS.md rule 2).
 
 ## NOW
-- **P1 complete — waiting for user go-ahead to start P2** (T-020: map every import to shim / lift / stub / not needed).
+- **P2 complete — waiting for the user: approve/adjust ADR-006, ADR-008..012 (PROPOSED) and give the go-ahead for P3.**
 
 ## DONE
 - **T-001** (P0) DONE 2026-10-05 — game install present in `reference/`, `scripts/doctor.sh` run, tool availability recorded.
@@ -31,10 +31,10 @@ Update this file at every checkpoint (see AGENTS.md rule 2).
 - **P1 exit review** — DONE 2026-10-05 (LOG). Waiting for user go-ahead for P2.
 
 ## P2 — Platform shim design
-- [ ] **T-020** Map every import to {shim | lift | stub | not needed} -> RE_NOTES § Platform map.
-- [ ] **T-021** Middleware decisions (Bink via FFmpeg? audio backend?) -> DECISIONS.
-- [ ] **T-022** ADR-006 (SDL3 vs AppKit) — propose with evidence, ask user.
-- [ ] **T-023** Specify host-call ABI (guest -> host trampolines, guest-visible COM vtables).
+- [x] **T-020** DONE 2026-10-05 (evidence: `re/platform_map.csv` — 334 imports, static sites + runtime calls from 3 baseline runs; RE_NOTES § Platform map). Map every import to {shim | lift | stub | not needed} -> RE_NOTES § Platform map.
+- [x] **T-021** DONE 2026-10-05 — PROPOSED ADR-008 (Bink/FFmpeg), ADR-009 (XAudio2/FAudio), ADR-010 (Steam bridge), ADR-011 (network), ADR-012 (exceptions); awaiting user approval. Middleware decisions (Bink via FFmpeg? audio backend?) -> DECISIONS.
+- [x] **T-022** DONE 2026-10-05 — ADR-006 PROPOSED: SDL3; awaiting user approval. ADR-006 (SDL3 vs AppKit) — propose with evidence, ask user.
+- [x] **T-023** DONE 2026-10-05 (evidence: `docs/HOST_ABI.md`). Specify host-call ABI (guest -> host trampolines, guest-visible COM vtables).
 
 ## P3 — Metal renderer (isolated)
 - [ ] **T-030** ADR-004 / ADR-005 proposals backed by the census; ask user.
