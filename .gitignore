@@ -1,0 +1,13 @@
+reference/
+artifacts/
+re/ghidra_projects/
+*.exe
+*.dll
+*.ff
+*.iwd
+*.bin
+tests/golden/*.png
+build/
+.DS_Store
+.venv/
+__pycache__/

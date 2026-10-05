@@ -1,0 +1,5 @@
+# Analysis tooling (P0). Installed into ./.venv by scripts/setup_venv.sh — never system-wide.
+pefile
+capstone
+lief
+unicorn
