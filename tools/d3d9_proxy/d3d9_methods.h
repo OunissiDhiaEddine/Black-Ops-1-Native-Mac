@@ -52,7 +52,14 @@
     X(116, DrawTriPatch) X(117, DeletePatch) X(118, CreateQuery)
 #define IDIRECT3DDEVICE9_COUNT 119
 
+#define IDIRECT3DSWAPCHAIN9_METHODS(X) \
+    X(0, QueryInterface) X(1, AddRef) X(2, Release) X(3, Present) X(4, GetFrontBufferData) \
+    X(5, GetBackBuffer) X(6, GetRasterStatus) X(7, GetDisplayMode) X(8, GetDevice) \
+    X(9, GetPresentParameters)
+#define IDIRECT3DSWAPCHAIN9_COUNT 10
+
 // Interface ids used in the log and by the thunks.
 #define IFACE_D3D9 0
 #define IFACE_DEVICE 1
-#define IFACE_COUNT 2
+#define IFACE_SWAPCHAIN 2
+#define IFACE_COUNT 3

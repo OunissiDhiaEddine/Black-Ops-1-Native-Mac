@@ -25,9 +25,11 @@ _thunk_\iface\()_\slot:
 
 #define X_D3D9(i, name)   THUNK d3d9, i ;
 #define X_DEVICE(i, name) THUNK device, i ;
+#define X_SWAPCHAIN(i, name) THUNK swapchain, i ;
     .p2align 4
 IDIRECT3D9_METHODS(X_D3D9)
 IDIRECT3DDEVICE9_METHODS(X_DEVICE)
+IDIRECT3DSWAPCHAIN9_METHODS(X_SWAPCHAIN)
 
     .section .rdata, "dr"
     .p2align 2
@@ -39,3 +41,7 @@ IDIRECT3D9_METHODS(E_D3D9)
     .globl _thunks_device
 _thunks_device:
 IDIRECT3DDEVICE9_METHODS(E_DEVICE)
+#define E_SWAPCHAIN(i, name) ENTRY swapchain, i ;
+    .globl _thunks_swapchain
+_thunks_swapchain:
+IDIRECT3DSWAPCHAIN9_METHODS(E_SWAPCHAIN)
