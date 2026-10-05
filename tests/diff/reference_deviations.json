@@ -1,3 +1,1 @@
-{
- "0x0069266a": "FYL2X with ST(0) <= 0: QEMU/Unicorn leaves the stack untouched and sets C2; a real x87 raises #IA / #Z, stores NaN / infinity and pops (Intel SDM, FYL2X). The lifted code follows the SDM."
-}
+{}

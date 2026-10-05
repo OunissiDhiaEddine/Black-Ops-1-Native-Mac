@@ -1,0 +1,252 @@
+{
+ "selection": "all",
+ "vectors_per_function": 2,
+ "seed": 5,
+ "functions_total": 25772,
+ "functions_lifted": 25546,
+ "instructions_lifted": 1821954,
+ "functions_tried": 20822,
+ "functions_with_vectors": 12717,
+ "instructions_executed": 407613,
+ "instructions_in_tried_functions": 1586459,
+ "vectors_skipped_by_unicorn": {
+  "Invalid memory fetch (UC_ERR_FETCH_UNMAPPED)": 11865,
+  "did not return within the instruction limit": 3876,
+  "executed outside the code sections": 1687,
+  "Unhandled CPU exception (UC_ERR_EXCEPTION)": 100,
+  "wrote too much memory": 24,
+  "Invalid memory read (UC_ERR_READ_UNMAPPED)": 1
+ },
+ "vectors": 24077,
+ "pass": 23993,
+ "pass_x87_within_1e-12": 1,
+ "nan_sign_or_payload_only": 3,
+ "fail": 80,
+ "trapped": 31,
+ "functions_with_failure": 56,
+ "functions_failing_reference_known_wrong": {},
+ "functions_failing_unexplained": {
+  "0x00443990": [
+   "trap ? at 00000000"
+  ],
+  "0x004cf190": [
+   "x87 top = 0, expected 1",
+   "xmm2 = ffc00000 00000000 00000000 00000000, expected 00000000 00000000 00000000 00000000",
+   "xmm7 = ffc00000 00000000 00000000 00000000, expected ff800000 00000000 00000000 00000000",
+   "memory at 00000020 = c0, expected 80"
+  ],
+  "0x004ec918": [
+   "memory at 00000012 = ff, expected 7f"
+  ],
+  "0x004ff830": [
+   "edx = 07808111, expected 078bfbfd",
+   "edx = 07808111, expected 078bfbfd"
+  ],
+  "0x0054f2b0": [
+   "eax = 00004200, expected 00005200",
+   "eax = 00004200, expected 00005200"
+  ],
+  "0x00551720": [
+   "eax = 00004200, expected 00005200",
+   "eax = 00004200, expected 00005200"
+  ],
+  "0x0055a330": [
+   "trap ? at 00000000"
+  ],
+  "0x00566f50": [
+   "trap ? at 00000000"
+  ],
+  "0x005ce1b0": [
+   "eax = 00004200, expected 00005200",
+   "eax = 00004200, expected 00005200"
+  ],
+  "0x005cf0e0": [
+   "x87 top = 0, expected 1",
+   "xmm2 = ffc00000 00000000 00000000 00000000, expected 00000000 00000000 00000000 00000000",
+   "xmm7 = ffc00000 00000000 00000000 00000000, expected 7f800000 00000000 00000000 00000000",
+   "memory at 00000015 = c0, expected 80"
+  ],
+  "0x00606b40": [
+   "eax = 00004200, expected 00005200",
+   "eax = 00004200, expected 00005200"
+  ],
+  "0x006075b0": [
+   "st(0) = -3.863594322224048e-34, expected 4.679679285644509e-34",
+   "memory at 7feefd2b = 40, expected 00",
+   "memory at 7feefd2f = 80, expected 00"
+  ],
+  "0x00646ad0": [
+   "x87 top = 1, expected 2",
+   "xmm2 = ffc00000 00000000 00000000 00000000, expected 00000000 00000000 00000000 00000000",
+   "xmm7 = ffc00000 00000000 00000000 00000000, expected 7f800000 00000000 00000000 00000000",
+   "memory at 7feeff3e = c0, expected 80"
+  ],
+  "0x00650660": [
+   "trap ? at 00000000"
+  ],
+  "0x006a5c00": [
+   "trap no dispatch target at 009748ad"
+  ],
+  "0x006a92c0": [
+   "trap unsupported function at 00966c5d",
+   "trap unsupported function at 00966c5d"
+  ],
+  "0x006ab610": [
+   "trap ? at 00000000"
+  ],
+  "0x0072dd10": [
+   "trap unsupported function at 00966c5d",
+   "trap unsupported function at 00966c5d"
+  ],
+  "0x008c6150": [
+   "trap unsupported function at 00966c5d",
+   "trap unsupported function at 00966c5d"
+  ],
+  "0x008c73f0": [
+   "trap unsupported function at 00966c5d"
+  ],
+  "0x008c78e0": [
+   "trap unsupported function at 00966c5d",
+   "trap unsupported function at 00966c5d"
+  ],
+  "0x008c8670": [
+   "trap unsupported function at 00966c5d",
+   "trap unsupported function at 00966c5d"
+  ],
+  "0x008c9b60": [
+   "eax = 7ff03100, expected 1f2d3000",
+   "st(0) = 60, expected -1577.759195062305",
+   "memory at 7feefff0 = 00, expected a1",
+   "eax = 7ff03100, expected 60ab3100"
+  ],
+  "0x008ec2d0": [
+   "trap ? at 00000000"
+  ],
+  "0x008f7500": [
+   "edx = 007f007f, expected e90c007f",
+   "memory at 7feeffaa = 7f, expected 0c"
+  ],
+  "0x008fb470": [
+   "eax = 00006d00, expected 00006d04"
+  ],
+  "0x00906220": [
+   "eax = 00007d00, expected 00007d04"
+  ],
+  "0x00906f50": [
+   "eax = 00000000, expected 00000004"
+  ],
+  "0x00908990": [
+   "eax = 7fee2100, expected 7fee2104",
+   "eax = 7fee2100, expected 7fee2104"
+  ],
+  "0x00909940": [
+   "eax = 00007d00, expected 00007d04",
+   "eax = 00007d00, expected 00007d04"
+  ],
+  "0x00909ab0": [
+   "eax = 7ff0027f, expected 0000027f"
+  ],
+  "0x00909c10": [
+   "eax = 00007d00, expected 00007d04"
+  ],
+  "0x0090c320": [
+   "eax = 7ff0027f, expected 0000027f"
+  ],
+  "0x00926990": [
+   "trap no dispatch target at 0092699f",
+   "trap no dispatch target at 0092699f"
+  ],
+  "0x00930640": [
+   "trap ? at 00000000"
+  ],
+  "0x0095ac80": [
+   "trap no dispatch target at 0095ae02",
+   "trap no dispatch target at 0095ae02"
+  ],
+  "0x009654fa": [
+   "xmm0 = d3b29bee bfb5571a 00000000 00000000, expected 0849a5c8 3fcc6e85 00000000 00000000",
+   "memory at 7feeffe0 = ee, expected c8"
+  ],
+  "0x009665e9": [
+   "xmm0 = 820a9533 3feccd07 00000000 00000000, expected f74eecca bfe0d50d 00000000 00000000",
+   "memory at 7feeffe0 = 33, expected ca"
+  ],
+  "0x009667a1": [
+   "xmm0 = bbe56846 bfc2555f 00000000 00000000, expected c95d5160 bfefc570 00000000 00000000",
+   "memory at 7feeffe0 = 46, expected 60"
+  ],
+  "0x00966bc0": [
+   "trap unsupported function at 00966c5d"
+  ],
+  "0x00966c00": [
+   "trap unsupported function at 00966c5d",
+   "trap unsupported function at 00966c5d"
+  ],
+  "0x0096db08": [
+   "x87 top = 0, expected 7",
+   "x87 top = 0, expected 7"
+  ],
+  "0x0096dd18": [
+   "x87 top = 0, expected 7",
+   "x87 top = 0, expected 7"
+  ],
+  "0x0096ddd0": [
+   "trap no dispatch target at 00975a71"
+  ],
+  "0x0096de0c": [
+   "trap no dispatch target at 009748ad",
+   "trap no dispatch target at 009748ad"
+  ],
+  "0x0096e290": [
+   "st(0) = 0.97986033804034456, expected 0.081970957860805702",
+   "st(0) = 0.98378181796042796, expected -0.85047984501202756"
+  ],
+  "0x0096e3c0": [
+   "st(0) = -0.020463366318699591, expected -0.52600763609316314",
+   "st(0) = 0.95578981081274961, expected 0.99663471847381579"
+  ],
+  "0x00971020": [
+   "st(0) = -0.49501833801158251, expected -2.925300706209355",
+   "st(0) = -1.3999683815764912, expected -0.26138989875329438"
+  ],
+  "0x009710af": [
+   "st(0) = 2.229413423523829, expected 12.158388098455481"
+  ],
+  "0x0097f31e": [
+   "st(0) = 0.57952143642321641, expected -0.85047984501202756"
+  ],
+  "0x0097f4ce": [
+   "st(0) = -0.83267044299959636, expected -0.99821130838987959"
+  ],
+  "0x00980837": [
+   "eax = 00000000, expected 00000001",
+   "ecx = 00000246, expected 00980836",
+   "edx = 00000000, expected 078bfbfd",
+   "xmm0 = 437ce05b 44104d4f 41600000 c3b13cbc, expected c9d3c149 cb0b1ffc 16ca1004 41100000"
+  ],
+  "0x0098123e": [
+   "st(0) = 0.53096872779812909, expected 0.61848336463014508"
+  ],
+  "0x009868b0": [
+   "eax = 7ff00000, expected 00000000",
+   "edx = 007f007f, expected 0000007f",
+   "memory at 7feeffda = 7f, expected 00"
+  ],
+  "0x0099b090": [
+   "trap ? at 00000000"
+  ],
+  "0x0099e8b0": [
+   "trap ? at 00000000"
+  ]
+ },
+ "failure_lines_by_kind": {
+  "eax": 23,
+  "memory": 20,
+  "trap unsupported": 14,
+  "xmmN": 11,
+  "trap no": 8,
+  "xNN top": 7,
+  "edx": 6,
+  "ecx": 2
+ }
+}

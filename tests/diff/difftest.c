@@ -4,6 +4,7 @@
 // (double vs 80-bit, libm vs microcode): those vectors are counted as "approx", not as passes.
 //   difftest <BlackOps.exe> [--verbose] <vectors.bin>...
 #include <fcntl.h>
+#include <fenv.h>
 #include <math.h>
 #include <signal.h>
 #include <stdio.h>
@@ -106,7 +107,7 @@ int main(int argc, char **argv) {
     sigaction(SIGFPE, &sa, NULL);
     sigaction(SIGILL, &sa, NULL);
     signal(SIGALRM, on_alarm);
-    unsigned total = 0, pass = 0, fail = 0, trapped = 0, funcs_fail = 0, approx = 0, nan_diff = 0;
+    unsigned total = 0, pass = 0, fail = 0, trapped = 0, funcs_fail = 0, approx = 0, nan_diff = 0, range_diff = 0;
     uint32_t only_fn = 0;
     int only_nth = -1, seen_fn = 0;
     uint32_t last_fail_fn = 0;
@@ -188,13 +189,16 @@ int main(int argc, char **argv) {
             continue;
         }
         LiftedFn f = rt_lookup(fn);
+        volatile int fp_range = 0;
         int code = setjmp(g_trap_jmp);
         if (code == 0) {
             alarm(5);
 #ifdef LIFT_TRACE
             g_tracing = 1, g_prev_addr = 0;
 #endif
+            feclearexcept(FE_ALL_EXCEPT);
             f(&cpu);
+            fp_range = fetestexcept(FE_OVERFLOW | FE_UNDERFLOW) != 0;
 #ifdef LIFT_TRACE
             rt_trace(&cpu, 0);
             g_tracing = 0;
@@ -282,7 +286,12 @@ int main(int argc, char **argv) {
             }
             q += len;
         }
-        if (bad) {
+        if (bad && fp_range) {
+            // A double overflowed or underflowed while the lifted code ran: x87 registers have a 15-bit
+            // exponent, the model's doubles 11 bits (docs/LIFTER.md §5). Reported, not counted as a failure.
+            range_diff++;
+            if (verbose) printf("RANGE %08x: differs after a double overflow/underflow\n", fn);
+        } else if (bad) {
             fail++;
             if (fn != last_fail_fn) funcs_fail++, last_fail_fn = fn;
         } else if (nan_only)
@@ -294,7 +303,7 @@ int main(int argc, char **argv) {
     }
     munmap((void *)vec, vec_size);
   }
-    printf("vectors %u: pass %u, approx %u, nan-only %u, fail %u (of which trapped %u); functions with a failure: %u\n", total, pass, approx,
-           nan_diff, fail, trapped, funcs_fail);
+    printf("vectors %u: pass %u, approx %u, nan-only %u, fp-range %u, fail %u (of which trapped %u); functions with a failure: %u\n", total,
+           pass, approx, nan_diff, range_diff, fail, trapped, funcs_fail);
     return fail ? 1 : 0;
 }

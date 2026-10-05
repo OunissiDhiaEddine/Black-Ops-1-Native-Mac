@@ -48,7 +48,7 @@ class Lifter:
     Unsupported = Unsupported
     trace = False
 
-    def __init__(self):
+    def __init__(self, extra_entries=True):
         raw = EXE.read_bytes()
         self.pe = pefile.PE(data=raw, fast_load=True)
         self.base = self.pe.OPTIONAL_HEADER.ImageBase
@@ -73,6 +73,17 @@ class Lifter:
             a = json.loads(audit.read_text())
             self.fl_in = {int(k, 16) for k in a["entry_live"]}
             self.fl_out = {int(c["target"], 16) for c in a["after_call"] if c["target"] != "indirect"}
+        # address-taken code that is not a Ghidra function (tools/lifter/find_entries.py): lifted as functions of
+        # their own by recursive descent, so that rt_dispatch() can reach them
+        self.extra = set()
+        extra = ROOT / "re" / "extra_entries.csv"
+        if extra_entries and extra.exists():
+            with extra.open() as f:
+                for r in csv.DictReader(f):
+                    a = int(r["addr"], 16)
+                    if a not in self.funcs:
+                        self.funcs[a] = "extra_" + r["kind"]
+                        self.extra.add(a)
         self.tables = {}                      # insn addr -> [targets]
         self.inferred_tables = {}             # insn addr -> entries (tables Ghidra missed, see infer_table)
         self.locked_plain = Counter()         # LOCKed instructions emitted without atomicity
@@ -134,6 +145,8 @@ class Lifter:
 
     def rd(self, op, size=None):
         size = size or op.size
+        if size not in (1, 2, 4):
+            raise Unsupported(f"operand size {size}")
         if op.type == X.X86_OP_REG:
             return self.rd_reg(op.reg)
         if op.type == X.X86_OP_IMM:
@@ -144,6 +157,8 @@ class Lifter:
 
     def wr(self, op, val, size=None):
         size = size or op.size
+        if size not in (1, 2, 4):
+            raise Unsupported(f"operand size {size}")
         if op.type == X.X86_OP_REG:
             return self.wr_reg(op.reg, val)
         if op.type == X.X86_OP_MEM:
@@ -335,7 +350,7 @@ class Lifter:
             if i.address in self.tables:
                 cases = "".join(f" case 0x{t:08x}u: {goto(t)}" for t in sorted(set(self.tables[i.address])))
                 return [f"switch ({self.rd(ops[0])}) {{{cases} default: rt_trap(cpu, 0x{i.address:08x}u, TRAP_BAD_JUMP); }}"]
-            return [f"{{ uint32_t t_ = {self.rd(ops[0])}; rt_dispatch(cpu, t_); return; }}"]      # indirect tail call
+            return [f"{{ uint32_t t_ = {self.rd(ops[0])}; cpu->xfl = fl; rt_dispatch(cpu, t_); return; }}"]      # indirect tail call
         if m[0] == "j" and m[1:] in CC:
             return [f"if ({CC[m[1:]]}) {goto(ops[0].imm & 0xFFFFFFFF)}"]
         if m == "jecxz":
@@ -401,9 +416,11 @@ class Lifter:
 
         for got in list(by_start.values()):
             work.extend(exits(got))
+        if not by_start:
+            work.append((fn, False))                 # an extra entry: the whole body comes from here
         while work:
             t, after_call = work.pop()
-            if t in by_start or t in self.funcs or not self.is_code(t):
+            if t in by_start or (t in self.funcs and t != fn) or not self.is_code(t):
                 continue
             got = []
             a = t
@@ -417,7 +434,7 @@ class Lifter:
                 m = i.mnemonic
                 if m in self.TERMINATORS or m.startswith("ret") or m == "jecxz" or (m[0] == "j" and m[1:] in CC):
                     break
-                if a in by_start or a in self.funcs:
+                if a in by_start or (a in self.funcs and a != fn):
                     break
             if got is None:
                 if after_call:
@@ -432,7 +449,7 @@ class Lifter:
     # ---- one function ---------------------------------------------------------------------------
     def lift_function(self, fn):
         blocks = sorted(set(self.blocks.get(fn, [])))
-        if not blocks:
+        if not blocks and fn not in self.extra:
             raise Unsupported("no blocks")
         by_start = {}
         for s, e in blocks:

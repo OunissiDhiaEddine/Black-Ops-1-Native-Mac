@@ -33,6 +33,7 @@ typedef struct Cpu {
     uint32_t teb;                                    // guest address of the thread's TEB (fs base)
     uint8_t df;                                      // direction flag: the only flag that survives calls
     Flags xfl;                                       // flags handed across a call boundary (audited sites only)
+    uint32_t efl_extra;                              // EFLAGS bits kept only for PUSHFD/POPFD: ID (21), AC (18)
     uint8_t ftop;                                    // x87 top-of-stack index (0 = empty stack at reset)
     uint16_t fcw, fsw;                               // x87 control word; status word (C0-C3 only, TOP kept in ftop)
     uint32_t mxcsr;
@@ -273,11 +274,13 @@ LIFT_INLINE void ah_to_flags(Flags *f, uint8_t ah) {
 
 // EFLAGS image for PUSHFD/POPFD (IF always set; bit 1 always set).
 LIFT_INLINE uint32_t flags_to_eflags(const Flags *f, const Cpu *cpu) {
-    return (uint32_t)(f->cf | 2 | (f->pf << 2) | (f->af << 4) | (f->zf << 6) | (f->sf << 7) | 0x200 | (cpu->df << 10) | (f->of << 11));
+    return (uint32_t)(f->cf | 2 | (f->pf << 2) | (f->af << 4) | (f->zf << 6) | (f->sf << 7) | 0x200 | (cpu->df << 10) | (f->of << 11)) |
+           cpu->efl_extra;
 }
 LIFT_INLINE void eflags_to_flags(Flags *f, Cpu *cpu, uint32_t v) {
     f->cf = v & 1, f->pf = (v >> 2) & 1, f->af = (v >> 4) & 1, f->zf = (v >> 6) & 1, f->sf = (v >> 7) & 1, f->of = (v >> 11) & 1;
     cpu->df = (v >> 10) & 1;
+    cpu->efl_extra = v & 0x00240000u; // both bits can be toggled: "CPUID is available", "this is a 486 or later"
 }
 // LOCKed read-modify-write on guest memory. Atomic when the operand is naturally aligned (always the
 // case for compiler-generated code); a misaligned operand (legal on x86, a fault for arm64 exclusives)

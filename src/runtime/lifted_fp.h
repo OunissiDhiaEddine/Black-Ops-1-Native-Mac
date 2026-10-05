@@ -76,9 +76,14 @@ DEF_FOP(sd, double, NANFIX64, sqrt)
 LIFT_INLINE float rcpss(float a, float b) { (void)a; return 1.0f / b; }
 LIFT_INLINE float rsqrtss(float a, float b) { (void)a; return 1.0f / sqrtf(b); }
 
-// COMISS/UCOMISS/COMISD/UCOMISD and FCOMI/FUCOMI: unordered -> ZF=PF=CF=1.
+// COMISS/UCOMISS/COMISD/UCOMISD: unordered -> ZF=PF=CF=1; OF, SF, AF are cleared.
 LIFT_INLINE void fp_comi(Flags *f, double a, double b) {
     f->of = f->sf = f->af = 0;
+    if (a != a || b != b) f->zf = f->pf = f->cf = 1;
+    else f->zf = a == b, f->pf = 0, f->cf = a < b;
+}
+// FCOMI/FUCOMI(P): only ZF, PF and CF are written; OF, SF and AF keep their values (unlike COMISS).
+LIFT_INLINE void x87_comi(Flags *f, double a, double b) {
     if (a != a || b != b) f->zf = f->pf = f->cf = 1;
     else f->zf = a == b, f->pf = 0, f->cf = a < b;
 }
@@ -327,7 +332,14 @@ LIFT_INLINE double x87_pc(const Cpu *cpu, double r) { return (cpu->fcw & 0x300) 
 LIFT_INLINE double x87_add(const Cpu *cpu, double a, double b) { double r = a + b; NANFIX87(r, a, b); return x87_pc(cpu, r); }
 LIFT_INLINE double x87_sub(const Cpu *cpu, double a, double b) { double r = a - b; NANFIX87(r, a, b); return x87_pc(cpu, r); }
 LIFT_INLINE double x87_mul(const Cpu *cpu, double a, double b) { double r = a * b; NANFIX87(r, a, b); return x87_pc(cpu, r); }
-LIFT_INLINE double x87_div(const Cpu *cpu, double a, double b) { double r = a / b; NANFIX87(r, a, b); return x87_pc(cpu, r); }
+// Division is the one place where the sticky exception flags of the status word are maintained
+// (ZE for x/0, IE for 0/0): code that divides and then returns FNSTSW's value was seen in the image.
+LIFT_INLINE double x87_div(Cpu *cpu, double a, double b) {
+    double r = a / b;
+    if (__builtin_expect(b == 0, 0)) cpu->fsw |= (a == 0 || a != a) ? 0x01 : 0x04;
+    NANFIX87(r, a, b);
+    return x87_pc(cpu, r);
+}
 LIFT_INLINE double x87_sqrt(const Cpu *cpu, double a) { double r = sqrt(a); NANFIX64(r, a, a); return x87_pc(cpu, r); }
 // FCOM family: C3 (bit 14), C2 (bit 10), C0 (bit 8)
 LIFT_INLINE void x87_com(Cpu *cpu, double a, double b) {
@@ -418,4 +430,42 @@ static inline void x87_fptan(Cpu *cpu) {
     NANFIX64(r, v, v);
     ST(0) = r;
     x87_push(cpu, 1.0);
+}
+// FNSTENV/FLDENV (28-byte protected-mode image) and FNSAVE/FRSTOR (108 bytes). The tag word is derived:
+// the model has no tags, a register counts as in use when it lies below the stack top.
+static inline uint16_t x87_tags(const Cpu *cpu) {
+    unsigned depth = (8 - cpu->ftop) & 7;
+    uint16_t t = 0;
+    for (unsigned phys = 0; phys < 8; phys++) {
+        unsigned i = (phys - cpu->ftop) & 7, tag = 3;
+        if (i < depth) {
+            double v = cpu->st[phys];
+            tag = v == 0 ? 1 : (v != v || isinf(v) || fpclassify(v) == FP_SUBNORMAL) ? 2 : 0;
+        }
+        t |= (uint16_t)(tag << (2 * phys));
+    }
+    return t;
+}
+static inline void x87_fnstenv(Cpu *cpu, uint32_t a) {
+    memset(g_mem + a, 0, 28);
+    M32(a) = 0xFFFF0000u | cpu->fcw;
+    M32(a + 4) = 0xFFFF0000u | x87_status(cpu);
+    M32(a + 8) = 0xFFFF0000u | x87_tags(cpu);
+    M32(a + 24) = 0xFFFF0000u;
+    cpu->fcw |= 0x3F; // all exceptions masked afterwards
+}
+static inline void x87_fldenv(Cpu *cpu, uint32_t a) {
+    cpu->fcw = M16(a);
+    uint16_t sw = M16(a + 4);
+    cpu->fsw = sw & 0x47FF;
+    cpu->ftop = (sw >> 11) & 7;
+}
+static inline void x87_fnsave(Cpu *cpu, uint32_t a) {
+    x87_fnstenv(cpu, a);
+    for (int i = 0; i < 8; i++) x87_st80(a + 28 + 10 * i, ST(i));
+    cpu->fcw = 0x37F, cpu->fsw = 0, cpu->ftop = 0; // FNINIT
+}
+static inline void x87_frstor(Cpu *cpu, uint32_t a) {
+    x87_fldenv(cpu, a);
+    for (int i = 0; i < 8; i++) ST(i) = x87_ld80(a + 28 + 10 * i);
 }

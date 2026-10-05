@@ -301,7 +301,11 @@ def x87(L, i):
             (0xD9, 0): ("fld", f"{{ double v_ = (double)MF32({ea}); x87_push(cpu, v_); }}"),
             (0xD9, 2): ("fst", f"MF32({ea}) = (float)ST(0);"),
             (0xD9, 3): ("fstp", f"MF32({ea}) = (float)ST(0); x87_pop(cpu);"),
+            (0xD9, 4): ("fldenv", f"x87_fldenv(cpu, {ea});"),
             (0xD9, 5): ("fldcw", f"cpu->fcw = M16({ea});"),
+            (0xD9, 6): ("fnstenv", f"x87_fnstenv(cpu, {ea});"),
+            (0xDD, 4): ("frstor", f"x87_frstor(cpu, {ea});"),
+            (0xDD, 6): ("fnsave", f"x87_fnsave(cpu, {ea});"),
             (0xD9, 7): ("fnstcw", f"M16({ea}) = cpu->fcw;"),
             (0xDB, 0): ("fild", f"{{ double v_ = (double)(int32_t)M32({ea}); x87_push(cpu, v_); }}"),
             (0xDB, 1): ("fisttp", f"M32({ea}) = (uint32_t)fp_to_i32(trunc(ST(0))); x87_pop(cpu);"),
@@ -343,13 +347,13 @@ def x87(L, i):
         return "fucompp", "x87_com(cpu, ST(0), ST(1)); x87_pop(cpu); x87_pop(cpu);"
     if op == 0xDB:
         if modrm == 0xE2:
-            return "fnclex", ""
+            return "fnclex", "cpu->fsw &= 0x4700;"
         if modrm == 0xE3:
             return "fninit", "cpu->fcw = 0x37F; cpu->fsw = 0; cpu->ftop = 0;"
         if reg == 5:
-            return "fucomi", f"fp_comi(&fl, ST(0), {s});"
+            return "fucomi", f"x87_comi(&fl, ST(0), {s});"
         if reg == 6:
-            return "fcomi", f"fp_comi(&fl, ST(0), {s});"
+            return "fcomi", f"x87_comi(&fl, ST(0), {s});"
     if op == 0xDC and reg in (0, 1, 4, 5, 6, 7):
         expr = {0: f"x87_add(cpu, {s}, ST(0))", 1: f"x87_mul(cpu, {s}, ST(0))", 4: f"x87_sub(cpu, ST(0), {s})",
                 5: f"x87_sub(cpu, {s}, ST(0))", 6: f"x87_div(cpu, ST(0), {s})", 7: f"x87_div(cpu, {s}, ST(0))"}[reg]
@@ -377,9 +381,9 @@ def x87(L, i):
         if modrm == 0xE0:
             return "fnstsw", "cpu->eax = (cpu->eax & 0xFFFF0000u) | x87_status(cpu);"
         if reg == 5:
-            return "fucomip", f"fp_comi(&fl, ST(0), {s}); x87_pop(cpu);"
+            return "fucomip", f"x87_comi(&fl, ST(0), {s}); x87_pop(cpu);"
         if reg == 6:
-            return "fcomip", f"fp_comi(&fl, ST(0), {s}); x87_pop(cpu);"
+            return "fcomip", f"x87_comi(&fl, ST(0), {s}); x87_pop(cpu);"
     raise L.Unsupported(f"x87 {op:02x} {modrm:02x} ({i.mnemonic})")
 
 

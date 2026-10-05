@@ -83,9 +83,11 @@ def names(mask):
     return [f for f in FLAGS if mask & BIT[f]]
 
 
-def audit(L, fn):
+def audit(L, fn, entry_live=None):
+    """entry_live: {function: flag mask} known so far — a call or tail jump to such a function reads those flags."""
+    entry_live = entry_live or {}
     blocks = sorted(set(L.blocks.get(fn, [])))
-    if not blocks:
+    if not blocks and fn not in L.extra:
         return None
     by_start = {}
     for s, e in blocks:
@@ -97,7 +99,7 @@ def audit(L, fn):
         L.extend(fn, by_start)
     except lift.Unsupported:
         return None
-    succ = {}
+    succ, leaves = {}, {}
     for s, got in by_start.items():
         last = got[-1]
         m = last.mnemonic.split()[-1]
@@ -109,18 +111,27 @@ def audit(L, fn):
         if m not in L.TERMINATORS and not m.startswith("ret"):
             out.append(last.address + last.size)
         succ[s] = [t for t in out if t in by_start]
+        leaves[s] = 0                                   # flags read by functions this block jumps / falls into
+        for t in out:
+            if t not in by_start:
+                leaves[s] |= entry_live.get(t, 0)
+    def call_use(i):
+        o = i.operands[0]
+        return entry_live.get(o.imm & 0xFFFFFFFF, 0) if o.type == X.X86_OP_IMM else 0
+
     live_in = {s: 0 for s in by_start}
     changed = True
     while changed:
         changed = False
         for s in sorted(by_start, reverse=True):
-            live = 0
+            live = leaves[s]
             for t in succ[s]:
                 live |= live_in[t]
             for i in reversed(by_start[s]):
                 u, d = use_def(i)
                 if i.mnemonic == "call":
-                    d = 0                               # for the entry analysis a call neither reads nor writes flags
+                    d = 0                               # a call does not kill flags (its callee may hand them back) ...
+                    u = call_use(i)                     # ... and reads what its callee reads at entry
                 live = (live & ~d) | u
             if live != live_in[s]:
                 live_in[s] = live
@@ -128,7 +139,7 @@ def audit(L, fn):
     entry = live_in.get(fn, 0)
     after_call = []
     for s, got in by_start.items():
-        live = 0
+        live = leaves[s]
         for t in succ[s]:
             live |= live_in[t]
         for i in reversed(got):
@@ -138,6 +149,7 @@ def audit(L, fn):
             u, d = use_def(i)
             if i.mnemonic == "call":
                 d = 0
+                u = call_use(i)
             live = (live & ~d) | u
     return entry, after_call
 
@@ -147,14 +159,26 @@ def main() -> int:
     ap.add_argument("--out", default=str(lift.ROOT / "re" / "flag_audit.json"))
     args = ap.parse_args()
     L = lift.Lifter()
+    # interprocedural fixpoint: reading flags at entry propagates to callers that call / jump there
+    masks, rounds = {}, 0
+    while True:
+        rounds += 1
+        new = {}
+        results = {}
+        for fn in sorted(L.funcs):
+            r = audit(L, fn, masks)
+            if r is None:
+                continue
+            results[fn] = r
+            if r[0]:
+                new[fn] = r[0]
+        if new == masks or rounds > 8:
+            break
+        masks = new
     entry_live, sites, callee_count = {}, [], Counter()
-    analysed = 0
-    for fn in sorted(L.funcs):
-        r = audit(L, fn)
-        if r is None:
-            continue
-        analysed += 1
-        entry, after = r
+    analysed = len(results)
+    print(f"fixpoint after {rounds} round(s)")
+    for fn, (entry, after) in sorted(results.items()):
         if entry:
             entry_live[f"0x{fn:08x}"] = names(entry)
         for addr, tgt, live in after:

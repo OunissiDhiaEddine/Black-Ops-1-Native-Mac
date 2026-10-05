@@ -54,7 +54,7 @@ import glob, json, re, struct, sys
 from collections import Counter
 out, per, seed, select, report = sys.argv[1:6]
 log = open(f"{out}/difftest.log", errors="replace").read().strip().splitlines()
-m = re.search(r"vectors (\d+): pass (\d+), approx (\d+), nan-only (\d+), fail (\d+) \(of which trapped (\d+)\); functions with a failure: (\d+)", log[-1])
+m = re.search(r"vectors (\d+): pass (\d+), approx (\d+), nan-only (\d+), fp-range (\d+), fail (\d+) \(of which trapped (\d+)\); functions with a failure: (\d+)", log[-1])
 if not m:
     sys.exit("difftest did not finish: " + (log[-1] if log else "no output"))
 cov = json.load(open("re/lift_coverage.json"))
@@ -86,13 +86,15 @@ rep = {"selection": select, "vectors_per_function": int(per), "seed": int(seed),
        "instructions_in_tried_functions": stats["insns_in_tried_functions"],
        "vectors_skipped_by_unicorn": dict(skipped.most_common()),
        "vectors": int(m[1]), "pass": int(m[2]), "pass_x87_within_1e-12": int(m[3]), "nan_sign_or_payload_only": int(m[4]),
-       "fail": int(m[5]), "trapped": int(m[6]), "functions_with_failure": int(m[7]),
+       "differs_after_double_overflow_or_underflow": int(m[5]),
+       "fail": int(m[6]), "trapped": int(m[7]), "functions_with_failure": int(m[8]),
        "functions_failing_reference_known_wrong": {f"0x{f:08x}": known[f] for f in sorted(failing) if f in known},
        "functions_failing_unexplained": {f"0x{f:08x}": v[:4] for f, v in sorted(unexplained.items())},
        "failure_lines_by_kind": dict(kinds.most_common())}
 json.dump(rep, open(report, "w"), indent=1)
 print(json.dumps({k: rep[k] for k in ("functions_tried", "functions_with_vectors", "instructions_executed", "vectors", "pass",
-                                      "pass_x87_within_1e-12", "nan_sign_or_payload_only", "fail", "trapped")}))
+                                      "pass_x87_within_1e-12", "nan_sign_or_payload_only",
+                                      "differs_after_double_overflow_or_underflow", "fail", "trapped")}))
 print(f"functions failing: {len(failing)} ({len(failing) - len(unexplained)} with a known-wrong reference, {len(unexplained)} unexplained)")
 sys.exit(1 if unexplained else 0)
 PY

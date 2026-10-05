@@ -22,7 +22,7 @@ from pathlib import Path
 
 import capstone
 import pefile
-from unicorn import (Uc, UcError, UC_ARCH_X86, UC_MODE_32, UC_HOOK_MEM_WRITE, UC_HOOK_MEM_UNMAPPED, UC_HOOK_BLOCK, UC_PROT_ALL,
+from unicorn import (Uc, UcError, UC_ARCH_X86, UC_MODE_32, UC_HOOK_MEM_WRITE, UC_HOOK_MEM_UNMAPPED, UC_HOOK_BLOCK, UC_HOOK_CODE, UC_PROT_ALL,
                      UC_MEM_FETCH_UNMAPPED)
 from unicorn.x86_const import (UC_X86_REG_EAX, UC_X86_REG_ECX, UC_X86_REG_EDX, UC_X86_REG_EBX, UC_X86_REG_ESP,
                                UC_X86_REG_EBP, UC_X86_REG_ESI, UC_X86_REG_EDI, UC_X86_REG_EFLAGS, UC_X86_REG_EIP,
@@ -133,6 +133,38 @@ def main() -> int:
             return
         run_pcs.add((addr, size))
 
+    # Inputs for which the reference is not a usable expectation are dropped (and counted):
+    #  - FYL2X (D9 F1) with ST(0) <= 0: QEMU only sets C2; a real x87 stores NaN / -infinity and pops.
+    #  - FPREM / FPREM1 (D9 F8 / D9 F5) with an exponent gap >= 53: QEMU's partial reduction is approximate.
+    #  - CPUID (0F A2) and RDTSC (0F 31): results describe the machine, not the code under test.
+    deviates = [None]
+
+    def st_regs(u):
+        top = (u.reg_read(UC_X86_REG_FPSW) >> 11) & 7
+        return u.reg_read(UC_X86_REG_FP0 + top), u.reg_read(UC_X86_REG_FP0 + ((top + 1) & 7))
+
+    def on_fyl2x(u, addr, size, _):
+        (mant, se), _st1 = st_regs(u)
+        if mant == 0 or se & 0x8000:
+            deviates[0] = "reference deviates from a real x87: FYL2X with ST(0) <= 0"
+
+    def on_fprem(u, addr, size, _):
+        (_m0, se0), (_m1, se1) = st_regs(u)
+        if (se0 & 0x7FFF) - (se1 & 0x7FFF) >= 53:
+            deviates[0] = "reference deviates from a real x87: FPREM with a large quotient"
+
+    def on_env(u, addr, size, _):
+        deviates[0] = "environment-dependent instruction (CPUID / RDTSC)"
+
+    special_sites = []
+    for pattern, cb in ((b"\xd9\xf1", on_fyl2x), (b"\xd9\xf8", on_fprem), (b"\xd9\xf5", on_fprem), (b"\x0f\xa2", on_env),
+                        (b"\x0f\x31", on_env)):
+        for lo_, hi_ in code:
+            k = image.find(pattern, lo_ - base, hi_ - base)
+            while k >= 0:
+                special_sites.append((base + k, cb))        # fires only when executed as an instruction start
+                k = image.find(pattern, k + 1, hi_ - base)
+
     def make_uc():
         """Fresh emulator. Rebuilt after every failed run: a faulting run can leave Unicorn with
         stale translated code / CPU state that silently breaks the runs after it."""
@@ -145,6 +177,8 @@ def main() -> int:
         u.hook_add(UC_HOOK_MEM_UNMAPPED, on_unmapped)
         u.hook_add(UC_HOOK_MEM_WRITE, on_write)
         u.hook_add(UC_HOOK_BLOCK, on_block)
+        for site, cb in special_sites:
+            u.hook_add(UC_HOOK_CODE, cb, begin=site, end=site)
         u.reg_write(UC_X86_REG_FPCW, 0x27F)
         u.reg_write(UC_X86_REG_MXCSR, 0x1F80)
         lazy.clear()
@@ -219,6 +253,7 @@ def main() -> int:
             written.clear()
             run_pcs.clear()
             wild[0] = False
+            deviates[0] = None
             try:
                 uc.emu_start(fn, SENTINEL, timeout=5_000_000, count=MAX_INSNS)
                 ok = uc.reg_read(UC_X86_REG_ESP) > ESP0 and True
@@ -232,6 +267,9 @@ def main() -> int:
                 if wild[0]:
                     ok = False
                     skipped["executed outside the code sections"] += 1
+                elif deviates[0]:
+                    ok = False
+                    skipped[deviates[0]] += 1
                 elif uc.reg_read(UC_X86_REG_EIP) != SENTINEL:
                     ok = False
                     skipped["did not return within the instruction limit"] += 1
