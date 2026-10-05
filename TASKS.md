@@ -3,7 +3,7 @@ Status: TODO · NOW · DONE · BLOCKED. Only ONE task is NOW at a time. Mark DON
 Update this file at every checkpoint (see AGENTS.md rule 2).
 
 ## NOW
-- **P2 complete — waiting for the user: approve/adjust ADR-006, ADR-008..012 (PROPOSED) and give the go-ahead for P3.**
+- **T-031** (P3) Trace reader + replay harness skeleton (`tests/replay/`), null backend. In parallel: T-030 (ADR-004/005 proposals from the census).
 
 ## DONE
 - **T-001** (P0) DONE 2026-10-05 — game install present in `reference/`, `scripts/doctor.sh` run, tool availability recorded.
@@ -44,6 +44,8 @@ Update this file at every checkpoint (see AGENTS.md rule 2).
 - [ ] **T-034** Render-state -> PSO mapping + cache; first triangle from trace; then main menu frame.
 - [ ] **T-035** Golden-frame comparison (SSIM + diff image) automated in CI script.
 - **P3 exit review + Gate G1 with user.**
+
+- [ ] **T-024** (P2 follow-up, before P5) Spike for ADR-010: measure which Windows APIs the shipped `steam_api.dll` calls (baseline, `GetProcAddress` log / relay for that module), then run its `DllMain` + `SteamAPI_Init` under Unicorn with stub shims. Evidence: list of APIs + init returning.
 
 ## P4+ (expand into tasks only after G1)
 Lifter design doc -> M4a/M4b/M4c -> integration -> strangler fig -> Metal optimization -> QA. See docs/PLAN.md.

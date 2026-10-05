@@ -166,6 +166,27 @@ stack and a TEB from `guest_thread_attach()`.
   through `re/symbols.csv`. The dispatch/landing machinery above is built only if a real game path
   turns out to need it.
 
+## 7a. Emulated x86 modules (ADR-010)
+One module is not lifted: the shipped `steam_api.dll`. It is mapped unmodified into the arena at
+its preferred base (0x10000000; it carries relocations if that range is taken) and run by an
+embedded x86 interpreter that shares the arena and the calling thread's `Cpu` (registers are
+copied in and out at each crossing).
+- **Game -> module:** `dispatch(cpu, target)` finds no lifted function for a target inside the
+  module's address range and calls `interp_run(cpu, target)`, which executes until the return
+  address pushed by the caller is reached. The 19 imported entry points are IAT slots filled with
+  the module's real export addresses (not trampolines); the Steam interface vtables live inside the
+  module, so `call [vtbl+off]` lands there the same way.
+- **Module -> host:** the module's own import slots and whatever it resolves through
+  `GetProcAddress` hold trampoline-zone addresses; executing one makes the interpreter leave and
+  run the shim (§4.2). This is also the containment boundary (file roots, no network by default).
+- **Module -> game:** an address inside the lifted image reached from interpreted code (Steam
+  callbacks: `CCallback::Run`) goes through `dispatch` to the lifted function and returns into the
+  interpreter.
+- The module's `DllMain(DLL_PROCESS_ATTACH)` runs in the interpreter before the game's entry point,
+  like every other DLL initialiser; it unpacks itself there. Self-modifying code is the
+  interpreter's problem by design — nothing in the pipeline looks inside the module.
+- Threads the module creates get a `Cpu`/TEB like any guest thread and run entirely interpreted.
+
 ## 8. What the shim layer may assume (measured)
 - Single process, single window, one D3D9 device, one render thread.
 - No runtime-generated code observed (`VirtualProtect` is not imported; shaders are precompiled and

@@ -2,7 +2,7 @@
 
 ## STATE  (OVERWRITE this block at every checkpoint — it is the resume point)
 - **Date/time:** 2026-10-05 ~17:35
-- **Phase / task:** **P2 COMPLETE** (T-020..T-023 DONE). Six ADRs are PROPOSED and need the user's decision; then P3.
+- **Phase / task:** P2 complete, ADRs decided (see entry 17:45). **P3 started: T-031 (replay harness) + T-030.**
 - **Last completed:** platform map with runtime import census; host-call ABI spec; ADR proposals 006, 008–012.
 - **Next exact step:** after the user's answers: mark the ADRs ACCEPTED/changed in `docs/DECISIONS.md`; then P3 — T-030 (ADR-004 / ADR-005 proposals from the census: thin D3D9-shaped RHI + own SM3 -> MSL translator look sufficient), T-031 trace reader + replay harness skeleton in `tests/replay/` against `artifacts/traces/menu.bin` (C++; format in `docs/TRACE_FORMAT.md`), T-032 Metal device/swapchain.
 - **Standard commands:** baseline `scripts/run_baseline.sh --wine cx --net --trace …`; golden `scripts/capture_golden.sh`; traces `tools/trace_reader.py`, `tools/trace_census.py`; platform map `tools/platform_map.py`; COM/Steam survey `tools/com_steam_usage.py`.
@@ -143,3 +143,8 @@ Entry template:
 - Problems: first census build crashed the game at start — stubs were 13 bytes in 12-byte slots, each overwriting the previous stub's last address byte; fixed (16-byte slots).
 - Decision flagged for the user: ADR-010 — the Steam layer will be a bridge to the real Steam client; an emulating stand-in is out of scope under ground rule 1.
 - Next: see STATE.
+
+### 2026-10-05 ~17:45 — user decisions on the P2 ADRs; P3 go-ahead
+- Did: user approved ADR-006, 008, 009, 011, 012 -> ACCEPTED. User rejected the Steam-client bridge (will not install Steam) and decided the port keeps using the shipped `steam_api.dll` -> ADR-010 rewritten: the DLL runs unmodified in an embedded x86 interpreter; it is not unpacked, patched or re-implemented (HOST_ABI §7a). Follow-up spike T-024 added. P3 approved.
+- Evidence: `docs/DECISIONS.md`, `docs/HOST_ABI.md` §7a.
+- Next: P3 — T-031 replay harness, T-030 ADR-004/005 proposals.
