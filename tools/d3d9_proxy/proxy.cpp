@@ -13,6 +13,8 @@
 //   BO1_CAPTURE_DIR     directory for frame_NNNNNN.bmp (default: cwd)
 //   BO1_IAT_HOOKS       1: also hook CreateThread/MessageBoxA/VirtualAlloc/HeapAlloc/GlobalMemoryStatus
 //                       in the exe import table and log them (diagnostics)
+//   BO1_MSGBOX_AUTO     1 (with BO1_IAT_HOOKS): answer message boxes without showing them
+//   BO1_HOOK_HEAP       1 (with BO1_IAT_HOOKS): also log HeapAlloc requests >= 256 MiB
 #define WIN32_LEAN_AND_MEAN
 #define CINTERFACE
 #define COBJMACROS
@@ -331,6 +333,30 @@ static void log_backtrace(const char *tag) {
     event("%s\n", line);
 }
 
+// Strings still referenced from the stack (format strings and messages passed down the failing
+// call chain). Pointers may target the exe image or the stack itself.
+static void log_stack_strings(const char *tag) {
+    NT_TIB *tib = (NT_TIB *)NtCurrentTeb();
+    DWORD *sp = (DWORD *)__builtin_frame_address(0), *top = (DWORD *)tib->StackBase;
+    int found = 0;
+    DWORD last = 0;
+    for (; sp < top && found < 40; sp++) {
+        DWORD v = *sp;
+        bool in_image = v >= 0x009A3000 && v < 0x00BA6000;
+        bool in_stack = v > (DWORD)(DWORD_PTR)sp && v < (DWORD)(DWORD_PTR)top - 16;
+        if ((!in_image && !in_stack) || v == last) continue;
+        const unsigned char *c = (const unsigned char *)v;
+        int len = 0;
+        while (len < 200 && (DWORD)(DWORD_PTR)(c + len) < (in_stack ? (DWORD)(DWORD_PTR)top : 0x00BA6000u) &&
+               ((c[len] >= 32 && c[len] < 127) || c[len] == '\n' || c[len] == '\t'))
+            len++;
+        if (len < 10 || c[len] != 0) continue;
+        last = v;
+        found++;
+        event("stackstr[%s] @%p -> %08lx \"%.160s\"\n", tag, (void *)sp, v, (const char *)c);
+    }
+}
+
 typedef LPVOID(WINAPI *VirtualAlloc_t)(LPVOID, SIZE_T, DWORD, DWORD);
 static VirtualAlloc_t g_real_VirtualAlloc;
 static LPVOID WINAPI hooked_VirtualAlloc(LPVOID addr, SIZE_T size, DWORD type, DWORD protect) {
@@ -372,10 +398,20 @@ static void WINAPI hooked_GlobalMemoryStatus(LPMEMORYSTATUS ms) {
 
 typedef int(WINAPI *MessageBoxA_t)(HWND, LPCSTR, LPCSTR, UINT);
 static MessageBoxA_t g_real_MessageBoxA;
+static bool g_msgbox_auto;
 static int WINAPI hooked_MessageBoxA(HWND wnd, LPCSTR text, LPCSTR caption, UINT type) {
     event("MessageBoxA: caption=\"%.80s\" type=0x%x text=\"%.600s\" (caller ret=%p)\n", caption ? caption : "",
           type, text ? text : "", __builtin_return_address(0));
     log_backtrace("MessageBoxA");
+    log_stack_strings("MessageBoxA");
+    // Unattended baseline: never block on a dialog. Questions ("Run in safe mode?", "configure
+    // for new hardware?") are answered No; everything else is acknowledged.
+    if (g_msgbox_auto) {
+        UINT kind = type & MB_TYPEMASK;
+        int answer = (kind == MB_YESNO || kind == MB_YESNOCANCEL) ? IDNO : (kind == MB_OKCANCEL ? IDCANCEL : IDOK);
+        event("MessageBoxA auto-answered %d\n", answer);
+        return answer;
+    }
     return g_real_MessageBoxA(wnd, text, caption, type);
 }
 
@@ -496,14 +532,20 @@ extern "C" BOOL WINAPI DllMain(HINSTANCE inst, DWORD reason, LPVOID) {
         if (!GetEnvironmentVariableA("BO1_CAPTURE_DIR", g_capture_dir, sizeof(g_capture_dir)))
             strcpy(g_capture_dir, ".");
         event("proxy loaded, log=%s capture_every=%ld dir=%s\n", g_log_path, g_capture_every, g_capture_dir);
-        // Import hooks are diagnostics only and off by default (BO1_IAT_HOOKS=1 enables them).
-        if (GetEnvironmentVariableA("BO1_IAT_HOOKS", num, sizeof(num)) && num[0] == '1') {
-            g_real_CreateThread = (CreateThread_t)patch_iat("KERNEL32.dll", "CreateThread", (void *)hooked_CreateThread);
+        // Message boxes block an unattended run ("Run in safe mode?", "hardware changed?", fatal
+        // errors), so that one hook is on whenever BO1_MSGBOX_AUTO=1. The other import hooks are
+        // diagnostics and stay off unless BO1_IAT_HOOKS=1.
+        g_msgbox_auto = GetEnvironmentVariableA("BO1_MSGBOX_AUTO", num, sizeof(num)) && num[0] == '1';
+        bool diag = GetEnvironmentVariableA("BO1_IAT_HOOKS", num, sizeof(num)) && num[0] == '1';
+        if (g_msgbox_auto || diag)
             g_real_MessageBoxA = (MessageBoxA_t)patch_iat("USER32.dll", "MessageBoxA", (void *)hooked_MessageBoxA);
+        if (diag) {
+            g_real_CreateThread = (CreateThread_t)patch_iat("KERNEL32.dll", "CreateThread", (void *)hooked_CreateThread);
             g_real_VirtualAlloc = (VirtualAlloc_t)patch_iat("KERNEL32.dll", "VirtualAlloc", (void *)hooked_VirtualAlloc);
-            g_real_HeapAlloc = (HeapAlloc_t)patch_iat("KERNEL32.dll", "HeapAlloc", (void *)hooked_HeapAlloc);
             g_real_GlobalMemoryStatus =
                 (GlobalMemoryStatus_t)patch_iat("KERNEL32.dll", "GlobalMemoryStatus", (void *)hooked_GlobalMemoryStatus);
+            if (GetEnvironmentVariableA("BO1_HOOK_HEAP", num, sizeof(num)) && num[0] == '1') // hot path
+                g_real_HeapAlloc = (HeapAlloc_t)patch_iat("KERNEL32.dll", "HeapAlloc", (void *)hooked_HeapAlloc);
         }
         note_stack();
         write_census();

@@ -1,19 +1,18 @@
 # LOG
 
 ## STATE  (OVERWRITE this block at every checkpoint — it is the resume point)
-- **Date/time:** 2026-10-05 (P1 started)
-- **Phase / task:** P1 — T-010 decided (ADR-007 ACCEPTED), **blocked on two user actions** before T-011; T-012 proxy v0 built but untested.
-- **Last completed:** `scripts/run_baseline.sh`, `tools/d3d9_proxy/` (builds to `artifacts/d3d9_proxy/d3d9.dll`), ADR-007, `reference/` made read-only, working copy cloned to `artifacts/game` (APFS clone, 0 extra bytes).
-- **UPDATE:** Rosetta 2 installed by the user (verified). User placed `wine-devel-11.18` and `wine-staging-11.18` tarballs in `artifacts/wine/`; devel is unpacked to `artifacts/wine/Wine Devel.app`. **Blocker now:** the app carries `com.apple.quarantine` (Safari download) and is unsigned -> `wine --version` is killed (exit 137). User must run `xattr -dr com.apple.quarantine "artifacts/wine/Wine Devel.app"` (their trust decision), then go to step 3 below. User said to launch the game directly ("just run it").
-- **Next exact step (after the user answers):**
-  1. User installs Rosetta 2 themselves: `softwareupdate --install-rosetta` (licence prompt is theirs to accept). Verify: `arch -x86_64 /usr/bin/true`.
-  2. With the user's yes: `mkdir -p artifacts/wine && curl -L -o artifacts/wine/wine-stable-11.0_1-osx64.tar.xz https://github.com/Gcenx/macOS_Wine_builds/releases/download/11.0_1/wine-stable-11.0_1-osx64.tar.xz` (185,303,032 B), check SHA-256 against `brew info --cask --json=v2 wine-stable`, `tar -xJf` into `artifacts/wine/`.
-  3. `scripts/run_baseline.sh` (T-011: main menu renders -> screenshot into `tests/golden/`), then `scripts/run_baseline.sh --trace` (T-012 evidence: `artifacts/baseline/d3d9_census-*.txt`).
+- **Date/time:** 2026-10-05 ~15:05
+- **Phase / task:** P1 — T-010 done, T-012 done, **T-011 blocked**: the baseline boots and renders the intro but never reaches the main menu (unstable under wine-devel 11.18 + wined3d-GL + Rosetta).
+- **Last completed:** proxy census + frame capture + engine console capture; 24 diagnostic runs; RE_NOTES § D3D9 census (preliminary) and § Baseline status.
+- **Next exact step:** user picks the next baseline attempt (see open questions). Cheapest first: unpack `artifacts/wine/wine-staging-11.18-osx64.tar.xz` (user must clear its quarantine like the devel build) and run `WINEDEBUG=-all,warn+debugstr scripts/run_baseline.sh --trace --capture 150 --seconds 90` three times; compare `frames_presented` and the last engine log lines.
+- **How to read a run:** `artifacts/baseline/d3d9_census-<stamp>.txt` ([events] = device creation, message boxes; counts per method), `run-<stamp>.log` (grep `debugstr` = engine console, `err:` = Wine errors), `frames-<stamp>/` (PNG back buffers).
 - **Files in flight:** none uncommitted.
-- **Open questions for the user:** (a) OK to download the Wine build above? (b) OK that I launch the game (incl. its third-party `steam_api.dll`) under Wine with the containment in ADR-007, or do they prefer to launch `scripts/run_baseline.sh` themselves?
-- **Half-done / how to resume:** `run_baseline.sh` and the proxy have never been executed — expect fixes on first run (sandbox profile syntax, `+set r_fullscreen 0` handling, UCRT imports of the proxy under Wine).
-- **Machine:** Apple M1 (arm64), 8 GB RAM, macOS 27.0.1 (26A434), Xcode 27.0, ~53 GB free. **Rosetta 2 not installed.** Installed via brew (user-approved): cmake, ninja, ffmpeg 9.0.2, sevenzip (`7zz`), ghidra 12.1.4, openjdk@21, mingw-w64 14.0.0. Python tooling in `.venv`.
-- **Reference copy:** user confirmed (2026-10-05) they own BO1 and that the DRM-free copy in `reference/` is the project reference. `reference/` is now read-only (`chmod -R a-w`).
+- **Open questions for the user:**
+  1. Which baseline to try next: wine-staging 11.18 (already downloaded), wine-stable 11.0 (new download), DXVK-macOS on top of the current Wine (new download), or CrossOver (paid, free trial exists)?
+  2. May the baseline run with outbound network allowed (`--net`)? "Failed to log on." precedes the fatal error; untested because the default denies network.
+- **Half-done / how to resume:** the wineprefix registry is back to defaults (VideoMemorySize / renderer values deleted). `artifacts/game/players/config.cfg` is rewritten by the script on every run (windowed, no AA, no vsync, 60 fps cap). Proxy env: `BO1_MSGBOX_AUTO=1` (default with --trace) answers dialogs; `BO1_IAT_HOOKS=1` adds CreateThread/VirtualAlloc/GlobalMemoryStatus logging; `BO1_HOOK_HEAP=1` adds HeapAlloc (suspected of destabilising, unproven).
+- **Machine:** Apple M1 (arm64), 8 GB RAM, macOS 27.0.1 (26A434), Xcode 27.0, ~52 GB free. Rosetta 2 installed (by user). brew: cmake, ninja, ffmpeg 9.0.2, sevenzip, ghidra 12.1.4, openjdk@21, mingw-w64 14.0.0. Wine: `artifacts/wine/Wine Devel.app` = wine-devel 11.18 (user-supplied tarball, user cleared Gatekeeper).
+- **Reference copy:** user confirmed (2026-10-05) they own BO1; `reference/` is read-only; working copy = `artifacts/game` (APFS clone).
 
 ---
 ## SESSION LOG (append-only; newest at the bottom)
@@ -86,3 +85,11 @@ Entry template:
 - Learned: almost all pointer-only code is recoverable statically; 64 switch tables remain unresolved; 499 pointer targets without preceding padding were deliberately not seeded.
 - Problems: Wine is unpacked but quarantined (see STATE) — cannot run the baseline until the user clears it.
 - Next: user clears quarantine -> `scripts/run_baseline.sh`.
+
+### 2026-10-05 ~15:05 — T-011 (blocked), T-012 (done) — baseline boots, renders intro, dies before the menu
+- Did: user installed Rosetta, supplied wine-devel/staging 11.18 and approved the build in Gatekeeper; wineprefix created (Z: removed, G: = artifacts/game, network denied by sandbox-exec). 24 launches. Proxy grew: swap-chain Present hook (the game never calls Device::Present), 2 s flush thread, back-buffer capture to BMP -> PNG, opt-in import hooks (CreateThread, MessageBoxA auto-answer, VirtualAlloc, GlobalMemoryStatus, HeapAlloc), heuristic backtrace. Script: clears the `__BlackOps` crash marker, rewrites video dvars in config.cfg, `--capture`, `--seconds` (with timer cleanup — a leaked timer killed the following run once).
+- Evidence: `artifacts/baseline/d3d9_census-20261005-143041.txt` (886 frames), `frames-20261005-143041/` (14 PNGs; frame 60 = legal screen, copied to `tests/golden/`), `run-20261005-143041.log` (11,054 lines incl. engine console).
+- Learned: see RE_NOTES § D3D9 census, § Baseline status, § Gotchas. Headlines: single render thread; Present via swap chain; only DrawIndexedPrimitive; 2,700 shaders created from bytecode at load; XAudio2 2.7; engine console available through OutputDebugString; `R_CreateD3D9`, `R_CreateDevice` (0x006B7530), `Sys_CreateThread` confirmed by logged return addresses.
+- Problems: (1) baseline unstable — different crash each run, root cause not established (LIKELY Wine WoW64/OpenGL on this macOS; one reproducible 2.85 GB heap request is unexplained). (2) `screencapture` needs Screen Recording permission -> replaced by in-proxy capture. (3) heuristic backtrace is polluted by stale stack slots; not reliable for Com_Error's origin.
+- Not done: main menu (T-011), full-argument trace (T-013), golden scenes (T-014), census of menu/in-game (T-015).
+- Next: see STATE.

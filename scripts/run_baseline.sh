@@ -68,6 +68,7 @@ if [ "$TRACE" = 1 ]; then
   cp "$ROOT/artifacts/d3d9_proxy/d3d9.dll" "$GAME/d3d9.dll"
   export WINEDLLOVERRIDES="$WINEDLLOVERRIDES;d3d9=n,b"
   export BO1_D3D9_LOG='G:\d3d9_census.txt'
+  export BO1_IAT_HOOKS="${BO1_IAT_HOOKS:-0}" BO1_MSGBOX_AUTO="${BO1_MSGBOX_AUTO:-1}"
   rm -f "$GAME/d3d9_census.txt"
   if [ "$CAPTURE" != 0 ]; then
     rm -rf "$GAME/capture"; mkdir -p "$GAME/capture"
