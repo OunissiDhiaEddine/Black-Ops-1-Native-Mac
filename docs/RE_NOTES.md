@@ -198,6 +198,50 @@ Source: `tools/float_census.py` -> `re/float_census.json`. Method: capstone 5.0.
 - Not seen so far: fixed-function pipeline (SetTransform/SetLight/SetMaterial/SetTextureStageState/SetFVF), `DrawPrimitive`, `Draw*UP`, state blocks, `Reset`, user clip planes, integer/bool shader constants, `SetStreamSourceFreq` (instancing), `GetRenderTargetData`, `UpdateSurface/UpdateTexture`. LIKELY to change a little once menu/in-game frames are traced.
 - 2,700 shaders are created during load (653 VS + 2,047 PS) through `CreateVertexShader/CreatePixelShader`, i.e. from bytecode — consistent with "shaders ship precompiled". Whether `D3DXCompileShader` is ever called is still unverified (d3dx9 is not hooked yet).
 
+## D3D9 census from the full trace — main menu (T-015, first scene)
+Source: `tools/trace_census.py artifacts/traces/trace-20261005-161500.bin --name menu` (trace = boot -> title -> main menu, 2,282 frames, WineCX 24.0.7 / wined3d, 800x600; frames 1500–1560 recorded with all uploads). CONFIRMED for this scene; **in-mission scenes still to be traced** (T-014), so "not used" below means "not used up to the main menu". Full numbers: `re/d3d9_census_menu.json`. Unique shader blobs extracted to `artifacts/shaders/menu/` (1,592 files, gitignored).
+
+What this means for the Metal backend (P3):
+- **Shaders: SM3 only** — 148 `vs_3_0` + 1,444 `ps_3_0` unique blobs, all with a CTAB. A translator needs **20 VS opcodes and 34 PS opcodes**, including real flow control (`ifc/else/endif`, `rep/endrep`), gradient/LOD sampling (`texldl`, `texldd`, `dsx/dsy`), `sincos`, `texkill`, `dp2add`, `nrm`, `pow/exp/log`. No vertex texture fetch, no `loop`, no subroutines (`call`), no predicates. PS samplers: 2D, cube and **volume**.
+- **No fixed-function pipeline at all**: no SetTransform/SetLight/SetMaterial/SetTextureStageState/SetFVF, no FVF vertex buffers.
+- **One draw path**: `DrawIndexedPrimitive(TRIANGLELIST)` with 16-bit indices. No strips/fans, no `Draw*UP`, no instancing (`SetStreamSourceFreq` unused), no points/lines.
+- **Menu workload**: ~12,400 calls, **~1,580 draws, ~523,000 triangles per frame** — the "menu" is a full 3D scene; draw-call overhead matters.
+- **Vertex formats**: FLOAT2/3/4, D3DCOLOR, UBYTE4, UBYTE4N, SHORT4N; 62 distinct layouts; streams 0 and 1; strides 8–44. All have direct `MTLVertexFormat` equivalents (D3DCOLOR needs BGRA swizzle).
+- **Textures**: DXT1/DXT3/DXT5 (the bulk, MANAGED pool), A8R8G8B8, X8R8G8B8, L8, A8L8, G16R16, R5G6B5, R32F; one 256x256x4 A8R8G8B8 volume texture **rewritten every frame**; cube maps DXT1 and X8R8G8B8. Dynamic L8 textures = Bink YUV planes.
+- **Render targets**: A8R8G8B8, A16B16G16R16, R32F textures; **D24S8 depth textures that are sampled** (hardware shadow maps) -> needs depth-compare sampling in the translated shaders; a FOURCC `NULL` colour target (depth-only passes); R5G6B5 colour targets; depth-stencil **D24FS8**. Single render target only (`SetRenderTarget` index 0), no MRT. `StretchRect` only whole-surface, unfiltered.
+- **Render state**: just 30 distinct states (depth, alpha test, blend + separate alpha blend, cull, stencil incl. two-sided, colour write mask, scissor, depth bias + slope scale). **No sRGB** sampler/write state, no fog, no clip planes, no point sprites, no MSAA state.
+- **Sampler state**: address WRAP/CLAMP, filter POINT/LINEAR/ANISOTROPIC (max 2 and 4), mip NONE/POINT/LINEAR, all 16 pixel samplers used. No border colour, no LOD bias.
+- **Constants**: float only; VS registers up to c68, PS up to c46. No int/bool constants set.
+- **Queries**: 9 occlusion + 486 **timestamp** queries (GPU timing) — must exist and return plausible data.
+- **Per-frame uploads**: a 2 MiB dynamic index buffer (whole buffer, DISCARD), ~0.8 MiB of dynamic vertices, the 1 MiB volume texture.
+- Two shader compiler generations are present in the blobs: `D3DX9 Shader Compiler 9.15.779.0000` (1,300) and `HLSL Shader Compiler 9.22.949.2248` (292).
+
+Raw tool output:
+
+- Last 300 rendered frames: **12,366 calls, 1,576 draws, 523,250 primitives per frame**.
+- Device methods used (37): AddRef, BeginScene, Clear, CreateCubeTexture, CreateDepthStencilSurface, CreateIndexBuffer, CreatePixelShader, CreateQuery, CreateRenderTarget, CreateTexture, CreateVertexBuffer, CreateVertexDeclaration, CreateVertexShader, CreateVolumeTexture, DrawIndexedPrimitive, EndScene, GetAvailableTextureMem, GetBackBuffer, GetSwapChain, Release, SetDepthStencilSurface, SetGammaRamp, SetIndices, SetPixelShader, SetPixelShaderConstantF, SetRenderState, SetRenderTarget, SetSamplerState, SetScissorRect, SetStreamSource, SetTexture, SetVertexDeclaration, SetVertexShader, SetVertexShaderConstantF, SetViewport, StretchRect, TestCooperativeLevel.
+- Draw calls: {'TRIANGLELIST': 2139757}; primitives per draw median 60, max 5502.
+- Shaders: {'vs': 148, 'ps': 1444} unique; versions {'vs_3_0': 148, 'ps_3_0': 1444}; compilers {'Microsoft (R) D3DX9 Shader Compiler 9.15.779.0000': 1300, 'Microsoft (R) HLSL Shader Compiler 9.22.949.2248': 292}.
+- VS constants: max register 68; PS constants: max register 46.
+- Shader sampler types: {'ps:2d': 8417, 'ps:volume': 626, 'ps:cube': 937}.
+- VS instructions (20 distinct): dcl 1,424, mad 1,329, dp4 1,158, mul 872, mov 743, dp3 612, add 540, def 434, slt 304, exp 274, rcp 170, min 162, rsq 87, lrp 81, frc 58, nrm 45, abs 4, max 1, pow 1, mova 1
+- PS instructions (34 distinct): mul 63,886, mad 44,991, dcl 19,619, mov 15,938, add 15,496, texld 13,321, rcp 10,637, dp3 9,275, rsq 8,466, dp4 8,282, def 7,769, exp 4,798, nrm 3,941, dp2add 3,781, texldl 3,057, cmp 2,958, log 2,891, max 2,181, lrp 1,846, pow 1,504, abs 957, frc 861, ifc 626, endif 626, else 513, min 234, sincos 86, texldd 59, dsx 42, dsy 42, defi 7, rep 7, endrep 7, texkill 2
+- VS input semantics: {'POSITION0': 296, 'TEXCOORD0': 268, 'COLOR0': 143, 'TEXCOORD2': 133, 'TEXCOORD1': 110, 'TEXCOORD3': 100, 'TEXCOORD5': 84, 'NORMAL0': 83, 'TEXCOORD4': 68, 'TEXCOORD6': 50, 'TEXCOORD8': 43, 'TEXCOORD7': 25, 'COLOR1': 21}
+- Vertex declaration element types: POSITION:FLOAT4 x453, TEXCOORD:FLOAT4 x418, NORMAL:UBYTE4 x308, COLOR:D3DCOLOR x281, TEXCOORD:UBYTE4 x275, POSITION:FLOAT3 x33, TEXCOORD:FLOAT2 x32, POSITION:UBYTE4 x19, TEXCOORD:UBYTE4N x11, POSITION:SHORT4N x3
+- Distinct vertex layouts: 62; streams used {'0': 1679022, '1': 87305}; strides {'0': 23958, '8': 62270, '16': 12466, '20': 1368, '24': 169, '28': 1368, '32': 1214072, '44': 450656}.
+- 2D textures (format, usage, pool, mips, count): DXT5 0 MANAGED mips 404; DXT1 0 MANAGED mips 280; DXT5 0 MANAGED nomips 101; DXT1 0 MANAGED nomips 57; DXT3 0 MANAGED mips 46; DXT3 0 MANAGED nomips 41; A8R8G8B8 0 MANAGED nomips 16; L8 0 MANAGED mips 13; A8R8G8B8 RENDERTARGET DEFAULT nomips 12; L8 0 SYSTEMMEM nomips 12; A8L8 0 MANAGED mips 11; X8R8G8B8 0 MANAGED mips 7; A8L8 0 MANAGED nomips 6; L8 DYNAMIC DEFAULT nomips 6; A16B16G16R16 RENDERTARGET DEFAULT nomips 5; A8R8G8B8 0 MANAGED mips 3; G16R16 0 MANAGED nomips 2; R5G6B5 0 MANAGED nomips 2; R32F RENDERTARGET DEFAULT nomips 2; D24S8 DEPTHSTENCIL DEFAULT nomips 2; X8R8G8B8 0 MANAGED nomips 1; R32F 0 MANAGED nomips 1; L8 0 MANAGED nomips 1
+- Volume textures (w,h,d,levels,format,usage,pool,count): 256 256 4 1 A8R8G8B8 0 MANAGED 1
+- Cube textures (edge,levels,format,usage,pool,count): 16 1 X8R8G8B8 0 MANAGED 1; 4 3 DXT1 0 MANAGED 1; 256 9 DXT1 0 MANAGED 1
+- Render targets (w,h,format,msaa,count): 800 600 NULL 0 1; 1024 2048 R5G6B5 0 1; 512 2048 R5G6B5 0 1
+- Depth-stencil surfaces: 480 360 D24FS8 0 2; 800 600 D24FS8 0 1; 1024 1024 D24FS8 0 1
+- Vertex buffers: [['WRITEONLY', 'DEFAULT', 'decl', 371], ['WRITEONLY|DYNAMIC', 'DEFAULT', 'decl', 51]]; index buffers: [['INDEX16', 'WRITEONLY', 'DEFAULT', 440], ['INDEX16', 'WRITEONLY|DYNAMIC', 'DEFAULT', 3]].
+- SetRenderTarget indices: {'0': 34203}; Clear flags: {'0x2': 2, '0x1': 3648, '0x7': 5474}; StretchRect: [['full', 'full', 0, 8363]].
+- Render states set (30): ZENABLE(2), FILLMODE(1), ZWRITEENABLE(2), ALPHATESTENABLE(2), SRCBLEND(4), DESTBLEND(3), CULLMODE(2), ZFUNC(2), ALPHAREF(2), ALPHAFUNC(2), ALPHABLENDENABLE(2), STENCILENABLE(2), STENCILFAIL(1), STENCILZFAIL(1), STENCILPASS(1), STENCILFUNC(2), COLORWRITEENABLE(2), BLENDOP(1), SCISSORTESTENABLE(2), SLOPESCALEDEPTHBIAS(3), TWOSIDEDSTENCILMODE(1), CCW_STENCILFAIL(1), CCW_STENCILZFAIL(1), CCW_STENCILPASS(1), CCW_STENCILFUNC(2), DEPTHBIAS(3), SEPARATEALPHABLENDENABLE(1), SRCBLENDALPHA(2), DESTBLENDALPHA(1), BLENDOPALPHA(1)
+- Sampler states set: ADDRESSU['0x1', '0x3'], ADDRESSV['0x1', '0x3'], ADDRESSW['0x1', '0x3'], MAGFILTER['0x2', '0x3', '0x1'], MINFILTER['0x2', '0x3', '0x1'], MIPFILTER['0x1', '0x2', '0x0'], MAXANISOTROPY['0x2', '0x4']
+- Sampler stages: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]; texture stages: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15].
+- Queries created: {'OCCLUSION': 9, 'TIMESTAMP': 486}; failed calls: [].
+
+
 ## Baseline status (P1) — what runs, what does not
 **RESOLVED 2026-10-05 15:55: the baseline is WineCX 24.0.7 (ADR-007).** On it the game boots, passes the title screen (scripted Space at t=32 s) and renders the **main menu** — the 3D interrogation room with CAMPAIGN / MULTIPLAYER / ZOMBIES / SETTINGS / QUIT (`tests/golden/baseline_cx_main_menu_f1350_800x600.png`) — and the settings pages (`…_settings_sound_f2400…`). 2 of 2 runs, 2,276 and 2,496 frames, no crash. The 2.85 GB heap request (`size aa010000`) also fails on this stack and the game carries on, so it is benign. Main-menu workload (65 s run, 2,276 frames): **~807 `DrawIndexedPrimitive` per frame on average**, 1.84 M draws, 2.1 M `SetTexture`, 2.7 M `SetPixelShaderConstantF`, 330 k `SetRenderState`; still the same 37 device methods.
 The rest of this section is the record of what failed on the WineHQ 11.18 builds.

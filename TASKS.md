@@ -3,7 +3,7 @@ Status: TODO · NOW · DONE · BLOCKED. Only ONE task is NOW at a time. Mark DON
 Update this file at every checkpoint (see AGENTS.md rule 2).
 
 ## NOW
-- **T-013** (P1) Extend the proxy to a full-argument binary trace (shader bytecode, vertex declarations, texture/surface descriptors, resource uploads); document the format in docs/.
+- **T-014** (P1) Golden captures + traces of in-mission scenes (get past the main menu into a mission: scripted keys or `+devmap`), then finish T-015 with those scenes.
 
 ## DONE
 - **T-001** (P0) DONE 2026-10-05 — game install present in `reference/`, `scripts/doctor.sh` run, tool availability recorded.
@@ -25,9 +25,9 @@ Update this file at every checkpoint (see AGENTS.md rule 2).
 - [x] **T-010** DECIDED 2026-10-05 (ADR-007 ACCEPTED: wine-stable 11.0 + wined3d under Rosetta 2, project-local). Install pending user action; versions to be recorded on first run. Choose baseline stack (ADR-007): install CrossOver or Wine+wine32on64 (ASK USER before installing). Record versions.
 - [x] **T-011** DONE 2026-10-05 (evidence: `tests/golden/baseline_cx_main_menu_f1350_800x600.png`, `artifacts/baseline/d3d9_census-20261005-155243.txt` — main menu rendered on WineCX 24.0.7; `scripts/run_baseline.sh --wine cx --net --trace --keys "32000:0x20"`).
 - [x] **T-012** DONE 2026-10-05 (evidence: `artifacts/baseline/d3d9_census-20261005-143041.txt` — 886 frames, 37/119 device methods, call names + counts; RE_NOTES § D3D9 census). Also does back-buffer capture and optional import-table diagnostics. `tools/d3d9_proxy/`: d3d9.dll proxy logger (32-bit PE built with mingw-w64 or clang --target=i686-windows). First: log call names only.
-- [ ] **T-013** Extend proxy: full args, shader bytecode blobs, texture/surface descriptors, resource uploads -> binary trace format (document in docs/).
+- [x] **T-013** DONE 2026-10-05 (evidence: `docs/TRACE_FORMAT.md`; `artifacts/traces/trace-20261005-161500.bin` — 16.9 M records, 2,282 frames, parsed end-to-end by `tools/trace_reader.py`; 1,592 shader blobs extracted). Extend proxy: full args, shader bytecode blobs, texture/surface descriptors, resource uploads -> binary trace format (document in docs/).
 - [ ] **T-014** Golden capture script: main menu, loading, scenes A/B/C + frame-time CSV.
-- [ ] **T-015** D3D9 census report -> RE_NOTES § D3D9 census.
+- [ ] **T-015** PARTIAL — main-menu census done (`re/d3d9_census_menu.json`, RE_NOTES § D3D9 census from the full trace); in-mission scenes pending. D3D9 census report -> RE_NOTES § D3D9 census.
 - **P1 exit review.**
 
 ## P2 — Platform shim design
