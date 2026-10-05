@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Reports which tools are available. Paste the output into LOG.md.
 cd "$(dirname "$0")/.."
-for t in git cmake ninja clang python3 java xcodebuild xcrun brew ffmpeg wine wine64 7z i686-w64-mingw32-gcc; do
+for t in git cmake ninja clang python3 java xcodebuild xcrun brew ffmpeg wine wine64 7zz i686-w64-mingw32-gcc; do
   if command -v "$t" >/dev/null 2>&1; then echo "OK   $t -> $(command -v $t)"; else echo "MISS $t"; fi
 done
 # Python tooling lives in ./.venv (scripts/setup_venv.sh); fall back to system python3.
@@ -14,7 +14,7 @@ for m in ["pefile","capstone","lief","unicorn","frida"]:
     except Exception: print("MISS py:",m)
 PY
 [ -d "/Applications/CrossOver.app" ] && echo "OK   CrossOver.app" || echo "MISS CrossOver.app"
-G=$(ls -d /Applications/[Gg]hidra* ~/ghidra* /opt/homebrew/Caskroom/ghidra 2>/dev/null)
+G=$(ls -d /Applications/[Gg]hidra* ~/ghidra* /opt/homebrew/opt/ghidra 2>/dev/null)
 [ -n "$G" ] && echo "$G" | sed 's/^/OK   ghidra: /' || echo "MISS ghidra"
 echo "chip: $(sysctl -n machdep.cpu.brand_string 2>/dev/null) ($(uname -m))"
 echo "ram:  $(( $(sysctl -n hw.memsize) / 1073741824 )) GB"
