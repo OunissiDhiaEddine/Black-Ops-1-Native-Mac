@@ -1,16 +1,19 @@
 # LOG
 
 ## STATE  (OVERWRITE this block at every checkpoint — it is the resume point)
-- **Date/time:** 2026-10-05 ~16:00
-- **Phase / task:** P1 — T-010, T-011, T-012 DONE. **NOW: T-013** (full-argument trace). Then T-014 (golden captures), T-015 (census).
-- **Last completed:** stable baseline found: WineCX 24.0.7 (ADR-007 revised); main menu reached and captured.
-- **Standard baseline command:** `WINEDEBUG=-all,warn+debugstr scripts/run_baseline.sh --wine cx --net --trace --capture 150 --seconds 90 --keys "32000:0x20"` (Space at 32 s passes "Press Any Key"; add more `ms:vk` pairs to drive menus: 0x0D enter, 0x26/0x28 up/down, 0x1B esc).
-- **Next exact step:** T-013 — add per-method argument decoders + post-hooks to `tools/d3d9_proxy` and a binary trace writer; then try reaching a mission (menu keys or `+devmap cuba`) for T-014.
-- **How to read a run:** `artifacts/baseline/d3d9_census-<stamp>.txt`, `run-<stamp>.log` (`debugstr` = engine console), `frames-<stamp>/` (back buffers). `--shots` only works while the game window is on the visible Space.
-- **Files in flight:** none uncommitted.
-- **Open questions for the user:** none blocking. (User offered a Windows PC — optional native-D3D9 ground truth later.)
-- **Half-done / how to resume:** nothing half-done. WineHQ prefixes (`artifacts/wineprefix`, `-staging`) are obsolete and can be deleted.
-- **Machine:** Apple M1 (arm64), 8 GB RAM, macOS 27.0.1 (26A434), Xcode 27.0, ~51 GB free. Rosetta 2 installed; Screen Recording granted. brew: cmake, ninja, ffmpeg, sevenzip, ghidra 12.1.4, openjdk@21, mingw-w64 14.0.0. Wine: `artifacts/wine/cx/wswine.bundle` (WineCX 24.0.7, baseline), `Wine Devel.app` / `Wine Staging.app` (11.18; kept for their support dylibs). DXVK-macOS in `artifacts/dxvk` (unused).
+- **Date/time:** 2026-10-05 ~16:40
+- **Phase / task:** P1 — T-010..T-013 DONE; **T-014 running** (`scripts/capture_golden.sh` for menu, cuba, vorkuta, khe_sanh in the background); T-015 done for menu + cuba.
+- **Last completed:** full binary trace (T-013), trace census tool, console-command channel (`--cmds "42000|devmap <map>"`), first in-mission capture (cuba).
+- **Next exact step:**
+  1. Check `artifacts/baseline/golden-all.done` and `tests/golden/<name>/metrics.json` + frames for the four scenarios; look at one frame each. If a scenario's window shows a loading screen or black frame, re-run `scripts/capture_golden.sh <name> <map> <first_frame> <seconds>` with a later window.
+  2. `tools/trace_census.py artifacts/traces/<name>.bin --name <name> --shaders artifacts/shaders/<name>` for vorkuta and khe_sanh; merge new findings into RE_NOTES.
+  3. (small) hook `D3DXCompileShader` in the exe's import table to settle whether it is ever called.
+  4. P1 exit review (docs/PLAN.md: golden frames + replayable trace of main menu and one in-game scene; census doc) -> LOG entry -> ask the user before P2.
+- **Standard commands:** baseline run `scripts/run_baseline.sh --wine cx --net --trace ...` (see its header); golden scenario `scripts/capture_golden.sh <name> <map|-> <first_frame> [seconds]`; trace tools `tools/trace_reader.py`, `tools/trace_census.py`.
+- **Files in flight:** background golden captures write to `artifacts/` and `tests/golden/` only. Do NOT rebuild `artifacts/d3d9_proxy/d3d9.dll` while they run.
+- **Open questions for the user:** none blocking. User has a Windows PC available (optional native-D3D9 ground truth).
+- **Half-done / how to resume:** if the background job died, rerun the scenarios one by one (each is independent).
+- **Machine:** Apple M1 (arm64), 8 GB RAM, macOS 27.0.1 (26A434), Xcode 27.0, ~40 GB free (traces are 1–2 GB each). Rosetta 2 installed; Screen Recording granted. brew: cmake, ninja, ffmpeg, sevenzip, ghidra 12.1.4, openjdk@21, mingw-w64 14.0.0. Wine: `artifacts/wine/cx/wswine.bundle` (WineCX 24.0.7 = baseline), `Wine Devel.app` / `Wine Staging.app` (11.18; kept for support dylibs). DXVK-macOS in `artifacts/dxvk` (unused).
 - **Reference copy:** user confirmed (2026-10-05) they own BO1; `reference/` read-only; working copy `artifacts/game` (APFS clone).
 
 ---
@@ -120,3 +123,10 @@ Entry template:
 - Learned: CrossOver's Wine is stable where WineHQ 11.18 is not, on the same OpenGL route -> the earlier crashes were the WineHQ WoW64/GL layer, not the game. The main menu is a real 3D scene (~800 draws/frame). `size aa010000` allocation failure is benign.
 - Problems: WMA decoding unavailable in this Wine (`wma_decoder_create GStreamer doesn't support WMA` x260) -> some audio may be silent in the baseline; irrelevant for D3D capture. `--shots` found no window because the game was on another Space.
 - Next: T-013.
+
+### 2026-10-05 ~16:40 — T-013 DONE, T-015 (menu + cuba), T-014 in progress
+- Did: rewrote the proxy around a generic pre/post thunk (per-thread shadow stack, results and out-pointers, 10 hooked interface types, slot tables and argument word counts derived from the SDK header at compile time); binary trace writer with a recording window; `tools/trace_reader.py`, `tools/trace_census.py`; `docs/TRACE_FORMAT.md`; scripted console commands through the game's `Cbuf_AddText`; per-frame timing CSV; `scripts/capture_golden.sh`.
+- Evidence: `re/d3d9_census_menu.json`, `re/d3d9_census_cuba.json`; `tests/golden/baseline_cx_cuba_bar_f5200_800x600.png`; traces of 16.9 M (menu) and 25.7 M (cuba) records parsed end to end.
+- Learned: the D3D9 surface is small and identical between menu and mission (37 device methods, SM3 only, one draw path, 30 render states); 5,314 unique shaders so far; ~2,000 draws and ~390k triangles per frame in the first mission; the game re-uploads a 2 MiB index buffer and a 1 MiB volume texture every frame.
+- Problems solved: (1) result capture crashed the game after ~900 frames — d3d9's surface AddRef/Release tail-jump into the texture's method, so two hooked calls share one return slot; fixed by recognising the tail call. (2) a naive trace was 4 GB in 474 frames (whole 8 MiB dynamic buffer dumped per lock, nested surface locks duplicating texture data, Bink frames) -> sentinel trimming, nesting detection, video frames off by default, recording window.
+- Next: see STATE.

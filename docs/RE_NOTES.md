@@ -242,6 +242,20 @@ Raw tool output:
 - Queries created: {'OCCLUSION': 9, 'TIMESTAMP': 486}; failed calls: [].
 
 
+## D3D9 census from the full trace — first mission (`cuba`, T-015)
+Source: `tools/trace_census.py artifacts/traces/trace-20261005-162759.bin --name cuba` (boot -> menu -> `devmap cuba` -> opening bar scene; 5,757 frames, 25,421,507 game calls; frames 5200–5260 with all uploads). CONFIRMED for this run. Full numbers: `re/d3d9_census_cuba.json`; shader blobs in `artifacts/shaders/cuba/`.
+
+**The D3D9 surface does not grow in-mission.** Compared with the main-menu census:
+- Device methods: the same 37, none added.
+- Render states, sampler states, texture/RT/depth formats, vertex element types, draw path (`DrawIndexedPrimitive(TRIANGLELIST)` only, 16-bit indices): identical sets.
+- Shaders: **224 VS + 5,090 PS unique** (vs 148 + 1,444 at the menu), still 100% SM3; 5,314 distinct blobs / 28.6 MiB across menu + cuba. VS additionally uses `ifc/else/endif`, `sge`, `sincos` -> **VS opcode set = 25: mad, dcl, dp4, mul, mov, dp3, add, def, exp, slt, rcp, min, rsq, frc, lrp, nrm, sincos, max, mova, ifc, sge, else, endif, abs, pow**; **PS opcode set = 34: mul, mad, dcl, mov, texld, add, rcp, dp3, def, rsq, dp4, dp2add, exp, nrm, cmp, texldl, log, lrp, pow, max, abs, ifc, endif, else, frc, min, texkill, dsx, dsy, texldd, sincos, defi, rep, endrep**.
+- Constants: VS up to c68, PS up to c54.
+- Cube maps up to 512 (DXT1); extra depth targets 256x256 and 1024x512 (D24FS8); otherwise the same render-target set.
+- Workload at the bar scene: **~12,944 calls, ~2,042 draws, ~391,593 triangles per frame** (median 38 triangles per draw).
+- Recorded uploads for the whole run: textures 445 MiB, vertex buffers 123 MiB, index buffers 141 MiB, volume texture 65 MiB.
+- No failed D3D calls in either trace.
+Still unverified: whether `D3DXCompileShader` is ever called at runtime (d3dx9 is not hooked); scenes later in a mission (outdoor, water, explosions) may add shaders but are unlikely to add API surface.
+
 ## Baseline status (P1) — what runs, what does not
 **RESOLVED 2026-10-05 15:55: the baseline is WineCX 24.0.7 (ADR-007).** On it the game boots, passes the title screen (scripted Space at t=32 s) and renders the **main menu** — the 3D interrogation room with CAMPAIGN / MULTIPLAYER / ZOMBIES / SETTINGS / QUIT (`tests/golden/baseline_cx_main_menu_f1350_800x600.png`) — and the settings pages (`…_settings_sound_f2400…`). 2 of 2 runs, 2,276 and 2,496 frames, no crash. The 2.85 GB heap request (`size aa010000`) also fails on this stack and the game carries on, so it is benign. Main-menu workload (65 s run, 2,276 frames): **~807 `DrawIndexedPrimitive` per frame on average**, 1.84 M draws, 2.1 M `SetTexture`, 2.7 M `SetPixelShaderConstantF`, 330 k `SetRenderState`; still the same 37 device methods.
 The rest of this section is the record of what failed on the WineHQ 11.18 builds.
@@ -324,6 +338,7 @@ Method: header sampling with python (inline, 2026-10-05) over `reference/.../zon
 - Paths the exe formats: `%s\\zone\\Common\\%s%s`, `%s\\zone\\%s\\%s%s` (language dir), `players/`, `save/` -> case-insensitive, backslash-separated Windows paths; the file shim must normalise both.
 ## Gotchas / surprises
 - **Unclean-exit marker:** the game creates `%LOCALAPPDATA%\Activision\CoD\__BlackOps` while running; if it exists at startup a modal "Run In Safe Mode?" box appears (CONFIRMED: window title seen, file found). `run_baseline.sh` deletes it; the port's file shim will see the same create/delete pattern.
+- **`+devmap` on the command line is ignored, the same command through the console buffer works.** `Cbuf_AddText(0, "devmap cuba\n")` (VA 0x0049B930, called from the proxy 10 s after the title screen) loads `common` + `cuba` and starts the mission (CONFIRMED: `Loading fastfile 'cuba'`, in-game frame in `tests/golden/`). This is the baseline's scripted way into any SP map and a ready-made test hook for the port.
 - **Hardware-change dialog:** "Set Optimal Settings? — Your computer appears to have changed…" (`MB_YESNO|MB_ICONQUESTION`) appears whenever the config checksum changes (CONFIRMED via MessageBoxA hook). Under Wine the measured CPU speed is garbage (`sys_configureGHz "0.00233321"`, GPU detected as "NVIDIA GeForce 6800", `sys_sysMB 1024`), so the checksum is unstable. The port must give the hardware-detection code sane, stable answers (rdtsc/QPC, GetAdapterIdentifier, memory size).
 - **`config.cfg` beats the command line:** `players/config.cfg` (written on first run) overrides `+set r_fullscreen 0`; `r_mode "1280x720"` was ignored and the device came up 800x600 windowed — GUESS: the mode is validated against `EnumAdapterModes`.
 - Engine threads are created with `stackSize=0` (PE default 1 MiB) and `CREATE_SUSPENDED`; two helper threads use 64 KiB stacks (CONFIRMED, CreateThread hook). The guest thread shim must honour these sizes.

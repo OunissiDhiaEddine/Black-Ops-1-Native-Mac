@@ -110,7 +110,8 @@ if [ "$TRACE" = 1 ]; then
   cp "$ROOT/artifacts/d3d9_proxy/d3d9.dll" "$GAME/d3d9.dll"
   export WINEDLLOVERRIDES="$WINEDLLOVERRIDES;d3d9=n,b"
   export BO1_D3D9_LOG='G:\d3d9_census.txt'
-  rm -f "$GAME/trace.bin"
+  rm -f "$GAME/trace.bin" "$GAME/frametimes.csv"
+  export BO1_FRAMETIMES='G:\frametimes.csv' 
   if [ "$RECORD" = 1 ]; then export BO1_TRACE_FILE='G:\trace.bin' BO1_TRACE_MAX_MB="$RECORD_MAX"; fi
   export BO1_IAT_HOOKS="${BO1_IAT_HOOKS:-0}" BO1_MSGBOX_AUTO="${BO1_MSGBOX_AUTO:-1}"
   rm -f "$GAME/d3d9_census.txt"
@@ -170,6 +171,7 @@ if [ "$CAPTURE" != 0 ] && ls "$GAME/capture"/*.bmp >/dev/null 2>&1; then
   for b in "$GAME/capture"/*.bmp; do sips -s format png "$b" --out "$OUT/frames-$STAMP/$(basename "${b%.bmp}").png" >/dev/null; done
   rm -rf "$GAME/capture"; echo "frames: $OUT/frames-$STAMP ($(ls "$OUT/frames-$STAMP" | wc -l | tr -d ' '))"
 fi
+[ -f "$GAME/frametimes.csv" ] && mv "$GAME/frametimes.csv" "$OUT/frametimes-$STAMP.csv"
 if [ -f "$GAME/trace.bin" ]; then
   mkdir -p "$ROOT/artifacts/traces"; mv "$GAME/trace.bin" "$ROOT/artifacts/traces/trace-$STAMP.bin"
   echo "trace: artifacts/traces/trace-$STAMP.bin ($(du -h "$ROOT/artifacts/traces/trace-$STAMP.bin" | cut -f1))"

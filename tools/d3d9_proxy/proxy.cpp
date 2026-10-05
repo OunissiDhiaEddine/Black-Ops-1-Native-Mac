@@ -23,6 +23,7 @@
 //                       default 0 records the lock but not the pixels (~40 MiB/s during videos)
 //   BO1_CAPTURE_EVERY   N > 0: dump the back buffer to a BMP every N presented frames (T-014)
 //   BO1_CAPTURE_DIR     directory for frame_NNNNNN.bmp (default: cwd)
+//   BO1_FRAMETIMES      CSV file: one line per presented frame, "frame,microseconds since load"
 //   BO1_REAL_D3D9       full path of the D3D9 implementation to wrap (default: system d3d9.dll)
 //   BO1_KEYS            "ms:vk,ms:vk": post key presses to the game window (ms after device creation)
 //   BO1_CMDS            "ms|command;ms|command": queue engine console commands (ms after device
@@ -407,10 +408,33 @@ static void capture_backbuffer(IDirect3DDevice9 *dev, LONG frame) {
 #undef SURF
 }
 
+// Frame times for the golden metrics: microseconds since proxy load, one entry per Present.
+#define FT_MAX 400000
+static DWORD *g_ft;
+static char g_ft_path[MAX_PATH];
+static LONG g_ft_written;
+static LARGE_INTEGER g_qpc0, g_qpf;
+static void write_frametimes(void) {
+    if (!g_ft) return;
+    LONG n = g_frames < FT_MAX ? g_frames : FT_MAX;
+    if (n <= g_ft_written) return;
+    FILE *f = fopen(g_ft_path, g_ft_written ? "a" : "w");
+    if (!f) return;
+    if (!g_ft_written) fprintf(f, "frame,us\n");
+    for (LONG i = g_ft_written; i < n; i++) fprintf(f, "%ld,%lu\n", i + 1, g_ft[i]);
+    fclose(f);
+    g_ft_written = n;
+}
+
 // Frame boundary (device or swap-chain Present), called BEFORE the real Present.
 static void on_present(IDirect3DDevice9 *dev) {
     if (!g_render_thread) g_render_thread = GetCurrentThreadId();
     LONG fr = InterlockedIncrement(&g_frames);
+    if (g_ft && fr <= FT_MAX) {
+        LARGE_INTEGER now;
+        QueryPerformanceCounter(&now);
+        g_ft[fr - 1] = (DWORD)((now.QuadPart - g_qpc0.QuadPart) * 1000000 / g_qpf.QuadPart);
+    }
     if (g_capture_every > 0 && fr % g_capture_every == 0 && g_captures < CAPTURE_MAX) capture_backbuffer(dev, fr);
 }
 
@@ -480,6 +504,7 @@ static DWORD WINAPI flush_thread(LPVOID) {
     for (;;) {
         Sleep(2000);
         write_census();
+        write_frametimes();
         if (g_trace != INVALID_HANDLE_VALUE) {
             EnterCriticalSection(&g_tlock);
             t_flush();
@@ -1170,6 +1195,11 @@ extern "C" BOOL WINAPI DllMain(HINSTANCE inst, DWORD reason, LPVOID) {
         if (!GetEnvironmentVariableA("BO1_CAPTURE_DIR", g_capture_dir, sizeof(g_capture_dir)))
             strcpy(g_capture_dir, ".");
         event("proxy loaded, log=%s capture_every=%ld dir=%s\n", g_log_path, g_capture_every, g_capture_dir);
+        if (GetEnvironmentVariableA("BO1_FRAMETIMES", g_ft_path, sizeof(g_ft_path)) && g_ft_path[0]) {
+            g_ft = (DWORD *)VirtualAlloc(NULL, FT_MAX * sizeof(DWORD), MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+            QueryPerformanceFrequency(&g_qpf);
+            QueryPerformanceCounter(&g_qpc0);
+        }
         g_tls = TlsAlloc(); // the shadow stack reads TEB.TlsSlots[] directly: needs an index < 64
         if (g_tls >= 64) {
             event("FATAL: TLS index %lu unusable; proxy disabled\n", g_tls);

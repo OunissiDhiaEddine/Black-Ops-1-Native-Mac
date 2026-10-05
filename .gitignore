@@ -7,6 +7,7 @@ re/ghidra_projects/
 *.iwd
 *.bin
 tests/golden/*.png
+tests/golden/**/*.png
 build/
 .DS_Store
 .venv/
