@@ -131,7 +131,31 @@ Observations:
 - **No DirectInput** import: keyboard/mouse come from window messages + `GetAsyncKeyState`/hooks; pads from XInput. (Unless DirectInput is created via `CoCreateInstance` — GUESS, check CLSIDs.)
 - **`D3DXCompileShader` is imported** -> the exe can compile HLSL at runtime. If it is actually called for shipping shaders (rather than a dev path), P3 needs an HLSL front-end, not just an SM3 bytecode translator. Must be answered by the P1 trace (ADR-005 input). Confidence that it is called at runtime: GUESS.
 - The D3D9 surface that matters is the COM vtable call stream -> the P1 proxy trace is the only way to census it.
+## Protection / packing check (T-004)
+Method: section table + 4 KiB sliding-window entropy over `.text` + import/string scan (inline analysis 2026-10-05; facts also in `re/inventory.json`).
+- **Not packed, not wrapped — CONFIRMED.** Entry point 0x0096DA57 is inside `.text`; `.text` window entropy mean 6.32 / max 6.79 over 1,441 windows (no window > 7.2, i.e. no encrypted or compressed code islands); 1.85 M instructions decode linearly with 116 stray bytes; imports are a normal, complete table; no `.bind`/SteamStub section, no packer section names.
+- The build configuration is `CoDSteam_CEG_bin` (PDB path) -> retail used Valve CEG. In this copy the exe is plain code and the header checksum no longer matches (see Binaries) — LIKELY the release patched the CEG checks in the file. Not investigated further and not needed: the port treats the exe as-is.
+- **Open risk (GUESS):** `steam_emu.ini` has a `[Crack]` section whose meaning is unknown. If the emulator DLL also patches the exe *in memory* at startup, the on-disk code would differ from the code that actually runs under the baseline. Check in P1 by comparing the mapped `.text` of the running process against the file (read-only comparison). If they differ in a protection-related way -> stop and report (ground rule 1), do not reproduce the patches.
+- No anti-debug beyond one `IsDebuggerPresent` import (standard CRT/assert usage — LIKELY).
+
 ## Middleware (video, audio, physics, networking, Steamworks)
+Method: `strings -a -n 6 BlackOps.exe` (25,832 strings) grepped for vendor names, copyright banners, embedded source paths (`C:\projects_pc\cod\codsrc\...`, 144 distinct files) and MSVC RTTI names (142 classes). All statically linked unless noted. Confidence is CONFIRMED for *presence*; whether SP actually exercises each one is LIKELY/GUESS until the P1 trace.
+
+| Area | What | Evidence | Port plan (proposal for P2) |
+|---|---|---|---|
+| Video | **Bink 1.9n** (`binkw32.dll`, external, 18 imports). Videos: 50 `.bik` in `main/video`, 1.2 GB, 1280x720 @30, `BIKi` (Bink 1 rev i), Bink Audio DCT 48 kHz stereo, up to 3 audio tracks | imports + file headers + `ffprobe` (codec `binkvideo` / `binkaudio_dct`) | replace DLL with a host shim over FFmpeg's Bink decoder — ffprobe already parses the files. Game supplies its own frame buffers (`BinkRegisterFrameBuffers`) -> shim must fill YUV planes in the game's layout |
+| Audio out | **XAudio2** + XAPO effects (RTTI `IXAudio2VoiceCallback`, `CXAPOBase`, `IXAPO`; created through `CoCreateInstance`); DirectSound (`DSOUND` #11/#6) also present — LIKELY only for Bink audio (`BinkOpenDirectSound`) and voice capture | RTTI + strings | host XAudio2-shaped shim on CoreAudio/AVAudioEngine; custom XAPO DSP code is game code (lifted) |
+| Audio assets | 28,611 `.wav` files in IWDs (3.4 GB, stored uncompressed in the zip) that are **not RIFF**: 32-byte+ custom header (`u32 1`, frame count, sample rate ~48000, channels, …) + a lossy payload (~0.5 byte/sample). Codec not identified — GUESS: decoder is inside the exe (candidate for the MMX/SSSE3 code and `.rodata` tables) | header sampling of 728 files | lifted as-is; identify in T-009 follow-up |
+| Physics | **In-house** (RTTI `phys_gjk_geom`, `gjk_physics_collision_visitor`, `broad_phase_terrain_query_callback`, …). No Havok/PhysX/ODE strings | RTTI | lifted |
+| Scripting | In-house GSC/CSC VM (`GScr_*`, `%s.gsc`) | strings | lifted |
+| Networking / online | **Demonware** (`bd*`, 73 RTTI classes, `DemonWare\bd*` source paths, `*.demonware.net` hosts), UDP+TCP sockets, UPnP/NAT traversal | RTTI + strings | SP: stub at socket layer / never connect. Out of scope per ADR-001 |
+| Steamworks | `steam_api.dll` (19 imports), `CCallback<LiveSteamServer,…>` | imports + RTTI | host stub implementing only those 19 entry points + the interface vtables the SP path calls |
+| Anti-cheat | PunkBuster loader strings (`pbcl.dll`, `pbclnew.dll`), VAC strings. DLLs not shipped in this install | strings | not needed for SP (LIKELY); `LoadLibrary` of pb DLLs must fail gracefully |
+| Crypto | **libtomcrypt 1.17** + LibTomMath (RSA, ECC, AES/rijndael, 3DES, SHA-256, Tiger-192, HMAC, yarrow) | source paths | lifted (used by Demonware auth and possibly fastfile/IWD checks) |
+| Compression | **zlib** via minizip (`unzip 0.15 Gilles Vollant`), **LZO Professional 2.02** | banners | lifted |
+| Images | **libjpeg** (1998 banner = v6b) — screenshots/savegame thumbnails (`screenshotJPEG savegame save/%s`) | banner | lifted |
+| Shaders | `Microsoft (R) HLSL Shader Compiler 9.29.952.3111` string appears twice in the exe + `vs_3_0` / `ps_3_0` profile strings + `D3DXCompileShader` import | strings | see Imports note — **SM3 only**; the compiler banner is typically embedded in compiled shader blobs' CTAB, so some shader bytecode is LIKELY embedded in the exe itself |
+| GPU vendor code | `(C) 2004/2005 ATI Research, Inc.` x6 | banners | GUESS: ATI sample-derived code (compression or shader snippets); identify later |
 ## Float model (SSE2 vs x87)
 Source: `tools/float_census.py` -> `re/float_census.json`. Method: capstone 5.0.7 **linear sweep** of `.text` (5,904,912 B) — 1,848,603 instructions decoded, only 116 undecodable bytes; inline data is mis-decoded as code, so counts are good to a few percent. LIKELY (method caveat); rerun per-function after T-006.
 
@@ -169,6 +193,13 @@ Source: `tools/float_census.py` -> `re/float_census.json`. Method: capstone 5.0.
 ## Engine structures (name, VA of known instances, layout, confidence)
 ## Function index (WinMain, Com_Init, R_Init, R_EndFrame, FS_*, Sys_*, ...)
 ## Asset formats
+Method: header sampling with python (inline, 2026-10-05) over `reference/.../zone` and `main`. The port only reads these; nothing is converted.
+- **Fastfiles** — 146 `.ff`, 2.85 GB (`zone/Common` 74 + `zone/English` 72 `en_*`). All have magic `IWffu100` (unsigned variant; the exe also knows `IWff0100`), **version 473 (0x1D9)**, followed directly by a zlib stream (`78 01`). CONFIRMED (all 146 headers). No per-file encryption visible at the header level. SP-relevant zones: `code_pre_gfx`, `code_post_gfx` (2.1 MB), `common` (19.5 MB), `patch`, `frontend` (39 MB), campaign levels ~96–102 MB each (cuba, vorkuta, pentagon, flashpoint, khe_sanh, hue_city, kowloon, creek_1, river, wmd_sr71, wmd, pow, fullahead, rebirth, int_escape, underwaterbase, outro), plus `so_narrative*_frontend`. Zombie/MP zones are present but out of scope.
+- **IWD** — 47 archives, 7.0 GB, standard ZIP (deflate or stored), 46,399 files: `.iwi` images 16,567 (3.97 GB), `.wav` sound 28,611 (3.42 GB, stored), weapon defs 1,165, misc cfg/csv/accu. CONFIRMED (`zipfile`).
+- **IWI** — magic `IWi`, **version 13**. Format byte histogram (3,000-file sample): 13 ×1678, 11 ×1004, 12 ×174, 3 ×98, 2 ×20, 4 ×13, 1 ×10, 6 ×2, 9 ×1. LIKELY mapping (from public IWI docs, unverified here): 11/12/13 = DXT1/DXT3/DXT5 -> BC1/BC2/BC3, natively supported by Metal on Apple Silicon; 1–4 uncompressed RGBA/RGB/LA/A.
+- **Sound `.wav`** — custom container, see Middleware › Audio assets.
+- **Video** — Bink 1, see Middleware › Video.
+- Paths the exe formats: `%s\\zone\\Common\\%s%s`, `%s\\zone\\%s\\%s%s` (language dir), `players/`, `save/` -> case-insensitive, backslash-separated Windows paths; the file shim must normalise both.
 ## Gotchas / surprises
 - **Reference copy is a CODEX scene release, not a Steam install — CONFIRMED** (2026-10-05; read `steam_emu.ini`: CODEX banner, `UserName=CODEX`, `[Crack]` section with 5 key=value pairs, `DLCUnlockall=1`; `~Common Redist/aio_installer.bat` is repack tooling). Consequences: hashes will not match the Steam depot; `steam_api.dll` is an emulator, so its exports/behaviour are not Valve's; `BlackOps.exe` may carry third-party patches (LIKELY — same 2016-12-25 mtime as the emulator files; not yet diffed against anything). Whether this copy stays the project reference is an open question for the user (LOG STATE).
 - `BlackOps.exe` contains the strings `Valve Corp.0` / `Valve Corp.1` (`strings -a | grep`), i.e. an Authenticode certificate naming Valve is embedded — GUESS: retail exe was Valve-signed; signature validity not checked (T-004).

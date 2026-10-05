@@ -11,3 +11,4 @@ build/
 .DS_Store
 .venv/
 __pycache__/
+re/ghidra_export/
