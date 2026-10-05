@@ -14,6 +14,8 @@
 #     --dxvk        use DXVK (artifacts/dxvk/*/x32/d3d9.dll, D3D9 -> Vulkan -> MoltenVK) instead of wined3d
 #     --keys SPEC   with --trace: scripted key presses, "ms:vk,ms:vk" (ms after device creation,
 #                   vk = Windows virtual-key code, e.g. 0x20 space, 0x0D enter, 0x1B esc, 0x28 down)
+#     --cmds SPEC   with --trace: engine console commands, "ms|command;ms|command"
+#                   (e.g. --cmds "40000|devmap cuba"), queued through the game's Cbuf_AddText
 #     --shots S     screenshot the game WINDOW (not the screen) every S seconds ->
 #                   artifacts/baseline/shots-<stamp>/ (needs Screen Recording permission)
 # Layout (all under artifacts/, gitignored):
@@ -34,6 +36,7 @@ while [ $# -gt 0 ]; do
     --wine) WINE_NAME="$2"; shift ;;
     --shots) SHOTS="$2"; shift ;;
     --keys) export BO1_KEYS="$2"; shift ;;
+    --cmds) export BO1_CMDS="$2"; shift ;;
     --dxvk) DXVK=1 ;;
     --record) RECORD=1 ;;
     --record-max-mb) RECORD_MAX="$2"; shift ;;

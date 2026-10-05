@@ -25,6 +25,8 @@
 //   BO1_CAPTURE_DIR     directory for frame_NNNNNN.bmp (default: cwd)
 //   BO1_REAL_D3D9       full path of the D3D9 implementation to wrap (default: system d3d9.dll)
 //   BO1_KEYS            "ms:vk,ms:vk": post key presses to the game window (ms after device creation)
+//   BO1_CMDS            "ms|command;ms|command": queue engine console commands (ms after device
+//                       creation) through the game's own Cbuf_AddText — e.g. "40000|devmap cuba"
 //   BO1_MSGBOX_AUTO     1: answer message boxes without showing them (and log them)
 //   BO1_IAT_HOOKS       1: also log CreateThread / VirtualAlloc / GlobalMemoryStatus (diagnostics)
 //   BO1_HOOK_HEAP       1 (with BO1_IAT_HOOKS): also log HeapAlloc requests >= 256 MiB
@@ -434,6 +436,41 @@ static DWORD WINAPI input_thread(LPVOID) {
         PostMessageA(g_hwnd, WM_KEYUP, vk, up);
         event("key vk=0x%lx posted to hwnd=%p at t=%lums (frame %ld, foreground=%p)\n", vk, (void *)g_hwnd,
               GetTickCount() - g_device_t0, g_frames, (void *)GetForegroundWindow());
+    }
+    return 0;
+}
+
+// ---- scripted console commands: BO1_CMDS="ms|command;ms|command" ---------------------------
+// Calls the game's Cbuf_AddText(localClientNum, text) (VA 0x0049B930, re/symbols.csv), which takes
+// the engine's command-buffer critical section itself, so it is safe from this thread. The
+// address is specific to the 2011-09-01 SP build: the link timestamp and the function's first
+// bytes are checked before anything is called.
+#define BO1_SP_TIMESTAMP 0x4E601011u
+#define VA_CBUF_ADDTEXT 0x0049B930u
+static bool game_build_ok(void) {
+    BYTE *base = (BYTE *)GetModuleHandleA(NULL);
+    IMAGE_NT_HEADERS *nt = (IMAGE_NT_HEADERS *)(base + ((IMAGE_DOS_HEADER *)base)->e_lfanew);
+    static const BYTE prologue[] = {0x6A, 0x35, 0xE8}; // push 0x35 ; call Sys_EnterCriticalSection
+    return (DWORD_PTR)base == 0x00400000 && nt->FileHeader.TimeDateStamp == BO1_SP_TIMESTAMP &&
+           memcmp((void *)VA_CBUF_ADDTEXT, prologue, sizeof(prologue)) == 0;
+}
+static DWORD WINAPI command_thread(LPVOID) {
+    static char spec[1024];
+    if (!GetEnvironmentVariableA("BO1_CMDS", spec, sizeof(spec))) return 0;
+    if (!game_build_ok()) {
+        event("BO1_CMDS ignored: this is not the SP build the Cbuf_AddText address was taken from\n");
+        return 0;
+    }
+    while (!g_hwnd) Sleep(100);
+    for (char *tok = strtok(spec, ";"); tok; tok = strtok(NULL, ";")) {
+        char *bar = strchr(tok, '|');
+        if (!bar) continue;
+        DWORD at = strtoul(tok, NULL, 0);
+        while (GetTickCount() - g_device_t0 < at) Sleep(50);
+        char line[256];
+        snprintf(line, sizeof(line), "%s\n", bar + 1);
+        ((void(__cdecl *)(int, const char *))VA_CBUF_ADDTEXT)(0, line);
+        event("command \"%s\" queued at t=%lums (frame %ld)\n", bar + 1, GetTickCount() - g_device_t0, g_frames);
     }
     return 0;
 }
@@ -899,6 +936,7 @@ extern "C" void *__stdcall trace_post(unsigned result) {
                 g_device_t0 = GetTickCount();
                 g_hwnd = (pp && pp->hDeviceWindow) ? pp->hDeviceWindow : (HWND)fr.w[3];
                 CloseHandle(CreateThread(NULL, 0, input_thread, NULL, 0, NULL));
+                CloseHandle(CreateThread(NULL, 0, command_thread, NULL, 0, NULL));
             }
             // The game presents through the implicit swap chain, not IDirect3DDevice9::Present.
             typedef HRESULT(__stdcall *GetSwapChain_t)(IDirect3DDevice9 *, UINT, IDirect3DSwapChain9 **);

@@ -63,3 +63,6 @@ addr,name,kind,confidence,notes
 0x0096E0E0,__except_handler4,func,LIKELY,Ghidra Function ID name; body XORs frame scope table with __security_cookie — matches MSVC EH4
 0x00BA3178,__security_cookie,data,LIKELY,XORed in __except_handler4 (0x0096E0F0)
 0x03956508,_tls_index,data,CONFIRMED,TLS directory AddressOfIndex (re/inventory.json)
+0x0049B930,Cbuf_AddText,func,CONFIRMED,"(int localClientNum, const char *text) cdecl; enters critical section 0x35; references ""Cbuf_AddText: overflow""; called by the proxy to queue commands"
+0x005FEA60,Sys_EnterCriticalSection,func,LIKELY,called with the critical-section index (push 0x35) at the top of Cbuf_AddText
+0x0056D400,Sys_LeaveCriticalSection,func,LIKELY,"index*24 + 0x0276A560 -> LeaveCriticalSection; pairs with 0x005FEA60"
