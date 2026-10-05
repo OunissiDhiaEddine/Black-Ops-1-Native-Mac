@@ -1,12 +1,12 @@
 # LOG
 
 ## STATE  (OVERWRITE this block at every checkpoint — it is the resume point)
-- **Date/time:** 2026-10-05 ~23:45
-- **Phase / task:** P4. T-040 + T-041 DONE. **NOW: T-042** (FP/SIMD coverage in the lifter + FP state in the diff tests).
-- **Last completed:** integer lifter (`tools/lifter/lift.py`, 70.3% of functions), runtime skeleton (`src/runtime/`), differential harness (`tests/diff/`, `scripts/difftest.sh`): 11,212/11,212 vectors on 2,867 leaf functions match Unicorn.
-- **Next exact step:** T-042 — (1) add `Xmm xmm[8]; double st[8]; uint64_t mm[8]; uint32_t mxcsr; uint16_t fcw, fsw; uint8_t ftop;` to `Cpu` in `src/runtime/lifted.h` and `#include "lifted_fp.h"` at its end (helpers are written, file untested); (2) `tools/lifter/lift_fp.py`: x87 decoded from opcode bytes (D8–DF + modrm, table in docs/LIFTER.md §5), SSE/MMX table-driven from capstone operands; (3) vector format v2 with xmm/x87 state (`tests/diff/gen_vectors.py`, `difftest.c`); (4) `scripts/difftest.sh 100000 4 1`, fix, repeat. Blocker histogram: `re/lift_coverage.json` (`blockers_all_instructions`).
+- **Date/time:** 2026-10-05 ~23:32
+- **Phase / task:** P4, **T-042 in progress** (WIP checkpoint 23:58): FP/SIMD/MMX lifting works — 21,952 / 21,960 functions lift; first FP diff run on 600 leaf functions: 1,705/1,707 vectors pass (the 2 failures = x87 trig out-of-range path, fixed since). Full leaf run (4,190 functions) is running in the background.
+- **Last completed:** T-040/T-041 (commit 941922c).
+- **Next exact step:** the tree is mid-switch from vector format v2 to v3 (heap pool, shards, all-functions mode): `tests/diff/gen_vectors.py` already writes v3; the matching runner and script are parked in `artifacts/wip/difftest_v3.c` and `artifacts/wip/difftest_new.sh` -> copy them over `tests/diff/difftest.c` and `scripts/difftest.sh`, then `scripts/difftest.sh 600 3 2 leaf`, then `JOBS=4 scripts/difftest.sh 100000 3 3 leaf`, then `... all` (T-043). Then update re/difftest_report.json, LOG, TASKS, commit.
 - **Standard commands:** `scripts/difftest.sh [max_funcs] [per_func] [seed]` (full leaf run = `100000 4 1`, ~14 min); `.venv/bin/python tools/lifter/lift.py --stats re/lift_coverage.json`; P3: `scripts/build.sh`, `scripts/replay_check.sh`; baseline: `scripts/run_baseline.sh --wine cx --net --trace …`.
-- **Files in flight:** `src/runtime/lifted_fp.h` (FP/SIMD helpers, written, not yet included or compiled).
+- **Files in flight:** `tests/diff/difftest.c` + `scripts/difftest.sh` (still v2; v3 versions in `artifacts/wip/`).
 - **Open questions for the user:** none.
 - **Half-done / how to resume:** T-042 just started (see next step). Renderer still lives in `tests/replay/`; `src/rhi`, `src/metal` empty until P5.
 - **Machine:** Apple M1 (arm64), 8 GB RAM, macOS 27.0.1, Xcode 27.0. brew: cmake, ninja, ffmpeg, sevenzip, ghidra, openjdk@21, mingw-w64. venv: pefile, capstone, lief, unicorn, numpy, pillow. Wine baseline: `artifacts/wine/cx` (WineCX 24.0.7), prefix `artifacts/wineprefix-cx`.
@@ -172,7 +172,7 @@ Entry template:
 - Did: recorded ADR-004/005 ACCEPTED; G1 decision (go) with rationale; ADR-013 (lifter = Python + capstone -> generated C); P4 task list. User wants the Windows PC kept as a last resort (T-037 parked).
 - Next: T-041 lifter first cut + differential tests.
 
-### 2026-10-05 23:45 — T-040, T-041 — integer lifter + differential tests: 11,212/11,212 vectors match Unicorn
+### 2026-10-05 23:32 — T-040, T-041 — integer lifter + differential tests: 11,212/11,212 vectors match Unicorn
 - Did: `src/runtime/lifted.h` (Cpu, function-local flags, arithmetic helpers), `tools/lifter/lift.py` (capstone + Ghidra export -> C in `artifacts/lifted/`), `src/runtime/runtime.{h,c}` (4 GiB arena, PE loader, dispatch table, traps), `tests/diff/gen_vectors.py` (Unicorn runs the original bytes from random state), `tests/diff/difftest.c` (same inputs through the lifted code, compares registers + written memory), `scripts/difftest.sh`, `docs/LIFTER.md`.
 - Evidence: `re/difftest_report.json` — 15,439 / 21,960 functions lift (774,039 instructions); 2,924 leaf functions tried, 2,867 produced vectors, **11,212 vectors: 11,212 pass, 0 fail**; 45,720 of 76,883 instructions in those functions executed (59.5%). Mutation check: breaking `add` for 1 input in 8 -> 32 of 1,160 vectors fail; breaking `sub` for one input value -> 3 fail.
 - Learned: (1) Unicorn must be rebuilt after a faulting run — one bad function made every later run "return" to garbage (0x1f4f…), which first looked like 90% of functions failing. (2) "Leaf" must exclude tail calls (`xfer` in `lifted_meta.json`). (3) What blocks the remaining 30%: `re/lift_coverage.json` -> `blockers_all_instructions` (movss 86k, mulss 26k, fstp 26k, fld 23k, addss 17k, movaps 17k … 217 distinct; MMX `movq` 8.4k).

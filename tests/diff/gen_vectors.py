@@ -6,14 +6,15 @@
 
 Picks lifted LEAF functions (no calls or tail calls, no indirect transfers, no fs:) from
 artifacts/lifted/lifted_meta.json, executes the ORIGINAL bytes of each with Unicorn from a
-random register/stack/heap state until it returns, and records inputs + resulting registers +
-every byte written. tests/diff/difftest.c replays the same inputs through the lifted code.
+random register/stack/heap/XMM state until it returns, and records inputs + resulting registers,
+x87 stack, XMM (or MMX) registers and every byte written. tests/diff/difftest.c replays the same inputs through the lifted code.
 Unmapped memory reads as zero on both sides (Unicorn maps zero pages on demand; the native arena
 is zero-fill), so wild pointers are deterministic rather than fatal.
 """
 import argparse
 import json
 import random
+import math
 import struct
 import sys
 from collections import Counter
@@ -24,7 +25,8 @@ import pefile
 from unicorn import (Uc, UcError, UC_ARCH_X86, UC_MODE_32, UC_HOOK_MEM_WRITE, UC_HOOK_MEM_UNMAPPED, UC_HOOK_BLOCK, UC_PROT_ALL,
                      UC_MEM_FETCH_UNMAPPED)
 from unicorn.x86_const import (UC_X86_REG_EAX, UC_X86_REG_ECX, UC_X86_REG_EDX, UC_X86_REG_EBX, UC_X86_REG_ESP,
-                               UC_X86_REG_EBP, UC_X86_REG_ESI, UC_X86_REG_EDI, UC_X86_REG_EFLAGS, UC_X86_REG_EIP)
+                               UC_X86_REG_EBP, UC_X86_REG_ESI, UC_X86_REG_EDI, UC_X86_REG_EFLAGS, UC_X86_REG_EIP,
+                               UC_X86_REG_FPCW, UC_X86_REG_FPSW, UC_X86_REG_MXCSR, UC_X86_REG_XMM0, UC_X86_REG_FP0)
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 EXE = ROOT / "reference" / "Call of Duty Black Ops" / "BlackOps.exe"
@@ -33,12 +35,26 @@ REGS = [UC_X86_REG_EAX, UC_X86_REG_ECX, UC_X86_REG_EDX, UC_X86_REG_EBX, UC_X86_R
 SENTINEL = 0xFFFF0000
 STACK_TOP = 0x7FF00000
 STACK_SIZE = 0x100000
-HEAP = 0x60000000
+HEAP = 0x60000000        # must match difftest.c
 HEAP_SIZE = 0x4000
 ESP0 = STACK_TOP - 0x10000
-MAX_INSNS = 200000
+MAX_INSNS = 100000
 MAX_OUT = 1 << 16
 DEBUG = False
+FLAG_MMX = 1          # vector flag: the function uses MMX -> compare mm0-7 instead of the x87 stack
+
+
+def f80_to_double(mant, se):
+    """80-bit extended (64-bit significand, sign+exponent) -> nearest double."""
+    e = se & 0x7FFF
+    if e == 0x7FFF:
+        v = math.inf if (mant << 1) & 0xFFFFFFFFFFFFFFFF == 0 else math.nan
+    else:
+        try:
+            v = math.ldexp(float(mant), (e or 1) - 16383 - 63)
+        except OverflowError:
+            v = math.inf
+    return -v if se & 0x8000 else v
 
 
 def main() -> int:
@@ -49,15 +65,24 @@ def main() -> int:
     ap.add_argument("--per-func", type=int, default=3)
     ap.add_argument("--seed", type=int, default=1)
     ap.add_argument("--funcs")
+    ap.add_argument("--select", choices=("leaf", "all"), default="leaf",
+                    help="leaf: no calls/indirect transfers/fs:. all: every lifted function (call trees run on both sides; "
+                         "whatever Unicorn cannot finish - imports, wild pointers - is skipped)")
+    ap.add_argument("--shard", default="0/1", help="I/N: take every N-th candidate starting at I (parallel generation)")
     args = ap.parse_args()
+    shard_i, shard_n = (int(x) for x in args.shard.split("/"))
     rng = random.Random(args.seed)
     meta = json.loads(Path(args.meta).read_text())
     if args.funcs:
         cands = [int(a, 16) for a in args.funcs.split(",")]
     else:
-        cands = [int(a, 16) for a, m in meta.items() if not m["xfer"] and not m["indirect"] and not m["fs"] and m["insns"] >= 3]
+        cands = [int(a, 16) for a, m in meta.items()
+                 if m["insns"] >= 3 and (args.select == "all" or (not m["xfer"] and not m["indirect"] and not m["fs"]))]
+        cands.sort()
         rng.shuffle(cands)
-        cands = sorted(cands[: args.max_funcs])
+        cands = sorted(cands[: args.max_funcs])[shard_i::shard_n]
+
+    uses_mmx = {int(a, 16) for a, m in meta.items() if m.get("mmx")}
 
     pe = pefile.PE(str(EXE), fast_load=True)
     base = pe.OPTIONAL_HEADER.ImageBase
@@ -100,6 +125,8 @@ def main() -> int:
         u.hook_add(UC_HOOK_MEM_UNMAPPED, on_unmapped)
         u.hook_add(UC_HOOK_MEM_WRITE, on_write)
         u.hook_add(UC_HOOK_BLOCK, on_block)
+        u.reg_write(UC_X86_REG_FPCW, 0x27F)
+        u.reg_write(UC_X86_REG_MXCSR, 0x1F80)
         lazy.clear()
         return u, u.context_save()
 
@@ -113,7 +140,40 @@ def main() -> int:
             return rng.randrange(0, 65)
         return rng.getrandbits(32)
 
-    out = bytearray(b"BO1DIFF1" + struct.pack("<I", 0))
+    def nice_float():
+        k = rng.random()
+        if k < 0.5:
+            return rng.uniform(-1000.0, 1000.0)
+        if k < 0.7:
+            return float(rng.randrange(-16, 17))
+        if k < 0.8:
+            return rng.choice((0.0, 1.0, -1.0, 0.5, 2.0, -0.0))
+        if k < 0.9:
+            return rng.uniform(-1.0, 1.0) * 1e-6
+        return rng.uniform(-1.0, 1.0) * 1e7
+
+    def rand_word():
+        """One 32-bit word for the heap / XMM lanes: floats dominate so FP code sees usable numbers."""
+        k = rng.random()
+        if k < 0.45:
+            return struct.unpack("<I", struct.pack("<f", nice_float()))[0]
+        if k < 0.70:
+            return rng.getrandbits(32)
+        if k < 0.85:
+            return rng.randrange(0, 65)
+        return HEAP + (rng.randrange(0, HEAP_SIZE - 0x800) & ~3)
+
+    def make_heap():
+        h = bytearray(struct.pack(f"<{HEAP_SIZE // 4}I", *(rand_word() for _ in range(HEAP_SIZE // 4))))
+        for _ in range(HEAP_SIZE // 64):                       # sprinkle doubles
+            struct.pack_into("<d", h, rng.randrange(0, HEAP_SIZE - 8) & ~7, nice_float())
+        return bytes(h)
+
+    rng.seed(args.seed * 7919 + 1)
+    heaps = [make_heap() for _ in range(48)]          # identical in every shard
+    rng.seed(args.seed * 7919 + 2 + shard_i)
+
+    out = bytearray(b"BO1DIFF3" + struct.pack("<III", 0, len(heaps), HEAP_SIZE) + b"".join(heaps))
     count, skipped, funcs_ok = 0, Counter(), 0
     for fn in cands:
         got = 0
@@ -121,8 +181,15 @@ def main() -> int:
             regs = [rand_value() for _ in range(8)]
             regs[4] = ESP0
             stack = struct.pack("<I", SENTINEL) + b"".join(struct.pack("<I", rand_value()) for _ in range(31))
-            heap = rng.randbytes(HEAP_SIZE)
+            heap_idx = rng.randrange(len(heaps))
+            heap = heaps[heap_idx]
+            fcw = 0x27F if rng.random() < 0.7 else 0x07F        # precision control: 53-bit (Windows default) or 24-bit (D3D9)
+            xmm = [struct.pack("<4I", *(rand_word() for _ in range(4))) for _ in range(8)]
+            flags = FLAG_MMX if fn in uses_mmx else 0
             uc.context_restore(ctx0)
+            uc.reg_write(UC_X86_REG_FPCW, fcw)
+            for k in range(8):
+                uc.reg_write(UC_X86_REG_XMM0 + k, int.from_bytes(xmm[k], "little"))
             uc.mem_write(ESP0, stack)
             uc.mem_write(HEAP, heap)
             for r, v in zip(REGS, regs):
@@ -162,11 +229,16 @@ def main() -> int:
                         ranges[-1][1] = a + 1
                     else:
                         ranges.append([a, a + 1])
-                out += struct.pack("<I8II", fn, *regs, 0)
-                out += struct.pack("<I", 2)
+                top = (uc.reg_read(UC_X86_REG_FPSW) >> 11) & 7
+                phys = [uc.reg_read(UC_X86_REG_FP0 + k) for k in range(8)]
+                st_out = [f80_to_double(*phys[(top + k) & 7]) for k in range(8)]
+                mm_out = [phys[k][0] for k in range(8)]
+                xmm_out = [uc.reg_read(UC_X86_REG_XMM0 + k).to_bytes(16, "little") for k in range(8)]
+                out += struct.pack("<I8IIIIII", fn, *regs, 0, fcw, 0x1F80, flags, heap_idx) + b"".join(xmm)
+                out += struct.pack("<I", 1)
                 out += struct.pack("<II", ESP0, len(stack)) + stack
-                out += struct.pack("<II", HEAP, len(heap)) + heap
-                out += struct.pack("<8I", *regs_out)
+                out += struct.pack("<8II", *regs_out, top) + struct.pack("<8d", *st_out) + struct.pack("<8Q", *mm_out)
+                out += b"".join(xmm_out)
                 out += struct.pack("<I", len(ranges))
                 for a, b in ranges:
                     out += struct.pack("<II", a, b - a) + bytes(uc.mem_read(a, b - a))
@@ -190,12 +262,16 @@ def main() -> int:
     struct.pack_into("<I", out, 8, count)
     Path(args.out).write_bytes(out)
     md = capstone.Cs(capstone.CS_ARCH_X86, capstone.CS_MODE_32)
-    covered = {a for addr, size in covered if base <= addr < base + img_size
-               for a, _, _, _ in md.disasm_lite(image[addr - base: addr - base + size], addr)}
-    total_insns = sum(meta[f"0x{f:08x}"]["insns"] for f in cands if f"0x{f:08x}" in meta)
-    print(f"functions tried {len(cands)}, with at least one vector {funcs_ok}; vectors {count}; "
-          f"instructions executed {len(covered)} of {total_insns} ({100.0 * len(covered) / max(total_insns, 1):.1f}%); "
-          f"file {len(out) / 1048576:.1f} MiB")
+    covered = sorted({a for addr, size in covered if base <= addr < base + img_size
+                      for a, _, _, _ in md.disasm_lite(image[addr - base: addr - base + size], addr)})
+    # sidecars for the report: statistics and the set of executed instruction addresses
+    Path(args.out + ".cov").write_bytes(struct.pack(f"<{len(covered)}I", *covered))
+    stats = {"functions_tried": len(cands), "functions_with_vectors": funcs_ok, "vectors": count,
+             "insns_in_tried_functions": sum(meta[f"0x{f:08x}"]["insns"] for f in cands if f"0x{f:08x}" in meta),
+             "skipped": dict(skipped)}
+    Path(args.out + ".json").write_text(json.dumps(stats))
+    print(f"shard {args.shard}: functions tried {len(cands)}, with at least one vector {funcs_ok}; vectors {count}; "
+          f"instructions executed {len(covered)}; file {len(out) / 1048576:.1f} MiB")
     for k, v in skipped.most_common(6):
         print(f"  skipped {v}: {k}")
     return 0

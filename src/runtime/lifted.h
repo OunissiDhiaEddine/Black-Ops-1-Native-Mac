@@ -9,18 +9,40 @@
 extern "C" {
 #endif
 
+typedef union Xmm {
+    uint8_t u8[16];
+    int8_t i8[16];
+    uint16_t u16[8];
+    int16_t i16[8];
+    uint32_t u32[4];
+    int32_t i32[4];
+    uint64_t u64[2];
+    int64_t i64[2];
+    float f32[4];
+    double f64[2];
+} Xmm;
+
+// Status flags are function-local in lifted code: compiled Win32 code does not pass them across
+// calls. The few places that do (re/flag_audit.json) go through Cpu.xfl explicitly.
+typedef struct Flags {
+    uint8_t cf, pf, af, zf, sf, of;
+} Flags;
+
 typedef struct Cpu {
     uint32_t eax, ecx, edx, ebx, esp, ebp, esi, edi; // capstone/x86 encoding order
     uint32_t teb;                                    // guest address of the thread's TEB (fs base)
     uint8_t df;                                      // direction flag: the only flag that survives calls
+    Flags xfl;                                       // flags handed across a call boundary (audited sites only)
+    uint8_t ftop;                                    // x87 top-of-stack index (0 = empty stack at reset)
+    uint16_t fcw, fsw;                               // x87 control word; status word (C0-C3 only, TOP kept in ftop)
+    uint32_t mxcsr;
+    double st[8];                                    // x87 registers as doubles (physical order; ST(i) macro)
+    uint64_t mm[8];                                  // MMX registers, modelled separately from st[] (LIFTER.md A3)
+    Xmm xmm[8];
     // set by the runtime when lifted code stops abnormally
     uint32_t trap_addr, trap_code;
 } Cpu;
 
-// Status flags are function-local in lifted code: the Win32 ABI never passes them across calls.
-typedef struct Flags {
-    uint8_t cf, pf, af, zf, sf, of;
-} Flags;
 
 // ---- guest memory -----------------------------------------------------------------------
 extern uint8_t *g_mem; // base of the 4 GiB guest arena
@@ -41,7 +63,9 @@ typedef uint64_t __attribute__((aligned(1), may_alias)) u64a;
 typedef void (*LiftedFn)(Cpu *);
 void rt_dispatch(Cpu *cpu, uint32_t target);                      // indirect call / jump
 void rt_trap(Cpu *cpu, uint32_t addr, uint32_t code) __attribute__((noreturn));
-enum { TRAP_INT3 = 1, TRAP_BAD_JUMP = 2, TRAP_DIV = 3, TRAP_UNSUPPORTED = 4, TRAP_NO_TARGET = 5 };
+void rt_cpuid(Cpu *cpu);                                          // fixed feature set, see runtime.c
+void rt_rdtsc(Cpu *cpu);
+enum { TRAP_INT3 = 1, TRAP_BAD_JUMP = 2, TRAP_DIV = 3, TRAP_UNSUPPORTED = 4, TRAP_NO_TARGET = 5, TRAP_TIMEOUT = 6, TRAP_FALLTHROUGH = 7 };
 
 // ---- flag helpers ----------------------------------------------------------------------------
 #define LIFT_INLINE static inline __attribute__((always_inline))
@@ -193,6 +217,26 @@ LIFT_INLINE uint32_t shrd32(Flags *f, uint32_t a, uint32_t b, uint32_t c) {
     return r;
 }
 
+// Rotate through carry (33-bit rotate of CF:value), 32-bit forms.
+LIFT_INLINE uint32_t rcl32(Flags *f, uint32_t a, uint32_t c) {
+    c &= 31;
+    if (!c) return a;
+    uint64_t w = ((uint64_t)f->cf << 32) | a;
+    uint64_t r = ((w << c) | (w >> (33 - c))) & 0x1FFFFFFFFull;
+    f->cf = (uint8_t)(r >> 32);
+    f->of = (uint8_t)((((uint32_t)r) >> 31) ^ f->cf);
+    return (uint32_t)r;
+}
+LIFT_INLINE uint32_t rcr32(Flags *f, uint32_t a, uint32_t c) {
+    c &= 31;
+    if (!c) return a;
+    uint64_t w = ((uint64_t)f->cf << 32) | a;
+    uint64_t r = ((w >> c) | (w << (33 - c))) & 0x1FFFFFFFFull;
+    f->cf = (uint8_t)(r >> 32);
+    f->of = (uint8_t)((((uint32_t)r) >> 31) ^ ((((uint32_t)r) >> 30) & 1));
+    return (uint32_t)r;
+}
+
 // Conditions (Jcc / SETcc / CMOVcc), indexed by the x86 condition code 0..15.
 #define CC_O (fl.of)
 #define CC_NO (!fl.of)
@@ -217,6 +261,42 @@ LIFT_INLINE uint8_t flags_to_ah(const Flags *f) { // LAHF layout: SF ZF 0 AF 0 P
 LIFT_INLINE void ah_to_flags(Flags *f, uint8_t ah) {
     f->sf = (ah >> 7) & 1, f->zf = (ah >> 6) & 1, f->af = (ah >> 4) & 1, f->pf = (ah >> 2) & 1, f->cf = ah & 1;
 }
+
+// EFLAGS image for PUSHFD/POPFD (IF always set; bit 1 always set).
+LIFT_INLINE uint32_t flags_to_eflags(const Flags *f, const Cpu *cpu) {
+    return (uint32_t)(f->cf | 2 | (f->pf << 2) | (f->af << 4) | (f->zf << 6) | (f->sf << 7) | 0x200 | (cpu->df << 10) | (f->of << 11));
+}
+LIFT_INLINE void eflags_to_flags(Flags *f, Cpu *cpu, uint32_t v) {
+    f->cf = v & 1, f->pf = (v >> 2) & 1, f->af = (v >> 4) & 1, f->zf = (v >> 6) & 1, f->sf = (v >> 7) & 1, f->of = (v >> 11) & 1;
+    cpu->df = (v >> 10) & 1;
+}
+// LOCKed read-modify-write on guest memory. Atomic when the operand is naturally aligned (always the
+// case for compiler-generated code); a misaligned operand (legal on x86, a fault for arm64 exclusives)
+// falls back to a plain sequence.
+LIFT_INLINE int lk_cas32(uint32_t a, uint32_t *expected, uint32_t desired) {
+    if (__builtin_expect((a & 3) == 0, 1))
+        return __atomic_compare_exchange_n((uint32_t *)(g_mem + a), expected, desired, 0, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST);
+    uint32_t cur = M32(a);
+    if (cur == *expected) { M32(a) = desired; return 1; }
+    *expected = cur;
+    return 0;
+}
+LIFT_INLINE int lk_cas64(uint32_t a, uint64_t *expected, uint64_t desired) {
+    if (__builtin_expect((a & 7) == 0, 1))
+        return __atomic_compare_exchange_n((uint64_t *)(g_mem + a), expected, desired, 0, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST);
+    uint64_t cur = M64(a);
+    if (cur == *expected) { M64(a) = desired; return 1; }
+    *expected = cur;
+    return 0;
+}
+LIFT_INLINE uint32_t lk_xadd32(uint32_t a, uint32_t v) {
+    if (__builtin_expect((a & 3) == 0, 1)) return __atomic_fetch_add((uint32_t *)(g_mem + a), v, __ATOMIC_SEQ_CST);
+    uint32_t cur = M32(a);
+    M32(a) = cur + v;
+    return cur;
+}
+
+#include "lifted_fp.h"
 
 #ifdef __cplusplus
 }

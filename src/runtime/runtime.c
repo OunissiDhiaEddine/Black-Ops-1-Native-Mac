@@ -65,3 +65,27 @@ void rt_trap(Cpu *cpu, uint32_t addr, uint32_t code) {
     cpu->trap_code = code;
     longjmp(g_trap_jmp, (int)code);
 }
+
+// CPUID: a fixed, conservative x86 feature set. SSE3/SSSE3/SSE4 are deliberately NOT reported so
+// that CPU-dispatched code takes its SSE2 paths (the lifter does not implement the newer sets).
+void rt_cpuid(Cpu *cpu) {
+    uint32_t leaf = cpu->eax;
+    cpu->eax = cpu->ebx = cpu->ecx = cpu->edx = 0;
+    if (leaf == 0) {
+        cpu->eax = 1;
+        cpu->ebx = 0x756E6547, cpu->edx = 0x49656E69, cpu->ecx = 0x6C65746E; // "GenuineIntel"
+    } else if (leaf == 1) {
+        cpu->eax = 0x000006FB; // family 6 model 15 (Core 2)
+        cpu->ebx = 0x00010800; // CLFLUSH line 64, 1 logical processor
+        cpu->edx = (1u << 0) | (1u << 4) | (1u << 8) | (1u << 15) | (1u << 23) | (1u << 24) | (1u << 25) | (1u << 26);
+    } else if (leaf == 0x80000000u) {
+        cpu->eax = 0x80000000u;
+    }
+}
+
+#include <time.h>
+void rt_rdtsc(Cpu *cpu) {
+    uint64_t t = clock_gettime_nsec_np(CLOCK_UPTIME_RAW) * 3; // pretend 3 GHz
+    cpu->eax = (uint32_t)t;
+    cpu->edx = (uint32_t)(t >> 32);
+}

@@ -21,6 +21,8 @@ import capstone
 import capstone.x86 as X
 import pefile
 
+import lift_fp
+
 ROOT = Path(__file__).resolve().parent.parent.parent
 EXE = ROOT / "reference" / "Call of Duty Black Ops" / "BlackOps.exe"
 EXP = ROOT / "re" / "ghidra_export"
@@ -43,6 +45,8 @@ class Unsupported(Exception):
 
 
 class Lifter:
+    Unsupported = Unsupported
+
     def __init__(self):
         raw = EXE.read_bytes()
         self.pe = pefile.PE(data=raw, fast_load=True)
@@ -50,6 +54,8 @@ class Lifter:
         self.image = self.pe.get_memory_mapped_image()
         self.md = capstone.Cs(capstone.CS_ARCH_X86, capstone.CS_MODE_32)
         self.md.detail = True
+        self.code = [(self.base + sec.VirtualAddress, self.base + sec.VirtualAddress + sec.Misc_VirtualSize)
+                     for sec in self.pe.sections if sec.Characteristics & 0x20000000]       # IMAGE_SCN_MEM_EXECUTE
         self.funcs = {}                       # addr -> name
         self.blocks = defaultdict(list)       # func -> [(start, end)]
         with (EXP / "functions.csv").open() as f:
@@ -59,11 +65,24 @@ class Lifter:
             for r in csv.DictReader(f):
                 if r["func"]:
                     self.blocks[int(r["func"], 16)].append((int(r["start"], 16), int(r["end"], 16)))
+        # A1 exceptions (tools/lifter/flag_audit.py): functions that read flags at entry / whose flags are read by callers
+        self.fl_in, self.fl_out = set(), set()
+        audit = ROOT / "re" / "flag_audit.json"
+        if audit.exists():
+            a = json.loads(audit.read_text())
+            self.fl_in = {int(k, 16) for k in a["entry_live"]}
+            self.fl_out = {int(c["target"], 16) for c in a["after_call"] if c["target"] != "indirect"}
         self.tables = {}                      # insn addr -> [targets]
         with (EXP / "jumptables.csv").open() as f:
             for r in csv.DictReader(f):
                 if r["kind"] == "jump" and r["targets"]:
-                    self.tables[int(r["insn"], 16)] = [int(t, 16) for t in r["targets"].split(";")]
+                    # Ghidra also lists `jmp [IAT slot]` with the slot address as "target": keep only real code
+                    ts = [t for t in (int(t, 16) for t in r["targets"].split(";")) if self.is_code(t)]
+                    if ts:
+                        self.tables[int(r["insn"], 16)] = ts
+
+    def is_code(self, va):
+        return any(a <= va < b for a, b in self.code)
 
     # ---- operand helpers -----------------------------------------------------------------
     def rd_reg(self, reg):
@@ -139,14 +158,17 @@ class Lifter:
             m = m.split(" ", 1)[1]            # lock prefix: atomicity handled in T-044 (single-threaded tests)
         parts = m.split()
         rep = None
-        if parts[0] in ("rep", "repe", "repne"):
-            rep, m = parts[0], parts[1]
+        if parts[0] in ("rep", "repe", "repne", "repz", "repnz"):
+            rep, m = {"repz": "repe", "repnz": "repne"}.get(parts[0], parts[0]), parts[1]
+            if m.startswith("ret"):               # "rep ret": branch-predictor padding idiom
+                rep = None
 
         def goto(target):
             if target in in_func:
                 return f"goto L_{target:08x};"
             if target in self.funcs:
-                return f"{{ f_{target:08x}(cpu); return; }}"      # tail call
+                pre = "cpu->xfl = fl; " if target in self.fl_in else ""
+                return f"{{ {pre}f_{target:08x}(cpu); return; }}"      # tail call
             return f"{{ rt_dispatch(cpu, 0x{target:08x}u); return; }}"
 
         def binop(name, write=True, carry_only=False):
@@ -297,32 +319,93 @@ class Lifter:
             if ops[0].type == X.X86_OP_IMM:
                 t = ops[0].imm & 0xFFFFFFFF
                 if t in self.funcs:
-                    return [f"PUSH32(0x{ret:08x}u); f_{t:08x}(cpu);"]
+                    pre = "cpu->xfl = fl; " if t in self.fl_in else ""
+                    post = " fl = cpu->xfl;" if t in self.fl_out else ""
+                    return [f"{pre}PUSH32(0x{ret:08x}u); f_{t:08x}(cpu);{post}"]
                 return [f"PUSH32(0x{ret:08x}u); rt_dispatch(cpu, 0x{t:08x}u);"]
             return [f"{{ uint32_t t_ = {self.rd(ops[0])}; PUSH32(0x{ret:08x}u); rt_dispatch(cpu, t_); }}"]
         if m in ("ret", "retn"):
             extra = ops[0].imm if n else 0
-            return [f"cpu->esp += {4 + extra}; return;"]
+            pre = "cpu->xfl = fl; " if fn_addr in self.fl_out else ""
+            return [f"{pre}cpu->esp += {4 + extra}; return;"]
         raise Unsupported(m.split()[0] if not rep else m)
+
+    # ---- function body repair ---------------------------------------------------------------------
+    TERMINATORS = ("jmp", "ret", "retn", "retf", "int3", "hlt", "ud2")
+
+    def extend(self, fn, by_start):
+        """Follow direct jumps and fallthroughs that leave the Ghidra body without entering another
+        function at its entry (shared tails, bodies Ghidra cut short, code after "noreturn" calls) by
+        decoding the missing blocks here; they are emitted as part of THIS function (tail duplication).
+        Returns (number of blocks added, set of fallthrough addresses that could not be decoded)."""
+        work, dead_ends, added = [], set(), 0
+
+        def exits(got):
+            last = got[-1]
+            out = []
+            for i in got:
+                m = i.mnemonic
+                if (m == "jmp" or m == "jecxz" or (m[0] == "j" and m[1:] in CC)) and i.operands[0].type == X.X86_OP_IMM:
+                    out.append((i.operands[0].imm & 0xFFFFFFFF, False))
+                if i.address in self.tables:
+                    out.extend((t, False) for t in self.tables[i.address])
+            if last.mnemonic not in self.TERMINATORS and not last.mnemonic.startswith("ret"):
+                out.append((last.address + last.size, last.mnemonic == "call"))
+            return out
+
+        for got in list(by_start.values()):
+            work.extend(exits(got))
+        while work:
+            t, after_call = work.pop()
+            if t in by_start or t in self.funcs or not self.is_code(t):
+                continue
+            got = []
+            a = t
+            while True:
+                i = next(self.md.disasm(self.image[a - self.base: a - self.base + 16], a), None)
+                if i is None or len(got) > 4000:
+                    got = None
+                    break
+                got.append(i)
+                a += i.size
+                m = i.mnemonic
+                if m in self.TERMINATORS or m.startswith("ret") or m == "jecxz" or (m[0] == "j" and m[1:] in CC):
+                    break
+                if a in by_start or a in self.funcs:
+                    break
+            if got is None:
+                if after_call:
+                    dead_ends.add(t)
+                    continue
+                raise Unsupported("jump target does not decode")
+            by_start[t] = got
+            added += 1
+            work.extend(exits(got))
+        return added, dead_ends
 
     # ---- one function ---------------------------------------------------------------------------
     def lift_function(self, fn):
         blocks = sorted(set(self.blocks.get(fn, [])))
         if not blocks:
             raise Unsupported("no blocks")
-        starts = {s for s, _ in blocks}
-        insns = []
+        by_start = {}
         for s, e in blocks:
             data = self.image[s - self.base: e + 1 - self.base]
             got = list(self.md.disasm(data, s))
             if not got or got[-1].address + got[-1].size != e + 1:
                 raise Unsupported("block does not decode cleanly")
-            insns.append((s, got))
+            by_start[s] = got
+        ext, dead_ends = self.extend(fn, by_start)
+        insns = sorted(by_start.items())
+        starts = set(by_start)
         # every direct branch target inside the function must start a block we emit
-        lines = [f"void f_{fn:08x}(Cpu *cpu) {{", "    Flags fl = {0, 0, 0, 0, 0, 0}; (void)fl;"]
+        lines = [f"void f_{fn:08x}(Cpu *cpu) {{",
+                 "    Flags fl = cpu->xfl; (void)fl;" if fn in self.fl_in else "    Flags fl = {0, 0, 0, 0, 0, 0}; (void)fl;"]
         if blocks[0][0] != fn:
             lines.append(f"    goto L_{fn:08x};")
         info = {"calls": 0, "indirect": 0, "fs": False, "insns": 0}
+        if ext:
+            info["ext"] = ext
         bad = []
         for idx, (s, got) in enumerate(insns):
             lines.append(f"L_{s:08x}: ;")
@@ -333,9 +416,17 @@ class Lifter:
                         info["fs"] = True
                 try:
                     c = self.lift_insn(i, fn, starts)
-                except Unsupported as e:                       # keep going: census of ALL blockers
-                    bad.append(str(e))
-                    continue
+                except Unsupported as e:                       # not an integer instruction: FP / SIMD / leftovers
+                    c = None
+                    try:
+                        c = lift_fp.lift(self, i, i.mnemonic.split()[-1])
+                    except Unsupported as e2:
+                        e = e2
+                    if c is None:                              # keep going: census of ALL blockers
+                        bad.append(str(e))
+                        continue
+                    if any(lift_fp.is_mm(o) for o in i.operands):
+                        info["mmx"] = True
                 if i.mnemonic == "call":
                     info["calls"] += 1
                 if "rt_dispatch" in " ".join(c):
@@ -349,7 +440,10 @@ class Lifter:
                 if nxt in starts:
                     lines.append(f"    goto L_{nxt:08x};")
                 elif nxt in self.funcs:
-                    lines.append(f"    f_{nxt:08x}(cpu); return;")   # falls into the next function
+                    pre = "cpu->xfl = fl; " if nxt in self.fl_in else ""
+                    lines.append(f"    {pre}f_{nxt:08x}(cpu); return;")   # falls into the next function
+                elif nxt in dead_ends:                          # code after a call that Ghidra says never returns
+                    lines.append(f"    rt_trap(cpu, 0x{nxt:08x}u, TRAP_FALLTHROUGH);")
                 else:
                     bad.append("fallthrough leaves the function")
         if bad:
@@ -374,19 +468,28 @@ def main() -> int:
     todo = sorted(int(a, 16) for a in args.only.split(",")) if args.only else sorted(L.funcs)
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
-    for old in out.glob("lifted_*.c"):
-        old.unlink()
+    written = set()
+
+    def emit(name, text):
+        """Write only when the content changed, so that scripts/difftest.sh can rebuild incrementally."""
+        f = out / name
+        written.add(name)
+        if not f.exists() or f.read_text() != text:
+            f.write_text(text)
+
     ok, reasons, meta = [], Counter(), {}
     all_reasons, func_reasons = Counter(), Counter()   # per instruction / per function containing it
-    texts = []
-    for fn in todo:
+    unlifted = {}
+    texts = defaultdict(list)                  # chunk index (by position among ALL functions: stable) -> bodies
+    for pos, fn in enumerate(todo):
         try:
             text, info = L.lift_function(fn)
             ok.append(fn)
             meta[fn] = info
-            texts.append(text)
+            texts[pos // args.chunk].append(text)
         except Unsupported as e:
             reasons[str(e)] += 1
+            unlifted[f"0x{fn:08x}"] = str(e)
             every = getattr(e, "all", [str(e)])
             all_reasons.update(every)
             for r in set(every):
@@ -394,10 +497,10 @@ def main() -> int:
         except Exception as e:  # decoding surprises must not stop the batch
             reasons[f"internal: {type(e).__name__}"] += 1
     protos = "\n".join(f"void f_{a:08x}(Cpu *cpu);" for a in sorted(L.funcs))
-    (out / "lifted_protos.h").write_text("// GENERATED by tools/lifter/lift.py — do not edit\n#include \"lifted.h\"\n" + protos + "\n")
-    for k in range(0, len(texts), args.chunk):
-        (out / f"lifted_{k // args.chunk:04d}.c").write_text(
-            "// GENERATED by tools/lifter/lift.py — do not edit\n#include \"lifted_protos.h\"\n\n" + "\n\n".join(texts[k:k + args.chunk]) + "\n")
+    emit("lifted_protos.h", "// GENERATED by tools/lifter/lift.py — do not edit\n#include \"lifted.h\"\n" + protos + "\n")
+    for k, bodies in sorted(texts.items()):
+        emit(f"lifted_{k:04d}.c",
+             "// GENERATED by tools/lifter/lift.py — do not edit\n#include \"lifted_protos.h\"\n\n" + "\n\n".join(bodies) + "\n")
     # address table for rt_dispatch + stubs for functions that are not lifted yet
     okset = set(ok)
     tab = ["// GENERATED by tools/lifter/lift.py — do not edit", "#include \"lifted_protos.h\"", ""]
@@ -408,17 +511,26 @@ def main() -> int:
     tab += [f"    {{0x{a:08x}u, f_{a:08x}}}," for a in sorted(L.funcs)]
     tab.append("};")
     tab.append(f"const unsigned g_lifted_count = {len(L.funcs)};")
-    (out / "lifted_table.c").write_text("\n".join(tab) + "\n")
+    emit("lifted_table.c", "\n".join(tab) + "\n")
+    for stale in out.glob("lifted_*.c"):
+        if stale.name not in written:
+            stale.unlink()
     (out / "lifted_meta.json").write_text(json.dumps({f"0x{a:08x}": meta[a] for a in ok}))
     total = len(todo)
     print(f"functions {total}: lifted {len(ok)} ({100.0 * len(ok) / max(total, 1):.1f}%), "
           f"instructions lifted {sum(m['insns'] for m in meta.values()):,}")
     for r, c in reasons.most_common(40):
         print(f"  {c:6d}  {r}")
+    for r, c in lift_fp.MISMATCH.most_common():
+        print(f"  x87 decode mismatch: {c:6d}  {r}")
     if args.stats:
         Path(args.stats).write_text(json.dumps({
             "functions": total, "lifted": len(ok), "instructions_lifted": sum(m["insns"] for m in meta.values()),
             "leaf_lifted": sum(1 for m in meta.values() if not m["xfer"] and not m["indirect"]),
+            "functions_with_repaired_body": sum(1 for m in meta.values() if m.get("ext")),
+            "blocks_added_by_repair": sum(m.get("ext", 0) for m in meta.values()),
+            "x87_decode_mismatches": dict(lift_fp.MISMATCH),
+            "unlifted": unlifted,
             "blockers": dict(reasons.most_common()),
             "blockers_all_instructions": dict(all_reasons.most_common()),
             "blockers_functions_containing": dict(func_reasons.most_common())}, indent=1) + "\n")

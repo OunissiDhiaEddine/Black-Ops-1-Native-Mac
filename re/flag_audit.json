@@ -1,0 +1,64 @@
+{
+ "functions_analysed": 21960,
+ "functions_reading_flags_at_entry": 9,
+ "call_sites_reading_flags_after_return": 3,
+ "callees_whose_flags_are_read": {
+  "0x00974a15": 3
+ },
+ "entry_live": {
+  "0x0042e8b0": [
+   "CF",
+   "ZF"
+  ],
+  "0x007dc550": [
+   "CF"
+  ],
+  "0x00966098": [
+   "ZF"
+  ],
+  "0x0096db08": [
+   "ZF"
+  ],
+  "0x0096dbdd": [
+   "ZF"
+  ],
+  "0x0096dd18": [
+   "ZF"
+  ],
+  "0x0096e328": [
+   "ZF"
+  ],
+  "0x0096e458": [
+   "ZF"
+  ],
+  "0x009710af": [
+   "ZF"
+  ]
+ },
+ "after_call": [
+  {
+   "call": "0x00966c87",
+   "in": "0x00966c5d",
+   "target": "0x00974a15",
+   "flags": [
+    "ZF"
+   ]
+  },
+  {
+   "call": "0x00968693",
+   "in": "0x00968600",
+   "target": "0x00974a15",
+   "flags": [
+    "ZF"
+   ]
+  },
+  {
+   "call": "0x009710b3",
+   "in": "0x009710af",
+   "target": "0x00974a15",
+   "flags": [
+    "ZF"
+   ]
+  }
+ ]
+}
