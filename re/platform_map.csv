@@ -1,0 +1,335 @@
+dll,function,subsystem,disposition,planned_if_reached,static_sites,runtime_calls,runs_seen,host_plan
+advapi32.dll,CryptReleaseContext,crypto,shim,shim,1,0,0,CryptGenRandom -> arc4random_buf; contexts are dummy handles
+advapi32.dll,CryptAcquireContextA,crypto,shim,shim,1,3,3,CryptGenRandom -> arc4random_buf; contexts are dummy handles
+advapi32.dll,CryptGenRandom,crypto,shim,shim,1,42,3,CryptGenRandom -> arc4random_buf; contexts are dummy handles
+advapi32.dll,InitializeSecurityDescriptor,security,stub,stub,4,0,0,token/privilege/descriptor calls succeed and do nothing
+advapi32.dll,SetSecurityDescriptorDacl,security,stub,stub,4,0,0,token/privilege/descriptor calls succeed and do nothing
+advapi32.dll,RegQueryValueExW,registry,shim,shim,1,0,0,"tiny read-only registry (install path, language) from a config file"
+advapi32.dll,RegOpenKeyExW,registry,shim,shim,4,0,0,"tiny read-only registry (install path, language) from a config file"
+advapi32.dll,RegCloseKey,registry,shim,shim,4,0,0,"tiny read-only registry (install path, language) from a config file"
+advapi32.dll,OpenProcessToken,security,stub,stub,1,0,0,token/privilege/descriptor calls succeed and do nothing
+advapi32.dll,OpenThreadToken,security,stub,stub,1,0,0,token/privilege/descriptor calls succeed and do nothing
+advapi32.dll,AdjustTokenPrivileges,security,stub,stub,2,0,0,token/privilege/descriptor calls succeed and do nothing
+advapi32.dll,LookupPrivilegeValueA,security,stub,stub,1,0,0,token/privilege/descriptor calls succeed and do nothing
+dsound.dll,,audio,stub,stub,3,6,3,"DirectSoundCreate8 / CaptureCreate -> DSERR_NODRIVER: voice chat off, Bink audio goes through the XAudio2 shim"
+dsound.dll,,audio,stub,stub,1,3,3,"DirectSoundCreate8 / CaptureCreate -> DSERR_NODRIVER: voice chat off, Bink audio goes through the XAudio2 shim"
+gdi32.dll,DeleteDC,gdi,stub,stub,3,0,0,fake DC handle / fixed device caps; fonts and brushes unused by the renderer
+gdi32.dll,CreateFontA,gdi,stub,stub,1,0,0,fake DC handle / fixed device caps; fonts and brushes unused by the renderer
+gdi32.dll,ExtEscape,gdi,stub,stub,1,0,0,fake DC handle / fixed device caps; fonts and brushes unused by the renderer
+gdi32.dll,SetDeviceGammaRamp,gfx,shim,shim,1,0,0,apply as a present-time gamma LUT in the Metal backend (do not touch the system gamma)
+gdi32.dll,GetDeviceCaps,gdi,stub,stub,1,0,0,fake DC handle / fixed device caps; fonts and brushes unused by the renderer
+gdi32.dll,CreateDCA,gdi,stub,stub,2,0,0,fake DC handle / fixed device caps; fonts and brushes unused by the renderer
+gdi32.dll,CreateSolidBrush,gdi,stub,stub,1,3,3,fake DC handle / fixed device caps; fonts and brushes unused by the renderer
+kernel32.dll,GetLocaleInfoA,nls,shim,shim,1,0,0,code page 1252 / en-US only; used by the statically linked CRT
+kernel32.dll,GetStringTypeW,nls,shim,shim,2,6,3,code page 1252 / en-US only; used by the statically linked CRT
+kernel32.dll,GetStringTypeA,nls,shim,shim,1,0,0,code page 1252 / en-US only; used by the statically linked CRT
+kernel32.dll,FreeEnvironmentStringsW,process,shim,shim,2,3,3,"process identity: fake module handle 0x400000, synthetic command line and environment"
+kernel32.dll,GetEnvironmentStrings,process,shim,shim,1,0,0,"process identity: fake module handle 0x400000, synthetic command line and environment"
+kernel32.dll,FreeEnvironmentStringsA,process,shim,shim,2,0,0,"process identity: fake module handle 0x400000, synthetic command line and environment"
+kernel32.dll,SetEnvironmentVariableW,process,shim,shim,1,0,0,"process identity: fake module handle 0x400000, synthetic command line and environment"
+kernel32.dll,SetEnvironmentVariableA,process,shim,shim,2,0,0,"process identity: fake module handle 0x400000, synthetic command line and environment"
+kernel32.dll,InitializeCriticalSectionAndSpinCount,sync,shim,shim,1,384,3,recursive mutex stored in the guest CRITICAL_SECTION's 24 bytes (index into a host table)
+kernel32.dll,VirtualQuery,mem,shim,shim,1,3,3,allocator over the 4 GiB guest arena (reserve/commit semantics; must satisfy one 300 MiB commit)
+kernel32.dll,GetFileType,fs,shim,shim,3,226,3,"POSIX file layer: case-insensitive, backslash paths, install root + writable overlay; ReadFileEx = async read + completion callback queued for SleepEx"
+kernel32.dll,SetHandleCount,fs,shim,shim,1,3,3,"POSIX file layer: case-insensitive, backslash paths, install root + writable overlay; ReadFileEx = async read + completion callback queued for SleepEx"
+kernel32.dll,FlushFileBuffers,fs,shim,shim,1,0,0,"POSIX file layer: case-insensitive, backslash paths, install root + writable overlay; ReadFileEx = async read + completion callback queued for SleepEx"
+kernel32.dll,GetConsoleMode,console,stub,stub,1,0,0,no console attached
+kernel32.dll,GetConsoleCP,console,stub,stub,1,0,0,no console attached
+kernel32.dll,HeapCreate,mem,shim,shim,1,3,3,allocator over the 4 GiB guest arena (reserve/commit semantics; must satisfy one 300 MiB commit)
+kernel32.dll,GetStdHandle,fs,shim,shim,2,9,3,"POSIX file layer: case-insensitive, backslash paths, install root + writable overlay; ReadFileEx = async read + completion callback queued for SleepEx"
+kernel32.dll,SetStdHandle,fs,shim,shim,2,0,0,"POSIX file layer: case-insensitive, backslash paths, install root + writable overlay; ReadFileEx = async read + completion callback queued for SleepEx"
+kernel32.dll,WriteConsoleA,console,stub,stub,1,0,0,no console attached
+kernel32.dll,QueryPerformanceCounter,time,shim,shim,18,7780756,3,monotonic + wall clock conversions
+kernel32.dll,InterlockedDecrement,sync,shim,shim,84,26561,3,C11 atomics on guest memory (the lifter may inline these)
+kernel32.dll,CreateFileA,fs,shim,shim,17,579,3,"POSIX file layer: case-insensitive, backslash paths, install root + writable overlay; ReadFileEx = async read + completion callback queued for SleepEx"
+kernel32.dll,ReadFileEx,fs,shim,shim,2,2005,3,"POSIX file layer: case-insensitive, backslash paths, install root + writable overlay; ReadFileEx = async read + completion callback queued for SleepEx"
+kernel32.dll,GetLastError,debug,shim,shim,80,839260,3,last-error in the TEB; OutputDebugString -> host log (this is the engine console); IsDebuggerPresent = 0
+kernel32.dll,SleepEx,thread,shim,shim,3,2005,3,"pthread per guest thread with its own CPU state, guest stack and TEB; SleepEx drains queued completion callbacks"
+kernel32.dll,CloseHandle,handles,shim,shim,133,113,3,"one handle table for files, threads, events, mutexes, semaphores, mappings"
+kernel32.dll,GetFileSize,fs,shim,shim,5,39,3,"POSIX file layer: case-insensitive, backslash paths, install root + writable overlay; ReadFileEx = async read + completion callback queued for SleepEx"
+kernel32.dll,GetFileAttributesA,fs,shim,shim,5,21,3,"POSIX file layer: case-insensitive, backslash paths, install root + writable overlay; ReadFileEx = async read + completion callback queued for SleepEx"
+kernel32.dll,InterlockedIncrement,sync,shim,shim,369,26848,3,C11 atomics on guest memory (the lifter may inline these)
+kernel32.dll,DebugBreak,debug,shim,shim,8,0,0,last-error in the TEB; OutputDebugString -> host log (this is the engine console); IsDebuggerPresent = 0
+kernel32.dll,ExitProcess,process,shim,shim,5,0,0,"process identity: fake module handle 0x400000, synthetic command line and environment"
+kernel32.dll,GetCurrentThreadId,thread,shim,shim,28,52733238,3,"pthread per guest thread with its own CPU state, guest stack and TEB; SleepEx drains queued completion callbacks"
+kernel32.dll,SwitchToThread,thread,shim,shim,6,469456,3,"pthread per guest thread with its own CPU state, guest stack and TEB; SleepEx drains queued completion callbacks"
+kernel32.dll,InterlockedExchange,sync,shim,shim,73,109420039,3,C11 atomics on guest memory (the lifter may inline these)
+kernel32.dll,GetCurrentProcess,process,shim,shim,15,9,3,"process identity: fake module handle 0x400000, synthetic command line and environment"
+kernel32.dll,GetProcAddress,process,shim,shim,21,132,3,name -> host shim table for the DLLs we provide; unknown DLL/function fails cleanly and is logged
+kernel32.dll,GetModuleHandleA,process,shim,shim,15,18,3,"process identity: fake module handle 0x400000, synthetic command line and environment"
+kernel32.dll,LoadLibraryA,process,shim,shim,7,6,3,name -> host shim table for the DLLs we provide; unknown DLL/function fails cleanly and is logged
+kernel32.dll,RaiseException,seh,shim,shim,4,39,3,guest SEH chain walk / unwind (docs/HOST_ABI.md §7) — the hard one
+kernel32.dll,Sleep,thread,shim,shim,32,2230606,3,"pthread per guest thread with its own CPU state, guest stack and TEB; SleepEx drains queued completion callbacks"
+kernel32.dll,SetEvent,sync,shim,shim,34,741166,3,event/mutex/semaphore objects on pthread cond vars; WaitForSingleObject also waits on thread handles
+kernel32.dll,ResetEvent,sync,shim,shim,21,486796,3,event/mutex/semaphore objects on pthread cond vars; WaitForSingleObject also waits on thread handles
+kernel32.dll,CreateEventA,sync,shim,shim,9,93,3,event/mutex/semaphore objects on pthread cond vars; WaitForSingleObject also waits on thread handles
+kernel32.dll,WaitForSingleObject,sync,shim,shim,40,4218973,3,event/mutex/semaphore objects on pthread cond vars; WaitForSingleObject also waits on thread handles
+kernel32.dll,GetProcessAffinityMask,sysinfo,shim,shim,2,3,3,"stable, sane answers (core count, 'Windows 7', memory capped below 4 GiB) — the game's auto-config depends on them"
+kernel32.dll,DuplicateHandle,handles,shim,shim,1,3,3,"one handle table for files, threads, events, mutexes, semaphores, mappings"
+kernel32.dll,GetCurrentThread,thread,shim,shim,4,6,3,"pthread per guest thread with its own CPU state, guest stack and TEB; SleepEx drains queued completion callbacks"
+kernel32.dll,CreateThread,thread,shim,shim,10,39,3,"pthread per guest thread with its own CPU state, guest stack and TEB; SleepEx drains queued completion callbacks"
+kernel32.dll,SuspendThread,thread,shim,shim,1,0,0,"pthread per guest thread with its own CPU state, guest stack and TEB; SleepEx drains queued completion callbacks"
+kernel32.dll,ResumeThread,thread,shim,shim,8,36,3,"pthread per guest thread with its own CPU state, guest stack and TEB; SleepEx drains queued completion callbacks"
+kernel32.dll,SetThreadPriority,thread,shim,shim,4,9,3,"pthread per guest thread with its own CPU state, guest stack and TEB; SleepEx drains queued completion callbacks"
+kernel32.dll,SetFileAttributesA,fs,shim,shim,2,0,0,"POSIX file layer: case-insensitive, backslash paths, install root + writable overlay; ReadFileEx = async read + completion callback queued for SleepEx"
+kernel32.dll,VirtualAlloc,mem,shim,shim,10,60960,3,allocator over the 4 GiB guest arena (reserve/commit semantics; must satisfy one 300 MiB commit)
+kernel32.dll,VirtualFree,mem,shim,shim,10,7080,3,allocator over the 4 GiB guest arena (reserve/commit semantics; must satisfy one 300 MiB commit)
+kernel32.dll,QueryPerformanceFrequency,time,shim,shim,6,38716,3,monotonic + wall clock conversions
+kernel32.dll,GetModuleFileNameA,process,shim,shim,8,9,3,"process identity: fake module handle 0x400000, synthetic command line and environment"
+kernel32.dll,InitializeCriticalSection,sync,shim,shim,2,216,3,recursive mutex stored in the guest CRITICAL_SECTION's 24 bytes (index into a host table)
+kernel32.dll,EnterCriticalSection,sync,shim,shim,8,19790838,3,recursive mutex stored in the guest CRITICAL_SECTION's 24 bytes (index into a host table)
+kernel32.dll,TryEnterCriticalSection,sync,shim,shim,1,14093,3,recursive mutex stored in the guest CRITICAL_SECTION's 24 bytes (index into a host table)
+kernel32.dll,LeaveCriticalSection,sync,shim,shim,7,19802298,3,recursive mutex stored in the guest CRITICAL_SECTION's 24 bytes (index into a host table)
+kernel32.dll,GetCurrentDirectoryA,fs,shim,shim,3,15,3,"POSIX file layer: case-insensitive, backslash paths, install root + writable overlay; ReadFileEx = async read + completion callback queued for SleepEx"
+kernel32.dll,GlobalMemoryStatus,sysinfo,shim,shim,2,0,0,"stable, sane answers (core count, 'Windows 7', memory capped below 4 GiB) — the game's auto-config depends on them"
+kernel32.dll,SetProcessAffinityMask,thread,stub,stub,2,0,0,"succeed, no effect"
+kernel32.dll,GetThreadPriority,thread,shim,shim,1,3,3,"pthread per guest thread with its own CPU state, guest stack and TEB; SleepEx drains queued completion callbacks"
+kernel32.dll,FormatMessageA,debug,shim,shim,1,0,0,last-error in the TEB; OutputDebugString -> host log (this is the engine console); IsDebuggerPresent = 0
+kernel32.dll,OutputDebugStringA,debug,shim,shim,1,109121,3,last-error in the TEB; OutputDebugString -> host log (this is the engine console); IsDebuggerPresent = 0
+kernel32.dll,GetDriveTypeA,fs,shim,shim,1,0,0,"POSIX file layer: case-insensitive, backslash paths, install root + writable overlay; ReadFileEx = async read + completion callback queued for SleepEx"
+kernel32.dll,GetConsoleOutputCP,console,stub,stub,1,0,0,no console attached
+kernel32.dll,GlobalSize,mem,shim,shim,1,0,0,allocator over the 4 GiB guest arena (reserve/commit semantics; must satisfy one 300 MiB commit)
+kernel32.dll,GlobalLock,mem,shim,shim,1,0,0,allocator over the 4 GiB guest arena (reserve/commit semantics; must satisfy one 300 MiB commit)
+kernel32.dll,GetVersionExA,sysinfo,shim,shim,2,3,3,"stable, sane answers (core count, 'Windows 7', memory capped below 4 GiB) — the game's auto-config depends on them"
+kernel32.dll,Module32Next,process,stub,stub,1,0,0,empty snapshot / self handle only
+kernel32.dll,Module32First,process,stub,stub,1,0,0,empty snapshot / self handle only
+kernel32.dll,CreateToolhelp32Snapshot,process,stub,stub,1,0,0,empty snapshot / self handle only
+kernel32.dll,OpenProcess,process,stub,stub,2,0,0,empty snapshot / self handle only
+kernel32.dll,WriteFile,fs,shim,shim,14,74,3,"POSIX file layer: case-insensitive, backslash paths, install root + writable overlay; ReadFileEx = async read + completion callback queued for SleepEx"
+kernel32.dll,ReadFile,fs,shim,shim,5,711926,3,"POSIX file layer: case-insensitive, backslash paths, install root + writable overlay; ReadFileEx = async read + completion callback queued for SleepEx"
+kernel32.dll,GetCurrentProcessId,process,shim,shim,6,6,3,"process identity: fake module handle 0x400000, synthetic command line and environment"
+kernel32.dll,DeleteFileA,fs,shim,shim,4,6,3,"POSIX file layer: case-insensitive, backslash paths, install root + writable overlay; ReadFileEx = async read + completion callback queued for SleepEx"
+kernel32.dll,SetErrorMode,debug,shim,shim,1,3,3,last-error in the TEB; OutputDebugString -> host log (this is the engine console); IsDebuggerPresent = 0
+kernel32.dll,SetUnhandledExceptionFilter,seh,shim,shim,6,6,3,guest SEH chain walk / unwind (docs/HOST_ABI.md §7) — the hard one
+kernel32.dll,DeleteCriticalSection,sync,shim,shim,3,0,0,recursive mutex stored in the guest CRITICAL_SECTION's 24 bytes (index into a host table)
+kernel32.dll,TerminateProcess,process,shim,shim,3,0,0,"process identity: fake module handle 0x400000, synthetic command line and environment"
+kernel32.dll,GetTickCount,time,shim,shim,12,3,3,monotonic + wall clock conversions
+kernel32.dll,MulDiv,nls,shim,shim,1,0,0,code page 1252 / en-US only; used by the statically linked CRT
+kernel32.dll,SetPriorityClass,thread,stub,stub,2,0,0,"succeed, no effect"
+kernel32.dll,SetThreadExecutionState,thread,stub,stub,1,101,3,"succeed, no effect"
+kernel32.dll,FreeLibrary,process,shim,shim,8,0,0,name -> host shim table for the DLLs we provide; unknown DLL/function fails cleanly and is logged
+kernel32.dll,WideCharToMultiByte,nls,shim,shim,13,24,3,code page 1252 / en-US only; used by the statically linked CRT
+kernel32.dll,ReleaseMutex,sync,shim,shim,4,2178,3,event/mutex/semaphore objects on pthread cond vars; WaitForSingleObject also waits on thread handles
+kernel32.dll,ReleaseSemaphore,sync,shim,shim,4,0,0,event/mutex/semaphore objects on pthread cond vars; WaitForSingleObject also waits on thread handles
+kernel32.dll,CreateMutexA,sync,shim,shim,3,12,3,event/mutex/semaphore objects on pthread cond vars; WaitForSingleObject also waits on thread handles
+kernel32.dll,CreateSemaphoreA,sync,shim,shim,4,0,0,event/mutex/semaphore objects on pthread cond vars; WaitForSingleObject also waits on thread handles
+kernel32.dll,SetFilePointer,fs,shim,shim,3,701712,3,"POSIX file layer: case-insensitive, backslash paths, install root + writable overlay; ReadFileEx = async read + completion callback queued for SleepEx"
+kernel32.dll,PulseEvent,sync,shim,shim,8,679839,3,event/mutex/semaphore objects on pthread cond vars; WaitForSingleObject also waits on thread handles
+kernel32.dll,SetLastError,debug,shim,shim,10,838723,3,last-error in the TEB; OutputDebugString -> host log (this is the engine console); IsDebuggerPresent = 0
+kernel32.dll,CreateEventW,sync,shim,shim,2,0,0,event/mutex/semaphore objects on pthread cond vars; WaitForSingleObject also waits on thread handles
+kernel32.dll,GetProcessTimes,sysinfo,shim,shim,3,0,0,"stable, sane answers (core count, 'Windows 7', memory capped below 4 GiB) — the game's auto-config depends on them"
+kernel32.dll,GetModuleHandleExA,process,shim,shim,2,0,0,"process identity: fake module handle 0x400000, synthetic command line and environment"
+kernel32.dll,GetFileTime,fs,shim,shim,3,0,0,"POSIX file layer: case-insensitive, backslash paths, install root + writable overlay; ReadFileEx = async read + completion callback queued for SleepEx"
+kernel32.dll,HeapFree,mem,shim,shim,112,50054,3,allocator over the 4 GiB guest arena (reserve/commit semantics; must satisfy one 300 MiB commit)
+kernel32.dll,GetProcessHeap,mem,shim,shim,121,0,0,allocator over the 4 GiB guest arena (reserve/commit semantics; must satisfy one 300 MiB commit)
+kernel32.dll,GetFileInformationByHandle,fs,shim,shim,50,0,0,"POSIX file layer: case-insensitive, backslash paths, install root + writable overlay; ReadFileEx = async read + completion callback queued for SleepEx"
+kernel32.dll,CreateFileW,fs,shim,shim,100,0,0,"POSIX file layer: case-insensitive, backslash paths, install root + writable overlay; ReadFileEx = async read + completion callback queued for SleepEx"
+kernel32.dll,lstrcmpiW,nls,shim,shim,40,0,0,code page 1252 / en-US only; used by the statically linked CRT
+kernel32.dll,lstrlenW,nls,shim,shim,40,0,0,code page 1252 / en-US only; used by the statically linked CRT
+kernel32.dll,GetFullPathNameW,fs,shim,shim,20,0,0,"POSIX file layer: case-insensitive, backslash paths, install root + writable overlay; ReadFileEx = async read + completion callback queued for SleepEx"
+kernel32.dll,HeapAlloc,mem,shim,shim,31,51708,3,allocator over the 4 GiB guest arena (reserve/commit semantics; must satisfy one 300 MiB commit)
+kernel32.dll,HeapSize,mem,shim,shim,22,211,3,allocator over the 4 GiB guest arena (reserve/commit semantics; must satisfy one 300 MiB commit)
+kernel32.dll,GetTimeZoneInformation,time,shim,shim,7,3,3,monotonic + wall clock conversions
+kernel32.dll,GetComputerNameA,sysinfo,shim,shim,4,0,0,"stable, sane answers (core count, 'Windows 7', memory capped below 4 GiB) — the game's auto-config depends on them"
+kernel32.dll,GetSystemTime,time,shim,shim,4,0,0,monotonic + wall clock conversions
+kernel32.dll,FileTimeToSystemTime,time,shim,shim,3,423,3,monotonic + wall clock conversions
+kernel32.dll,GetSystemTimeAsFileTime,time,shim,shim,4,2590,3,monotonic + wall clock conversions
+kernel32.dll,InterlockedCompareExchange,sync,shim,shim,1,0,0,C11 atomics on guest memory (the lifter may inline these)
+kernel32.dll,GetSystemDirectoryW,process,shim,shim,2,0,0,"process identity: fake module handle 0x400000, synthetic command line and environment"
+kernel32.dll,GetWindowsDirectoryW,process,shim,shim,1,0,0,"process identity: fake module handle 0x400000, synthetic command line and environment"
+kernel32.dll,GetModuleFileNameW,process,shim,shim,1,0,0,"process identity: fake module handle 0x400000, synthetic command line and environment"
+kernel32.dll,UnmapViewOfFile,fs,shim,shim,5,0,0,mmap into the guest arena (named mappings = process-local table)
+kernel32.dll,LockResource,process,shim,shim,1,0,0,serve the exe's .rsrc section from the mapped image
+kernel32.dll,LoadResource,process,shim,shim,1,0,0,serve the exe's .rsrc section from the mapped image
+kernel32.dll,SizeofResource,process,shim,shim,1,0,0,serve the exe's .rsrc section from the mapped image
+kernel32.dll,FindResourceW,process,shim,shim,1,0,0,serve the exe's .rsrc section from the mapped image
+kernel32.dll,GetConsoleWindow,console,stub,stub,1,0,0,no console attached
+kernel32.dll,GetCurrentDirectoryW,fs,shim,shim,1,0,0,"POSIX file layer: case-insensitive, backslash paths, install root + writable overlay; ReadFileEx = async read + completion callback queued for SleepEx"
+kernel32.dll,GetEnvironmentStringsW,process,shim,shim,3,3,3,"process identity: fake module handle 0x400000, synthetic command line and environment"
+kernel32.dll,GetCommandLineW,process,shim,shim,1,0,0,"process identity: fake module handle 0x400000, synthetic command line and environment"
+kernel32.dll,GetStartupInfoW,process,shim,shim,1,0,0,"process identity: fake module handle 0x400000, synthetic command line and environment"
+kernel32.dll,GetFullPathNameA,fs,shim,shim,3,15,3,"POSIX file layer: case-insensitive, backslash paths, install root + writable overlay; ReadFileEx = async read + completion callback queued for SleepEx"
+kernel32.dll,MapViewOfFile,fs,shim,shim,4,0,0,mmap into the guest arena (named mappings = process-local table)
+kernel32.dll,CreateFileMappingA,fs,shim,shim,3,0,0,mmap into the guest arena (named mappings = process-local table)
+kernel32.dll,OpenFileMappingA,fs,shim,shim,1,0,0,mmap into the guest arena (named mappings = process-local table)
+kernel32.dll,OpenEventA,sync,shim,shim,1,0,0,event/mutex/semaphore objects on pthread cond vars; WaitForSingleObject also waits on thread handles
+kernel32.dll,GetSystemInfo,sysinfo,shim,shim,1,3,3,"stable, sane answers (core count, 'Windows 7', memory capped below 4 GiB) — the game's auto-config depends on them"
+kernel32.dll,FindNextFileA,fs,shim,shim,1,141,3,"POSIX file layer: case-insensitive, backslash paths, install root + writable overlay; ReadFileEx = async read + completion callback queued for SleepEx"
+kernel32.dll,GetModuleHandleW,process,shim,shim,7,87,3,"process identity: fake module handle 0x400000, synthetic command line and environment"
+kernel32.dll,ExitThread,thread,shim,shim,2,0,0,"pthread per guest thread with its own CPU state, guest stack and TEB; SleepEx drains queued completion callbacks"
+kernel32.dll,MultiByteToWideChar,nls,shim,shim,9,18,3,code page 1252 / en-US only; used by the statically linked CRT
+kernel32.dll,HeapReAlloc,mem,shim,shim,5,6,3,allocator over the 4 GiB guest arena (reserve/commit semantics; must satisfy one 300 MiB commit)
+kernel32.dll,GetCommandLineA,process,shim,shim,1,3,3,"process identity: fake module handle 0x400000, synthetic command line and environment"
+kernel32.dll,GetStartupInfoA,process,shim,shim,2,6,3,"process identity: fake module handle 0x400000, synthetic command line and environment"
+kernel32.dll,GetCPInfo,nls,shim,shim,4,6,3,code page 1252 / en-US only; used by the statically linked CRT
+kernel32.dll,GetACP,nls,shim,shim,1,3,3,code page 1252 / en-US only; used by the statically linked CRT
+kernel32.dll,GetOEMCP,nls,shim,shim,1,0,0,code page 1252 / en-US only; used by the statically linked CRT
+kernel32.dll,IsValidCodePage,nls,shim,shim,1,3,3,code page 1252 / en-US only; used by the statically linked CRT
+kernel32.dll,TlsGetValue,thread,shim,shim,6,1096635,3,per-thread slot array in the emulated TEB
+kernel32.dll,TlsAlloc,thread,shim,shim,2,3,3,per-thread slot array in the emulated TEB
+kernel32.dll,TlsSetValue,thread,shim,shim,3,21,3,per-thread slot array in the emulated TEB
+kernel32.dll,TlsFree,thread,shim,shim,2,0,0,per-thread slot array in the emulated TEB
+kernel32.dll,LCMapStringA,nls,shim,shim,2,0,0,code page 1252 / en-US only; used by the statically linked CRT
+kernel32.dll,LCMapStringW,nls,shim,shim,3,15,3,code page 1252 / en-US only; used by the statically linked CRT
+kernel32.dll,WriteConsoleW,console,stub,stub,1,0,0,no console attached
+kernel32.dll,CompareStringA,nls,shim,shim,1,0,0,code page 1252 / en-US only; used by the statically linked CRT
+kernel32.dll,CompareStringW,nls,shim,shim,3,0,0,code page 1252 / en-US only; used by the statically linked CRT
+kernel32.dll,SetEndOfFile,fs,shim,shim,1,0,0,"POSIX file layer: case-insensitive, backslash paths, install root + writable overlay; ReadFileEx = async read + completion callback queued for SleepEx"
+kernel32.dll,TerminateThread,thread,shim,shim,1,0,0,"pthread per guest thread with its own CPU state, guest stack and TEB; SleepEx drains queued completion callbacks"
+kernel32.dll,GetExitCodeThread,thread,shim,shim,1,0,0,"pthread per guest thread with its own CPU state, guest stack and TEB; SleepEx drains queued completion callbacks"
+kernel32.dll,FindFirstFileA,fs,shim,shim,1,162,3,"POSIX file layer: case-insensitive, backslash paths, install root + writable overlay; ReadFileEx = async read + completion callback queued for SleepEx"
+kernel32.dll,FileTimeToLocalFileTime,time,shim,shim,1,423,3,monotonic + wall clock conversions
+kernel32.dll,FindClose,fs,shim,shim,1,3,3,"POSIX file layer: case-insensitive, backslash paths, install root + writable overlay; ReadFileEx = async read + completion callback queued for SleepEx"
+kernel32.dll,CreateDirectoryA,fs,shim,shim,1,58,3,"POSIX file layer: case-insensitive, backslash paths, install root + writable overlay; ReadFileEx = async read + completion callback queued for SleepEx"
+kernel32.dll,IsDebuggerPresent,debug,shim,shim,2,0,0,last-error in the TEB; OutputDebugString -> host log (this is the engine console); IsDebuggerPresent = 0
+kernel32.dll,UnhandledExceptionFilter,seh,shim,shim,3,0,0,guest SEH chain walk / unwind (docs/HOST_ABI.md §7) — the hard one
+kernel32.dll,MoveFileA,fs,shim,shim,1,6,3,"POSIX file layer: case-insensitive, backslash paths, install root + writable overlay; ReadFileEx = async read + completion callback queued for SleepEx"
+kernel32.dll,GlobalUnlock,mem,shim,shim,1,0,0,allocator over the 4 GiB guest arena (reserve/commit semantics; must satisfy one 300 MiB commit)
+kernel32.dll,RtlUnwind,seh,shim,shim,4,0,0,guest SEH chain walk / unwind (docs/HOST_ABI.md §7) — the hard one
+psapi.dll,GetProcessMemoryInfo,os,stub,stub,1,0,0,plausible fixed process memory numbers
+shell32.dll,SHGetFolderPathA,fs,shim,shim,1,6,3,CSIDL -> ~/Library/Application Support/<app>/… mapped as a guest path
+shell32.dll,ShellExecuteA,os,stub,stub,3,0,0,log (opens URLs / help files)
+user32.dll,RegisterClassA,window,shim,shim,1,0,0,one emulated HWND + Win32 message queue fed by SDL events; the game's WndProc is called back as guest code
+user32.dll,DefWindowProcA,window,shim,shim,3,93,3,one emulated HWND + Win32 message queue fed by SDL events; the game's WndProc is called back as guest code
+user32.dll,DestroyWindow,window,shim,shim,6,0,0,one emulated HWND + Win32 message queue fed by SDL events; the game's WndProc is called back as guest code
+user32.dll,PostQuitMessage,window,shim,shim,1,0,0,one emulated HWND + Win32 message queue fed by SDL events; the game's WndProc is called back as guest code
+user32.dll,CallWindowProcA,window,shim,shim,1,0,0,one emulated HWND + Win32 message queue fed by SDL events; the game's WndProc is called back as guest code
+user32.dll,SetWindowTextA,window,shim,shim,2,0,0,one emulated HWND + Win32 message queue fed by SDL events; the game's WndProc is called back as guest code
+user32.dll,CloseWindow,window,shim,shim,1,0,0,one emulated HWND + Win32 message queue fed by SDL events; the game's WndProc is called back as guest code
+user32.dll,CallNextHookEx,window,stub,stub,1,0,0,hook handle that never fires (used to swallow system keys)
+user32.dll,GetAsyncKeyState,input,shim,shim,1,0,0,keyboard state table + cursor in window coordinates (SDL events -> Win32 semantics)
+user32.dll,SetWindowsHookExA,window,stub,stub,2,3,3,hook handle that never fires (used to swallow system keys)
+user32.dll,MapVirtualKeyA,input,shim,shim,1,0,0,keyboard state table + cursor in window coordinates (SDL events -> Win32 semantics)
+user32.dll,MoveWindow,window,shim,shim,1,0,0,one emulated HWND + Win32 message queue fed by SDL events; the game's WndProc is called back as guest code
+user32.dll,GetMonitorInfoA,display,shim,shim,4,6,3,display enumeration / desktop size from SDL; mode switches become window resizes
+user32.dll,MonitorFromWindow,display,shim,shim,3,0,0,display enumeration / desktop size from SDL; mode switches become window resizes
+user32.dll,RegisterWindowMessageA,window,shim,shim,1,3,3,one emulated HWND + Win32 message queue fed by SDL events; the game's WndProc is called back as guest code
+user32.dll,LoadImageA,window,stub,stub,1,0,0,opaque non-null handles
+user32.dll,LoadIconA,window,stub,stub,2,3,3,opaque non-null handles
+user32.dll,LoadCursorA,window,stub,stub,2,3,3,opaque non-null handles
+user32.dll,RegisterClassExA,window,shim,shim,1,3,3,one emulated HWND + Win32 message queue fed by SDL events; the game's WndProc is called back as guest code
+user32.dll,AdjustWindowRect,window,shim,shim,2,3,3,one emulated HWND + Win32 message queue fed by SDL events; the game's WndProc is called back as guest code
+user32.dll,OpenClipboard,window,shim,shim,1,0,0,NSPasteboard text via SDL clipboard
+user32.dll,GetClipboardData,window,shim,shim,1,0,0,NSPasteboard text via SDL clipboard
+user32.dll,CloseClipboard,window,shim,shim,1,0,0,NSPasteboard text via SDL clipboard
+user32.dll,GetMessageA,window,shim,shim,3,26,3,one emulated HWND + Win32 message queue fed by SDL events; the game's WndProc is called back as guest code
+user32.dll,DispatchMessageA,window,shim,shim,3,26,3,one emulated HWND + Win32 message queue fed by SDL events; the game's WndProc is called back as guest code
+user32.dll,TranslateMessage,window,shim,shim,2,26,3,one emulated HWND + Win32 message queue fed by SDL events; the game's WndProc is called back as guest code
+user32.dll,ShowWindow,window,shim,shim,5,3,3,one emulated HWND + Win32 message queue fed by SDL events; the game's WndProc is called back as guest code
+user32.dll,PostMessageA,window,shim,shim,1,0,0,one emulated HWND + Win32 message queue fed by SDL events; the game's WndProc is called back as guest code
+user32.dll,ShowCursor,input,shim,shim,3,441222,3,keyboard state table + cursor in window coordinates (SDL events -> Win32 semantics)
+user32.dll,ClientToScreen,input,shim,shim,3,0,0,keyboard state table + cursor in window coordinates (SDL events -> Win32 semantics)
+user32.dll,GetCursorPos,input,shim,shim,1,204955,3,keyboard state table + cursor in window coordinates (SDL events -> Win32 semantics)
+user32.dll,CreateWindowExA,window,shim,shim,3,3,3,one emulated HWND + Win32 message queue fed by SDL events; the game's WndProc is called back as guest code
+user32.dll,SendMessageA,window,shim,shim,3,0,0,one emulated HWND + Win32 message queue fed by SDL events; the game's WndProc is called back as guest code
+user32.dll,ScreenToClient,input,shim,shim,1,204955,3,keyboard state table + cursor in window coordinates (SDL events -> Win32 semantics)
+user32.dll,GetForegroundWindow,window,shim,shim,4,409916,3,one emulated HWND + Win32 message queue fed by SDL events; the game's WndProc is called back as guest code
+user32.dll,SetFocus,window,shim,shim,5,6,3,one emulated HWND + Win32 message queue fed by SDL events; the game's WndProc is called back as guest code
+user32.dll,SetCursorPos,input,shim,shim,4,0,0,keyboard state table + cursor in window coordinates (SDL events -> Win32 semantics)
+user32.dll,GetActiveWindow,window,shim,shim,9,0,0,one emulated HWND + Win32 message queue fed by SDL events; the game's WndProc is called back as guest code
+user32.dll,MessageBoxA,window,shim,shim,14,0,0,native alert (NSAlert / SDL_ShowMessageBox); auto-answer mode for tests
+user32.dll,ChangeDisplaySettingsA,display,shim,shim,1,0,0,display enumeration / desktop size from SDL; mode switches become window resizes
+user32.dll,EnumThreadWindows,window,shim,shim,1,0,0,one emulated HWND + Win32 message queue fed by SDL events; the game's WndProc is called back as guest code
+user32.dll,GetDesktopWindow,display,shim,shim,3,3,3,display enumeration / desktop size from SDL; mode switches become window resizes
+user32.dll,SetWindowPos,window,shim,shim,5,3,3,one emulated HWND + Win32 message queue fed by SDL events; the game's WndProc is called back as guest code
+user32.dll,GetDC,display,shim,shim,3,0,0,display enumeration / desktop size from SDL; mode switches become window resizes
+user32.dll,ReleaseDC,display,shim,shim,3,0,0,display enumeration / desktop size from SDL; mode switches become window resizes
+user32.dll,GetWindowTextA,window,shim,shim,2,0,0,one emulated HWND + Win32 message queue fed by SDL events; the game's WndProc is called back as guest code
+user32.dll,SetWindowLongA,window,shim,shim,3,0,0,one emulated HWND + Win32 message queue fed by SDL events; the game's WndProc is called back as guest code
+user32.dll,GetWindowLongA,window,shim,shim,2,3,3,one emulated HWND + Win32 message queue fed by SDL events; the game's WndProc is called back as guest code
+user32.dll,GetWindowRect,window,shim,shim,3,0,0,one emulated HWND + Win32 message queue fed by SDL events; the game's WndProc is called back as guest code
+user32.dll,AdjustWindowRectEx,window,shim,shim,3,3,3,one emulated HWND + Win32 message queue fed by SDL events; the game's WndProc is called back as guest code
+user32.dll,IsWindow,window,shim,shim,1,0,0,one emulated HWND + Win32 message queue fed by SDL events; the game's WndProc is called back as guest code
+user32.dll,MonitorFromPoint,display,shim,shim,1,3,3,display enumeration / desktop size from SDL; mode switches become window resizes
+user32.dll,EnumDisplayMonitors,display,shim,shim,1,0,0,display enumeration / desktop size from SDL; mode switches become window resizes
+user32.dll,PeekMessageA,window,shim,shim,1,15687,3,one emulated HWND + Win32 message queue fed by SDL events; the game's WndProc is called back as guest code
+user32.dll,MessageBoxW,window,shim,shim,2,0,0,native alert (NSAlert / SDL_ShowMessageBox); auto-answer mode for tests
+user32.dll,GetSystemMetrics,display,shim,shim,2,3,3,display enumeration / desktop size from SDL; mode switches become window resizes
+winmm.dll,mixerSetControlDetails,audio,stub,stub,3,0,0,"no mixer / capture devices: MMSYSERR_NODRIVER, 0 devices"
+winmm.dll,timeEndPeriod,time,shim,shim,1,0,0,mach_absolute_time based millisecond clock; periods are no-ops
+winmm.dll,timeBeginPeriod,time,shim,shim,1,3,3,mach_absolute_time based millisecond clock; periods are no-ops
+winmm.dll,mixerGetControlDetailsA,audio,stub,stub,5,0,0,"no mixer / capture devices: MMSYSERR_NODRIVER, 0 devices"
+winmm.dll,mixerGetLineControlsA,audio,stub,stub,5,6,3,"no mixer / capture devices: MMSYSERR_NODRIVER, 0 devices"
+winmm.dll,mixerClose,audio,stub,stub,5,6,3,"no mixer / capture devices: MMSYSERR_NODRIVER, 0 devices"
+winmm.dll,mixerGetLineInfoA,audio,stub,stub,5,18,3,"no mixer / capture devices: MMSYSERR_NODRIVER, 0 devices"
+winmm.dll,mixerOpen,audio,stub,stub,5,15,3,"no mixer / capture devices: MMSYSERR_NODRIVER, 0 devices"
+winmm.dll,mixerGetNumDevs,audio,stub,stub,5,15,3,"no mixer / capture devices: MMSYSERR_NODRIVER, 0 devices"
+winmm.dll,waveInGetNumDevs,audio,stub,stub,5,15,3,"no mixer / capture devices: MMSYSERR_NODRIVER, 0 devices"
+winmm.dll,timeGetTime,time,shim,shim,8,2370688,3,mach_absolute_time based millisecond clock; periods are no-ops
+ws2_32.dll,connect,net,shim,shim,1,12,3,thin Winsock -> BSD sockets layer (error-code translation); policy switch to run fully offline
+ws2_32.dll,ioctlsocket,net,shim,shim,2,24,3,thin Winsock -> BSD sockets layer (error-code translation); policy switch to run fully offline
+ws2_32.dll,setsockopt,net,shim,shim,1,12,3,thin Winsock -> BSD sockets layer (error-code translation); policy switch to run fully offline
+ws2_32.dll,bind,net,shim,shim,1,12,3,thin Winsock -> BSD sockets layer (error-code translation); policy switch to run fully offline
+ws2_32.dll,ntohs,net,shim,shim,2,0,0,thin Winsock -> BSD sockets layer (error-code translation); policy switch to run fully offline
+ws2_32.dll,send,net,shim,shim,1,24,3,thin Winsock -> BSD sockets layer (error-code translation); policy switch to run fully offline
+ws2_32.dll,inet_ntoa,net,shim,shim,1,6,3,thin Winsock -> BSD sockets layer (error-code translation); policy switch to run fully offline
+ws2_32.dll,recv,net,shim,shim,1,340,3,thin Winsock -> BSD sockets layer (error-code translation); policy switch to run fully offline
+ws2_32.dll,__WSAFDIsSet,net,shim,shim,3,272,3,thin Winsock -> BSD sockets layer (error-code translation); policy switch to run fully offline
+ws2_32.dll,getsockname,net,shim,shim,1,0,0,thin Winsock -> BSD sockets layer (error-code translation); policy switch to run fully offline
+wsock32.dll,recvfrom,net,shim,shim,1,31829,3,thin Winsock -> BSD sockets layer (error-code translation); policy switch to run fully offline
+wsock32.dll,select,net,shim,shim,2,136,3,thin Winsock -> BSD sockets layer (error-code translation); policy switch to run fully offline
+wsock32.dll,gethostname,net,shim,shim,1,6,3,thin Winsock -> BSD sockets layer (error-code translation); policy switch to run fully offline
+wsock32.dll,WSAStartup,net,shim,shim,1,3,3,thin Winsock -> BSD sockets layer (error-code translation); policy switch to run fully offline
+wsock32.dll,sendto,net,shim,shim,1,0,0,thin Winsock -> BSD sockets layer (error-code translation); policy switch to run fully offline
+wsock32.dll,closesocket,net,shim,shim,5,21,3,thin Winsock -> BSD sockets layer (error-code translation); policy switch to run fully offline
+wsock32.dll,htons,net,shim,shim,3,24,3,thin Winsock -> BSD sockets layer (error-code translation); policy switch to run fully offline
+wsock32.dll,inet_addr,net,shim,shim,3,0,0,thin Winsock -> BSD sockets layer (error-code translation); policy switch to run fully offline
+wsock32.dll,gethostbyname,net,shim,shim,3,21,3,thin Winsock -> BSD sockets layer (error-code translation); policy switch to run fully offline
+wsock32.dll,WSAGetLastError,net,shim,shim,10,32133,3,thin Winsock -> BSD sockets layer (error-code translation); policy switch to run fully offline
+wsock32.dll,socket,net,shim,shim,2,24,3,thin Winsock -> BSD sockets layer (error-code translation); policy switch to run fully offline
+xinput1_3.dll,,input,shim,shim,1,3,3,XInputGetState/SetState/GetCapabilities over SDL3 gamepad (GameController.framework underneath)
+xinput1_3.dll,,input,shim,shim,1,204955,3,XInputGetState/SetState/GetCapabilities over SDL3 gamepad (GameController.framework underneath)
+xinput1_3.dll,,input,shim,shim,2,204955,3,XInputGetState/SetState/GetCapabilities over SDL3 gamepad (GameController.framework underneath)
+binkw32.dll,_BinkRegisterFrameBuffers@8,video,shim,shim,1,9,3,Bink API re-implemented over FFmpeg's bink decoder (ADR-008)
+binkw32.dll,_BinkSetSoundSystem@8,video,shim,shim,1,9,3,Bink API re-implemented over FFmpeg's bink decoder (ADR-008)
+binkw32.dll,_BinkClose@4,video,shim,shim,1,9,3,Bink API re-implemented over FFmpeg's bink decoder (ADR-008)
+binkw32.dll,_BinkGetError@0,video,shim,shim,2,0,0,Bink API re-implemented over FFmpeg's bink decoder (ADR-008)
+binkw32.dll,_BinkOpen@8,video,shim,shim,2,9,3,Bink API re-implemented over FFmpeg's bink decoder (ADR-008)
+binkw32.dll,_BinkSetSoundTrack@8,video,shim,shim,1,9,3,Bink API re-implemented over FFmpeg's bink decoder (ADR-008)
+binkw32.dll,_BinkSetIOSize@4,video,shim,shim,1,6,3,Bink API re-implemented over FFmpeg's bink decoder (ADR-008)
+binkw32.dll,_BinkDoFrame@4,video,shim,shim,1,7572,3,Bink API re-implemented over FFmpeg's bink decoder (ADR-008)
+binkw32.dll,_BinkSetMemory@8,video,shim,shim,1,9,3,Bink API re-implemented over FFmpeg's bink decoder (ADR-008)
+binkw32.dll,_BinkWait@4,video,shim,shim,2,5680,3,Bink API re-implemented over FFmpeg's bink decoder (ADR-008)
+binkw32.dll,_BinkOpenDirectSound@4,video,shim,shim,1,9,3,Bink API re-implemented over FFmpeg's bink decoder (ADR-008)
+binkw32.dll,_BinkControlBackgroundIO@8,video,shim,shim,6,26,3,Bink API re-implemented over FFmpeg's bink decoder (ADR-008)
+binkw32.dll,_BinkSetVolume@12,video,shim,shim,1,45,3,Bink API re-implemented over FFmpeg's bink decoder (ADR-008)
+binkw32.dll,_BinkPause@8,video,shim,shim,3,12,3,Bink API re-implemented over FFmpeg's bink decoder (ADR-008)
+binkw32.dll,_BinkShouldSkip@4,video,shim,shim,1,5914,3,Bink API re-implemented over FFmpeg's bink decoder (ADR-008)
+binkw32.dll,_BinkGetFrameBuffersInfo@8,video,shim,shim,1,9,3,Bink API re-implemented over FFmpeg's bink decoder (ADR-008)
+binkw32.dll,_BinkNextFrame@4,video,shim,shim,1,7572,3,Bink API re-implemented over FFmpeg's bink decoder (ADR-008)
+binkw32.dll,_BinkGetRealtime@12,video,shim,shim,3,15452,3,Bink API re-implemented over FFmpeg's bink decoder (ADR-008)
+d3d9.dll,Direct3DCreate9,gfx,shim,shim,2,6,3,src/rhi + src/metal: guest-visible IDirect3D9/Device9 COM objects (docs/HOST_ABI.md §4)
+d3d9.dll,D3DPERF_BeginEvent,gfx,stub,stub,2,14813,3,return 0 (optionally forward to MTLCommandBuffer debug groups)
+d3d9.dll,D3DPERF_EndEvent,gfx,stub,stub,2,14812,3,return 0 (optionally forward to MTLCommandBuffer debug groups)
+d3dx9_43.dll,D3DXCompileShader,gfx,stub,stub,1,0,0,never called at runtime (census); return E_FAIL and log
+d3dx9_43.dll,D3DXSaveSurfaceToFileA,gfx,shim,shim,1,0,0,"screenshots: read back the Metal texture, encode with ImageIO"
+d3dx9_43.dll,D3DXCreateBuffer,gfx,shim,shim,1,0,0,guest-visible ID3DXBuffer over guest heap memory
+d3dx9_43.dll,D3DXGetShaderConstantTable,gfx,shim,shim,1,0,0,small bytecode parsers (CTAB / dcl tokens) — needed if the census shows calls
+d3dx9_43.dll,D3DXGetShaderInputSemantics,gfx,shim,shim,1,0,0,small bytecode parsers (CTAB / dcl tokens) — needed if the census shows calls
+d3dx9_43.dll,D3DXGetShaderOutputSemantics,gfx,shim,shim,1,0,0,small bytecode parsers (CTAB / dcl tokens) — needed if the census shows calls
+ole32.dll,StringFromGUID2,com,shim,shim,3,0,0,pure string <-> GUID conversion
+ole32.dll,CoInitializeEx,com,stub,stub,1,3,3,S_OK
+ole32.dll,CoUninitialize,com,not needed,stub,0,0,0,S_OK
+ole32.dll,CLSIDFromString,com,shim,shim,1,54,3,pure string <-> GUID conversion
+ole32.dll,CoTaskMemAlloc,mem,shim,shim,2,1089,3,guest heap
+ole32.dll,CoTaskMemFree,mem,shim,shim,2,0,0,guest heap
+ole32.dll,CoCreateInstance,com,shim,shim,2,6,3,CLSID dispatch: XAudio2 2.7 -> FAudio-backed guest COM object (ADR-009); anything else REGDB_E_CLASSNOTREG
+steam_api.dll,SteamAPI_RegisterCallResult,steam,shim,shim,1,12,3,bridge to the real Steam client through the Steamworks macOS library — no emulation of ownership/login (ADR-010)
+steam_api.dll,SteamAPI_Shutdown,steam,shim,shim,1,0,0,bridge to the real Steam client through the Steamworks macOS library — no emulation of ownership/login (ADR-010)
+steam_api.dll,SteamAPI_UnregisterCallback,steam,shim,shim,16,0,0,bridge to the real Steam client through the Steamworks macOS library — no emulation of ownership/login (ADR-010)
+steam_api.dll,SteamAPI_UnregisterCallResult,steam,shim,shim,2,0,0,bridge to the real Steam client through the Steamworks macOS library — no emulation of ownership/login (ADR-010)
+steam_api.dll,SteamAPI_RunCallbacks,steam,shim,shim,2,17176,3,bridge to the real Steam client through the Steamworks macOS library — no emulation of ownership/login (ADR-010)
+steam_api.dll,SteamAPI_RestartAppIfNecessary,steam,shim,shim,1,3,3,bridge to the real Steam client through the Steamworks macOS library — no emulation of ownership/login (ADR-010)
+steam_api.dll,SteamAPI_Init,steam,shim,shim,1,3,3,bridge to the real Steam client through the Steamworks macOS library — no emulation of ownership/login (ADR-010)
+steam_api.dll,SteamApps,steam,shim,shim,1,15,3,bridge to the real Steam client through the Steamworks macOS library — no emulation of ownership/login (ADR-010)
+steam_api.dll,SteamGameServer,steam,shim,shim,7,0,0,bridge to the real Steam client through the Steamworks macOS library — no emulation of ownership/login (ADR-010)
+steam_api.dll,SteamGameServer_RunCallbacks,steam,not needed,shim,0,0,0,bridge to the real Steam client through the Steamworks macOS library — no emulation of ownership/login (ADR-010)
+steam_api.dll,SteamMasterServerUpdater,steam,shim,shim,2,0,0,bridge to the real Steam client through the Steamworks macOS library — no emulation of ownership/login (ADR-010)
+steam_api.dll,SteamGameServer_Init,steam,shim,shim,1,0,0,bridge to the real Steam client through the Steamworks macOS library — no emulation of ownership/login (ADR-010)
+steam_api.dll,SteamGameServer_Shutdown,steam,shim,shim,1,0,0,bridge to the real Steam client through the Steamworks macOS library — no emulation of ownership/login (ADR-010)
+steam_api.dll,SteamNetworking,steam,shim,shim,4,17164,3,bridge to the real Steam client through the Steamworks macOS library — no emulation of ownership/login (ADR-010)
+steam_api.dll,SteamUserStats,steam,shim,shim,4,432,3,bridge to the real Steam client through the Steamworks macOS library — no emulation of ownership/login (ADR-010)
+steam_api.dll,SteamAPI_RegisterCallback,steam,shim,shim,12,18,3,bridge to the real Steam client through the Steamworks macOS library — no emulation of ownership/login (ADR-010)
+steam_api.dll,SteamUtils,steam,shim,shim,3,6,3,bridge to the real Steam client through the Steamworks macOS library — no emulation of ownership/login (ADR-010)
+steam_api.dll,SteamUser,steam,shim,shim,10,118302,3,bridge to the real Steam client through the Steamworks macOS library — no emulation of ownership/login (ADR-010)
+steam_api.dll,SteamFriends,steam,shim,shim,18,24,3,bridge to the real Steam client through the Steamworks macOS library — no emulation of ownership/login (ADR-010)

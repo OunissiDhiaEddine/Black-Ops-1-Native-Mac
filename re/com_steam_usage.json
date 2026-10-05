@@ -1,0 +1,83 @@
+{
+ "cocreateinstance": [
+  {
+   "call_site": "0x004aaca3",
+   "guids": [
+    {
+     "va": "0xa27760",
+     "guid": "db05ea35-0329-4d4b-a53a-6dead03d3852",
+     "name": "CLSID_XAudio2_Debug"
+    },
+    {
+     "va": "0xa27e0c",
+     "guid": "5a508685-a254-4fba-9b82-9a24b00306af",
+     "name": "CLSID_XAudio2 (2.7)"
+    },
+    {
+     "va": "0x9f372c",
+     "guid": "8bcf1f58-9fe7-4583-8ac6-e2adc465c8bb",
+     "name": "IID_IXAudio2"
+    }
+   ]
+  },
+  {
+   "call_site": "0x008b1820",
+   "guids": [
+    {
+     "va": "0x9f372c",
+     "guid": "8bcf1f58-9fe7-4583-8ac6-e2adc465c8bb",
+     "name": "IID_IXAudio2"
+    },
+    {
+     "va": "0xa27e0c",
+     "guid": "5a508685-a254-4fba-9b82-9a24b00306af",
+     "name": "CLSID_XAudio2 (2.7)"
+    }
+   ]
+  }
+ ],
+ "steam_vtable_slots": {
+  "SteamApps": {
+   "7": 1
+  },
+  "SteamFriends": {
+   "3": 4,
+   "4": 3,
+   "5": 2,
+   "6": 1,
+   "20": 1,
+   "unresolved": 3
+  },
+  "SteamGameServer": {
+   "1": 1,
+   "3": 1,
+   "5": 1,
+   "7": 2,
+   "18": 1
+  },
+  "SteamMasterServerUpdater": {
+   "0": 1
+  },
+  "SteamNetworking": {
+   "0": 1,
+   "1": 1,
+   "2": 1,
+   "3": 1
+  },
+  "SteamUser": {
+   "2": 2,
+   "3": 1,
+   "4": 1,
+   "19": 1,
+   "20": 1
+  },
+  "SteamUserStats": {
+   "7": 1,
+   "10": 1
+  },
+  "SteamUtils": {
+   "9": 2,
+   "10": 1
+  }
+ }
+}

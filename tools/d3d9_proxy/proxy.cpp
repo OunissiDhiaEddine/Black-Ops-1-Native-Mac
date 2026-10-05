@@ -28,6 +28,8 @@
 //   BO1_KEYS            "ms:vk,ms:vk": post key presses to the game window (ms after device creation)
 //   BO1_CMDS            "ms|command;ms|command": queue engine console commands (ms after device
 //                       creation) through the game's own Cbuf_AddText — e.g. "40000|devmap cuba"
+//   BO1_IMPORT_CENSUS   file: count every call the exe makes through its import table (all DLLs)
+//                       and write "dll,function,ordinal,calls" there — input for the platform map
 //   BO1_MSGBOX_AUTO     1: answer message boxes without showing them (and log them)
 //   BO1_IAT_HOOKS       1: also log CreateThread / VirtualAlloc / GlobalMemoryStatus (diagnostics)
 //   BO1_HOOK_HEAP       1 (with BO1_IAT_HOOKS): also log HeapAlloc requests >= 256 MiB
@@ -126,6 +128,7 @@ static char g_events[65536]; // device creation, dialogs, captures, diagnostics
 static size_t g_events_len;
 static DWORD g_t0;
 static void write_census(void);
+static void write_import_census(void);
 static LONG g_d3dx_compiles; // D3DXCompileShader calls seen (IAT hook)
 
 // Events are rare, and the process is usually killed rather than unloaded, so every event
@@ -507,6 +510,7 @@ static DWORD WINAPI flush_thread(LPVOID) {
         Sleep(2000);
         write_census();
         write_frametimes();
+        write_import_census();
         if (g_trace != INVALID_HANDLE_VALUE) {
             EnterCriticalSection(&g_tlock);
             t_flush();
@@ -1005,6 +1009,61 @@ static void *patch_iat(const char *dll, const char *func, void *replacement, WOR
     return NULL;
 }
 
+// ---- import census: which of the exe's imports are actually called, and how often ----------
+// Every IAT slot is redirected to a 13-byte stub `lock inc [counter] ; jmp [original]`, which
+// touches no register and nothing on the stack, so it is transparent for any calling convention.
+#define IMP_MAX 512
+static struct {
+    const char *dll, *name;
+    WORD ordinal;
+    void *orig;
+    volatile LONG calls;
+} g_imp[IMP_MAX];
+static int g_imp_count;
+static char g_imp_path[MAX_PATH];
+static void write_import_census(void) {
+    if (!g_imp_count) return;
+    FILE *f = fopen(g_imp_path, "w");
+    if (!f) return;
+    fprintf(f, "dll,function,ordinal,calls\n");
+    for (int i = 0; i < g_imp_count; i++)
+        fprintf(f, "%s,%s,%u,%ld\n", g_imp[i].dll, g_imp[i].name ? g_imp[i].name : "", g_imp[i].ordinal, g_imp[i].calls);
+    fclose(f);
+}
+static void install_import_census(void) {
+    if (!GetEnvironmentVariableA("BO1_IMPORT_CENSUS", g_imp_path, sizeof(g_imp_path)) || !g_imp_path[0]) return;
+    BYTE *base = (BYTE *)GetModuleHandleA(NULL);
+    IMAGE_NT_HEADERS *nt = (IMAGE_NT_HEADERS *)(base + ((IMAGE_DOS_HEADER *)base)->e_lfanew);
+    IMAGE_DATA_DIRECTORY dir = nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT];
+    BYTE *stubs = (BYTE *)VirtualAlloc(NULL, IMP_MAX * 16, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
+    if (!stubs) return;
+    for (IMAGE_IMPORT_DESCRIPTOR *d = (IMAGE_IMPORT_DESCRIPTOR *)(base + dir.VirtualAddress); d->Name; d++) {
+        if (!d->OriginalFirstThunk) continue;
+        IMAGE_THUNK_DATA *names = (IMAGE_THUNK_DATA *)(base + d->OriginalFirstThunk);
+        IMAGE_THUNK_DATA *iat = (IMAGE_THUNK_DATA *)(base + d->FirstThunk);
+        for (; names->u1.AddressOfData && g_imp_count < IMP_MAX; names++, iat++) {
+            int i = g_imp_count++;
+            g_imp[i].dll = (const char *)(base + d->Name);
+            if (names->u1.Ordinal & IMAGE_ORDINAL_FLAG)
+                g_imp[i].ordinal = (WORD)(names->u1.Ordinal & 0xFFFF);
+            else
+                g_imp[i].name = (const char *)((IMAGE_IMPORT_BY_NAME *)(base + names->u1.AddressOfData))->Name;
+            g_imp[i].orig = (void *)iat->u1.Function;
+            BYTE *st = stubs + i * 16; // 13 bytes used
+            st[0] = 0xF0; st[1] = 0xFF; st[2] = 0x05; // lock inc dword ptr [imm32]
+            *(DWORD *)(st + 3) = (DWORD)(DWORD_PTR)&g_imp[i].calls;
+            st[7] = 0xFF; st[8] = 0x25;               // jmp dword ptr [imm32]
+            *(DWORD *)(st + 9) = (DWORD)(DWORD_PTR)&g_imp[i].orig;
+            DWORD old;
+            VirtualProtect(&iat->u1.Function, sizeof(void *), PAGE_READWRITE, &old);
+            iat->u1.Function = (DWORD_PTR)st;
+            VirtualProtect(&iat->u1.Function, sizeof(void *), old, &old);
+        }
+    }
+    FlushInstructionCache(GetCurrentProcess(), stubs, IMP_MAX * 16);
+    event("import census: %d import slots redirected, writing %s\n", g_imp_count, g_imp_path);
+}
+
 typedef HANDLE(WINAPI *CreateThread_t)(LPSECURITY_ATTRIBUTES, SIZE_T, LPTHREAD_START_ROUTINE, LPVOID, DWORD, LPDWORD);
 static CreateThread_t g_real_CreateThread;
 static HANDLE WINAPI hooked_CreateThread(LPSECURITY_ATTRIBUTES sa, SIZE_T stack, LPTHREAD_START_ROUTINE start,
@@ -1074,6 +1133,38 @@ static void WINAPI hooked_GlobalMemoryStatus(LPMEMORYSTATUS ms) {
           ms->dwMemoryLoad, (unsigned long)ms->dwTotalPhys, (unsigned long)ms->dwAvailPhys,
           (unsigned long)ms->dwTotalPageFile, (unsigned long)ms->dwAvailPageFile, (unsigned long)ms->dwTotalVirtual,
           (unsigned long)ms->dwAvailVirtual, __builtin_return_address(0));
+}
+
+// Dynamic imports: what does the game look up by name at runtime? (BO1_IAT_HOOKS=1)
+typedef HMODULE(WINAPI *LoadLibraryA_t)(LPCSTR);
+typedef FARPROC(WINAPI *GetProcAddress_t)(HMODULE, LPCSTR);
+static LoadLibraryA_t g_real_LoadLibraryA;
+static GetProcAddress_t g_real_GetProcAddress;
+static LONG g_dyn_logged;
+static HMODULE WINAPI hooked_LoadLibraryA(LPCSTR name) {
+    HMODULE h = g_real_LoadLibraryA(name);
+    DWORD err = GetLastError();
+    if (InterlockedIncrement(&g_dyn_logged) <= 200)
+        event("LoadLibraryA(\"%s\") -> %p (caller ret=%p)\n", name ? name : "(null)", (void *)h, __builtin_return_address(0));
+    SetLastError(err);
+    return h;
+}
+static FARPROC WINAPI hooked_GetProcAddress(HMODULE mod, LPCSTR name) {
+    FARPROC p = g_real_GetProcAddress(mod, name);
+    DWORD err = GetLastError();
+    if (InterlockedIncrement(&g_dyn_logged) <= 200) {
+        char modname[MAX_PATH] = "?";
+        GetModuleFileNameA(mod, modname, sizeof(modname));
+        const char *base = strrchr(modname, '\\');
+        if ((DWORD_PTR)name < 0x10000)
+            event("GetProcAddress(%s, #%lu) -> %p (caller ret=%p)\n", base ? base + 1 : modname, (unsigned long)(DWORD_PTR)name,
+                  (void *)p, __builtin_return_address(0));
+        else
+            event("GetProcAddress(%s, \"%s\") -> %p (caller ret=%p)\n", base ? base + 1 : modname, name, (void *)p,
+                  __builtin_return_address(0));
+    }
+    SetLastError(err);
+    return p;
 }
 
 typedef int(WINAPI *gethostname_t)(char *, int);
@@ -1226,6 +1317,7 @@ extern "C" BOOL WINAPI DllMain(HINSTANCE inst, DWORD reason, LPVOID) {
             return FALSE;
         }
         open_trace();
+        install_import_census(); // first, so the specific hooks below chain through the counters
         // Message boxes block an unattended run ("Run in safe mode?", "hardware changed?", fatal
         // errors), so that one hook is on whenever BO1_MSGBOX_AUTO=1. The other import hooks are
         // diagnostics and stay off unless BO1_IAT_HOOKS=1.
@@ -1240,6 +1332,8 @@ extern "C" BOOL WINAPI DllMain(HINSTANCE inst, DWORD reason, LPVOID) {
             g_real_gethostname = (gethostname_t)patch_iat("WSOCK32.dll", "gethostname", (void *)hooked_gethostname, 57);
         if (diag) {
             g_real_CreateThread = (CreateThread_t)patch_iat("KERNEL32.dll", "CreateThread", (void *)hooked_CreateThread);
+            g_real_LoadLibraryA = (LoadLibraryA_t)patch_iat("KERNEL32.dll", "LoadLibraryA", (void *)hooked_LoadLibraryA);
+            g_real_GetProcAddress = (GetProcAddress_t)patch_iat("KERNEL32.dll", "GetProcAddress", (void *)hooked_GetProcAddress);
             g_real_VirtualAlloc = (VirtualAlloc_t)patch_iat("KERNEL32.dll", "VirtualAlloc", (void *)hooked_VirtualAlloc);
             g_real_GlobalMemoryStatus =
                 (GlobalMemoryStatus_t)patch_iat("KERNEL32.dll", "GlobalMemoryStatus", (void *)hooked_GlobalMemoryStatus);
