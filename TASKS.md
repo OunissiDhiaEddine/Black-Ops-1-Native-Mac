@@ -3,7 +3,7 @@ Status: TODO · NOW · DONE · BLOCKED. Only ONE task is NOW at a time. Mark DON
 Update this file at every checkpoint (see AGENTS.md rule 2).
 
 ## NOW
-- **T-011** (P1) BLOCKED on baseline stability: game boots and renders the intro under wine-devel 11.18 but never reaches the main menu (RE_NOTES § Baseline status). Needs a user decision on the next stack to try (LOG STATE).
+- **T-013** (P1) Extend the proxy to a full-argument binary trace (shader bytecode, vertex declarations, texture/surface descriptors, resource uploads); document the format in docs/.
 
 ## DONE
 - **T-001** (P0) DONE 2026-10-05 — game install present in `reference/`, `scripts/doctor.sh` run, tool availability recorded.
@@ -23,7 +23,7 @@ Update this file at every checkpoint (see AGENTS.md rule 2).
 
 ## P1 — Reference baseline
 - [x] **T-010** DECIDED 2026-10-05 (ADR-007 ACCEPTED: wine-stable 11.0 + wined3d under Rosetta 2, project-local). Install pending user action; versions to be recorded on first run. Choose baseline stack (ADR-007): install CrossOver or Wine+wine32on64 (ASK USER before installing). Record versions.
-- [ ] **T-011** PARTIAL — launch is repeatable and the intro renders (evidence: `tests/golden/baseline_wine_intro_legal_f60_800x600.png`, `artifacts/baseline/frames-20261005-143041/`), **main menu NOT reached**. `scripts/run_baseline.sh`: repeatable launch of SP; confirm main menu renders. Evidence: screenshot in `tests/golden/`.
+- [x] **T-011** DONE 2026-10-05 (evidence: `tests/golden/baseline_cx_main_menu_f1350_800x600.png`, `artifacts/baseline/d3d9_census-20261005-155243.txt` — main menu rendered on WineCX 24.0.7; `scripts/run_baseline.sh --wine cx --net --trace --keys "32000:0x20"`).
 - [x] **T-012** DONE 2026-10-05 (evidence: `artifacts/baseline/d3d9_census-20261005-143041.txt` — 886 frames, 37/119 device methods, call names + counts; RE_NOTES § D3D9 census). Also does back-buffer capture and optional import-table diagnostics. `tools/d3d9_proxy/`: d3d9.dll proxy logger (32-bit PE built with mingw-w64 or clang --target=i686-windows). First: log call names only.
 - [ ] **T-013** Extend proxy: full args, shader bytecode blobs, texture/surface descriptors, resource uploads -> binary trace format (document in docs/).
 - [ ] **T-014** Golden capture script: main menu, loading, scenes A/B/C + frame-time CSV.

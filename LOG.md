@@ -1,18 +1,16 @@
 # LOG
 
 ## STATE  (OVERWRITE this block at every checkpoint — it is the resume point)
-- **Date/time:** 2026-10-05 ~15:50
-- **Phase / task:** P1 — T-010 done, T-012 done, **T-011 blocked**: under wine-devel/staging 11.18 + wined3d-GL the game reaches the title screen ("Press Any Key") only in a minority of launches and never the main menu.
-- **Last completed:** network test (title-screen fatal error disappears with `--net`), scripted key presses (`--keys`), window screenshots (`--shots`), per-build prefixes (`--wine`), cleanup-trap fix.
-- **Next exact step:** needs a different D3D9 translation stack (user decision below). When one is available: `WINEDEBUG=-all,warn+debugstr scripts/run_baseline.sh --wine <name> --net --trace --capture 150 --shots 8 --seconds 120 --keys "32000:0x20,42000:0x0D"` and check `frames_presented` keeps growing past ~940 and the shots show the main menu.
-- **How to read a run:** `artifacts/baseline/d3d9_census-<stamp>.txt` ([events]: device creation, message boxes, key posts; per-method counts), `run-<stamp>.log` (`debugstr` = engine console, `err:` = Wine), `frames-<stamp>/` (back buffers), `shots-<stamp>/` (window screenshots).
+- **Date/time:** 2026-10-05 ~16:00
+- **Phase / task:** P1 — T-010, T-011, T-012 DONE. **NOW: T-013** (full-argument trace). Then T-014 (golden captures), T-015 (census).
+- **Last completed:** stable baseline found: WineCX 24.0.7 (ADR-007 revised); main menu reached and captured.
+- **Standard baseline command:** `WINEDEBUG=-all,warn+debugstr scripts/run_baseline.sh --wine cx --net --trace --capture 150 --seconds 90 --keys "32000:0x20"` (Space at 32 s passes "Press Any Key"; add more `ms:vk` pairs to drive menus: 0x0D enter, 0x26/0x28 up/down, 0x1B esc).
+- **Next exact step:** T-013 — add per-method argument decoders + post-hooks to `tools/d3d9_proxy` and a binary trace writer; then try reaching a mission (menu keys or `+devmap cuba`) for T-014.
+- **How to read a run:** `artifacts/baseline/d3d9_census-<stamp>.txt`, `run-<stamp>.log` (`debugstr` = engine console), `frames-<stamp>/` (back buffers). `--shots` only works while the game window is on the visible Space.
 - **Files in flight:** none uncommitted.
-- **UPDATE 15:50:** DXVK tried with user's OK (`--dxvk`; `artifacts/dxvk/dxvk-macOS-async-v1.10.3-20230507/`): device creation fails on stock MoltenVK (geometryShader / shaderCullDistance missing). Dead end on WineHQ builds.
-- **Open questions for the user:**
-  1. OK to download the open-source CrossOver-engine Wine build `WS12WineCX24.0.7_7.tar.xz` (172,348,356 B) from github.com/Sikarugir-App/Engines (release v1.0) into `artifacts/wine/`? Then: `--wine cx --dxvk` and plain `--wine cx`.
-  2. CrossOver: the installed copy is not CodeWeavers' build (main executable replaced + ad-hoc signed) and was not run. If they install the official trial from codeweavers.com (verify: `codesign -dv /Applications/CrossOver.app` shows `TeamIdentifier=9C6B7X7Z8E`), adapt run_baseline.sh to its CLI.
-- **Half-done / how to resume:** prefixes are at registry defaults (`VideoMemorySize`, `renderer`, `csmt` experiments all removed). `artifacts/game/steam_emu.ini` is back to `Offline=0`. Network is still denied by default; `--net` allows it (user said either is fine).
-- **Machine:** Apple M1 (arm64), 8 GB RAM, macOS 27.0.1 (26A434), Xcode 27.0, ~52 GB free. Rosetta 2 installed. Screen Recording granted to this app (window screenshots work). brew: cmake, ninja, ffmpeg, sevenzip, ghidra 12.1.4, openjdk@21, mingw-w64 14.0.0. Wine: `artifacts/wine/Wine Devel.app`, `Wine Staging.app` (both 11.18, user-supplied, user-approved in Gatekeeper).
+- **Open questions for the user:** none blocking. (User offered a Windows PC — optional native-D3D9 ground truth later.)
+- **Half-done / how to resume:** nothing half-done. WineHQ prefixes (`artifacts/wineprefix`, `-staging`) are obsolete and can be deleted.
+- **Machine:** Apple M1 (arm64), 8 GB RAM, macOS 27.0.1 (26A434), Xcode 27.0, ~51 GB free. Rosetta 2 installed; Screen Recording granted. brew: cmake, ninja, ffmpeg, sevenzip, ghidra 12.1.4, openjdk@21, mingw-w64 14.0.0. Wine: `artifacts/wine/cx/wswine.bundle` (WineCX 24.0.7, baseline), `Wine Devel.app` / `Wine Staging.app` (11.18; kept for their support dylibs). DXVK-macOS in `artifacts/dxvk` (unused).
 - **Reference copy:** user confirmed (2026-10-05) they own BO1; `reference/` read-only; working copy `artifacts/game` (APFS clone).
 
 ---
@@ -115,3 +113,10 @@ Entry template:
 - Learned: stock MoltenVK lacks geometryShader + shaderCullDistance that DXVK's D3D9 requests; DXVK runs never showed the random startup crash (3/3), which supports "OpenGL path is the unstable part".
 - Problems: user asked to fall back to the CrossOver copy in `artifacts/crossover/`; declined again (modified main executable, ad-hoc signature — RE_NOTES § Baseline status). Proposed the open-source CrossOver-engine build instead.
 - Next: see STATE.
+
+### 2026-10-05 ~16:00 — T-011 DONE — main menu on WineCX 24.0.7
+- Did: with the user's OK downloaded `WS12WineCX24.0.7_7.tar.xz` (172,348,356 B, Sikarugir-App/Engines) -> `artifacts/wine/cx/`; `run_baseline.sh --wine cx` (symlinks libinotify/libintl from the WineHQ build, `DYLD_FALLBACK_LIBRARY_PATH` for the rest); 2 runs with `--net --keys`.
+- Evidence: `tests/golden/baseline_cx_main_menu_f1350_800x600.png`, `baseline_cx_settings_sound_f2400_800x600.png`; `artifacts/baseline/d3d9_census-20261005-155243.txt` (2,496 frames) and the following run (2,276 frames, 1.84 M draws); `frames-20261005-155243/` (16 PNGs).
+- Learned: CrossOver's Wine is stable where WineHQ 11.18 is not, on the same OpenGL route -> the earlier crashes were the WineHQ WoW64/GL layer, not the game. The main menu is a real 3D scene (~800 draws/frame). `size aa010000` allocation failure is benign.
+- Problems: WMA decoding unavailable in this Wine (`wma_decoder_create GStreamer doesn't support WMA` x260) -> some audio may be silent in the baseline; irrelevant for D3D capture. `--shots` found no window because the game was on another Space.
+- Next: T-013.

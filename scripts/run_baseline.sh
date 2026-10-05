@@ -5,7 +5,7 @@
 #     --net     allow outbound network (default: denied with sandbox-exec; SP does not need it)
 #     --capture N   with --trace: dump the back buffer every N frames -> artifacts/baseline/frames-<stamp>/
 #     --seconds S   stop the game after S seconds (wineserver -k); default: run until it exits
-#     --wine NAME   which unpacked build under artifacts/wine to use: devel (default) | staging | stable
+#     --wine NAME   which unpacked build under artifacts/wine to use: devel (default) | staging | stable | cx
 #                   (each build gets its own prefix: artifacts/wineprefix[-NAME])
 #     --dxvk        use DXVK (artifacts/dxvk/*/x32/d3d9.dll, D3D9 -> Vulkan -> MoltenVK) instead of wined3d
 #     --keys SPEC   with --trace: scripted key presses, "ms:vk,ms:vk" (ms after device creation,
@@ -37,6 +37,15 @@ while [ $# -gt 0 ]; do
   shift
 done
 
+if [ "$WINE_NAME" = cx ]; then   # open-source CrossOver-engine build (Sikarugir WS12WineCX)
+  WINE_BIN="${WINE_BIN:-$ROOT/artifacts/wine/cx/wswine.bundle/bin}"
+  # The engine ships without its support dylibs (the Sikarugir wrapper normally provides them).
+  # Borrow them from the WineHQ build: libinotify/libintl via its rpath dir, the rest by fallback path.
+  SUPPORT_LIB=$(ls -d "$ROOT"/artifacts/wine/*.app/Contents/Resources/wine/lib 2>/dev/null | head -1)
+  [ -n "$SUPPORT_LIB" ] || { echo "cx engine needs a WineHQ build in artifacts/wine for support libraries"; exit 1; }
+  for l in libinotify.0.dylib libintl.8.dylib; do ln -sfn "$SUPPORT_LIB/$l" "$ROOT/artifacts/wine/cx/$l"; done
+  export DYLD_FALLBACK_LIBRARY_PATH="$SUPPORT_LIB:${DYLD_FALLBACK_LIBRARY_PATH:-/usr/lib}"
+fi
 WINE_BIN="${WINE_BIN:-$(ls -d "$ROOT"/artifacts/wine/*.app/Contents/Resources/wine/bin 2>/dev/null | grep -i "wine $WINE_NAME" | head -1)}"
 [ -n "$WINE_BIN" ] && [ -x "$WINE_BIN/wine" ] || { echo "Wine not found under artifacts/wine (ADR-007). Set WINE_BIN."; exit 1; }
 arch -x86_64 /usr/bin/true 2>/dev/null || { echo "Rosetta 2 is not installed (softwareupdate --install-rosetta)."; exit 1; }
@@ -56,7 +65,8 @@ export WINEDLLOVERRIDES="mscoree,mshtml=;winemenubuilder.exe=d"
 OUT="$ROOT/artifacts/baseline"; mkdir -p "$OUT"
 
 if [ ! -d "$WINEPREFIX/drive_c" ]; then
-  "$WINE_BIN/wineboot" --init >"$OUT/wineboot.log" 2>&1
+  if [ -x "$WINE_BIN/wineboot" ]; then "$WINE_BIN/wineboot" --init >"$OUT/wineboot.log" 2>&1
+  else "$WINE_BIN/wine" wineboot --init >"$OUT/wineboot.log" 2>&1; fi
   "$WINE_BIN/wineserver" -w
 fi
 # Containment: the prefix must not see the whole disk.

@@ -18,10 +18,13 @@ Lifted code uses `uint32_t` guest pointers over a reserved arena + base register
 
 ## ADR-006 — Platform layer: SDL3 vs raw AppKit/GameController — OPEN (decide in P2)
 
-## ADR-007 — Reference baseline stack — ACCEPTED (2026-10-05; user delegated: "choose the most optimized free way")
-**Update 2026-10-05:** the user downloaded `wine-devel-11.18-osx64.tar.xz` (SHA-256 `aa0ea4c8…7ba6f82`) and `wine-staging-11.18-osx64.tar.xz` from the same repo; **wine-devel 11.18** (plain upstream, no staging patches) is the build in use. Stable 11.0 remains the fallback if 11.18 regresses.
-**Decision:** WineHQ **wine-stable 11.0** for macOS (x86_64 build by Gcenx, the packaging WineHQ's macOS page and the Homebrew casks point to), running in new-WoW64 mode under **Rosetta 2**, D3D9 -> **wined3d** (Wine's built-in translation). Unpacked into `artifacts/wine/` (project-local, nothing in /Applications), prefix in `artifacts/wineprefix/`, launched only via `scripts/run_baseline.sh`.
-**Why:** free; scriptable from the CLI; runs 32-bit PE on Apple Silicon without 32-bit host libraries; wined3d needs no extra components. Used only as an oracle (golden frames, D3D9 trace) — performance of the baseline is irrelevant, correctness and repeatability matter.
-**Alternatives considered:** CrossOver (paid); Apple Game Porting Toolkit (D3DMetal targets D3D10+, download needs an Apple developer login); DXVK-macOS over MoltenVK (keep as fallback if wined3d misrenders: extra moving parts); Homebrew casks `wine-stable`/`wine@staging` (disabled by Homebrew on 2026-09-01: builds are not notarized and fail Gatekeeper).
-**Constraints found (2026-10-05):** Rosetta 2 is **not installed** on this Mac (`arch -x86_64 /usr/bin/true` fails) and every macOS Wine build needs it. Wine builds are unsigned/un-notarized.
-**Containment:** the prefix's `Z:` drive (whole filesystem) is removed; only `G:` -> `artifacts/game` is mapped; outbound network is denied with `sandbox-exec` unless `--net` is passed. Reason: the install's `steam_api.dll` is a packed third-party binary of unknown provenance.
+## ADR-007 — Reference baseline stack — ACCEPTED (revised 2026-10-05 15:55 after testing; user delegated the choice and approved each download)
+**Decision:** **WineCX 24.0.7** — the open-source build of CrossOver 24's Wine (`WS12WineCX24.0.7_7.tar.xz` from github.com/Sikarugir-App/Engines, SHA-256 `203f9e9f…445fd1c`, reports `wine-9.0 (SikarugirCX 24.0.7)`), x86_64 under Rosetta 2, WoW64 mode, D3D9 -> its **wined3d (OpenGL)**. Unpacked in `artifacts/wine/cx/`, prefix `artifacts/wineprefix-cx`, launched with `scripts/run_baseline.sh --wine cx --net`. Support dylibs (libinotify, libintl, freetype, gnutls…) are borrowed from the WineHQ build in `artifacts/wine/Wine Staging.app`.
+**Why:** the only stack tested on this Mac on which the game reaches and holds the main menu (2 of 2 runs, 2,276–2,496 frames, no crash). Free and scriptable.
+**Rejected after testing (details: RE_NOTES § Baseline status):**
+- WineHQ wine-devel / wine-staging 11.18 + wined3d-GL: ~60 launches, most die in Wine's 64-bit WoW64/OpenGL layer; never past the title screen.
+- Same + wined3d Vulkan backend: `vkCreateBufferView` crash, 3/3.
+- Same + DXVK-macOS 1.10.3: device creation fails, stock MoltenVK lacks geometryShader / shaderCullDistance, 3/3.
+- CrossOver.app supplied by the user: not executed (modified main executable, ad-hoc signature).
+**Run conditions:** network allowed (`--net`): with the sandbox denying network the game hits a fatal error at the title screen. Prefix `Z:` drive removed, `G:` = `artifacts/game`.
+**Option noted:** the user has a Windows PC available; the proxy is an ordinary Win32 DLL, so a native-D3D9 trace/golden set can be captured there if the Wine baseline's rendering is ever in doubt.
