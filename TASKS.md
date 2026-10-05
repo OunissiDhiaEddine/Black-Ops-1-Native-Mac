@@ -3,7 +3,7 @@ Status: TODO · NOW · DONE · BLOCKED. Only ONE task is NOW at a time. Mark DON
 Update this file at every checkpoint (see AGENTS.md rule 2).
 
 ## NOW
-- **T-042** (P4) Lifter coverage loop: x87 + SSE/SSE2 (scalar, packed) + MMX + leftovers, driven by `re/lift_coverage.json`; FP state in the diff tests.
+- **T-043** (P4) Differential tests over whole call trees (`scripts/difftest.sh 100000 3 3 all`), then **T-045** boot runtime (files in flight: `src/runtime/guest_os.{h,cpp}`).
 
 ## DONE
 - **T-001** (P0) DONE 2026-10-05 — game install present in `reference/`, `scripts/doctor.sh` run, tool availability recorded.
@@ -53,9 +53,9 @@ Update this file at every checkpoint (see AGENTS.md rule 2).
 ## P4 — Static recompilation (G1 passed 2026-10-05; ADR-013)
 - [x] **T-040** DONE 2026-10-05 (evidence: `docs/LIFTER.md`). `docs/LIFTER.md`: design (register/flag/memory model, control flow, calls, tables, x87/SSE plan, test method). Keep it current with the code.
 - [x] **T-041** DONE 2026-10-05 (evidence: `re/difftest_report.json` — 15,439/21,960 functions lift; 11,212/11,212 vectors over 2,867 leaf functions match Unicorn; 59.5% of their instructions executed; mutation check catches injected faults). (M4a) Lifter first cut: integer instructions; runtime skeleton (`src/runtime`: Cpu, arena, PE loader, address table); diff harness (`tests/diff`): Unicorn vs lifted on leaf functions. Evidence: pass rate report `re/difftest_report.json`.
-- [ ] **T-042** Coverage loop: lift ALL functions, histogram of unsupported instructions (`re/lift_coverage.json`), implement by frequency until >= 99% of functions lift. Order: remaining integer ops, string ops, x87, SSE/SSE2 scalar, SSE packed, MMX/SSSE3 leftovers.
+- [x] **T-042** DONE 2026-10-06 (evidence: `re/lift_coverage.json` — 21,952 / 21,960 functions lift, 1,588,514 instructions; `re/difftest_report.json` — leaf set with FP/SIMD state: 11,926 vectors, 11,923 pass, 2 NaN-payload-only, 1 known-wrong reference, 0 unexplained). Coverage loop: lift ALL functions, histogram of unsupported instructions (`re/lift_coverage.json`), implement by frequency until >= 99% of functions lift. Order: remaining integer ops, string ops, x87, SSE/SSE2 scalar, SSE packed, MMX/SSSE3 leftovers.
 - [ ] **T-043** Diff tests for non-leaf functions (calls stubbed/recorded), fs: (TEB) support in the harness, x87/SSE state comparison.
-- [ ] **T-044** Whole-image build: split into translation units, measure compile time and binary size on this machine; flags-live-across-call audit; unresolved switch tables (64) and unreached code (0.8%) lists.
+- [ ] **T-044** PARTLY DONE 2026-10-06: flag audit (`re/flag_audit.json`: 9 entry-live functions + 3 call sites, all handled via `Cpu.xfl`), LOCKed RMW atomic (0 non-atomic left), compile cost measured (docs/LIFTER.md §7), unlifted list = 8 (`re/lift_coverage.json`). Left: FTZ/DAZ/MXCSR audit, A2 (non-returning calls / stack tricks) audit. Whole-image build: split into translation units, measure compile time and binary size on this machine; flags-live-across-call audit; unresolved switch tables (64) and unreached code (0.8%) lists.
 - [ ] **T-045** Runtime for M4b: loader, TEB/TLS, threads, the shims the boot path calls (from `re/platform_map.csv`, hottest first), null D3D9 device -> boot headless to the main loop.
 - [ ] **T-046** (M4c) Diff-test suite green; x86_64 (Rosetta) build of the lifted code as a cross-check.
 - [ ] **T-024** (from P2) steam_api.dll interpreter spike (ADR-010) — needed before M4b can pass Steam init.

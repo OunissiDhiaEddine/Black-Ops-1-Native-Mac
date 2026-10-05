@@ -259,7 +259,7 @@ D9_MISC = {
     0xE4: ("ftst", "x87_com(cpu, ST(0), 0.0);"),
     0xE5: ("fxam", "x87_fxam(cpu);"),
     0xF0: ("f2xm1", "ST(0) = expm1(ST(0) * 0.69314718055994531);"),
-    0xF1: ("fyl2x", "{ double r_ = ST(1) * log2(ST(0)); x87_pop(cpu); ST(0) = r_; }"),
+    0xF1: ("fyl2x", "{ double a_ = ST(1), b_ = ST(0); double r_ = a_ * log2(b_); NANFIX64(r_, a_, b_); x87_pop(cpu); ST(0) = r_; }"),
     0xF2: ("fptan", "x87_fptan(cpu);"),
     0xF3: ("fpatan", "{ double r_ = atan2(ST(1), ST(0)); x87_pop(cpu); ST(0) = r_; }"),
     0xF5: ("fprem1", "x87_prem(cpu, 1);"),

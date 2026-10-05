@@ -1,18 +1,34 @@
 {
- "functions_total": 21960,
- "functions_lifted": 21860,
- "instructions_lifted": 1577412,
- "leaf_functions_lifted": 4790,
- "functions_tried": 600,
- "functions_with_vectors": 584,
- "instructions_executed": 15371,
- "instructions_in_tried_functions": 22114,
+ "selection": "leaf",
  "vectors_per_function": 3,
- "seed": 2,
- "vectors": 1707,
- "pass": 1705,
+ "seed": 3,
+ "functions_total": 21960,
+ "functions_lifted": 21952,
+ "instructions_lifted": 1588514,
+ "functions_tried": 4194,
+ "functions_with_vectors": 4082,
+ "instructions_executed": 107256,
+ "instructions_in_tried_functions": 167517,
+ "vectors_skipped_by_unicorn": {
+  "did not return within the instruction limit": 581,
+  "executed outside the code sections": 33,
+  "Unhandled CPU exception (UC_ERR_EXCEPTION)": 26,
+  "Invalid memory fetch (UC_ERR_FETCH_UNMAPPED)": 12,
+  "Invalid memory write (UC_ERR_WRITE_UNMAPPED)": 2,
+  "Invalid memory read (UC_ERR_READ_UNMAPPED)": 1
+ },
+ "vectors": 11926,
+ "pass": 11923,
  "pass_x87_within_1e-12": 0,
- "fail": 2,
+ "nan_sign_or_payload_only": 2,
+ "fail": 1,
  "trapped": 0,
- "functions_with_failure": 2
+ "functions_with_failure": 1,
+ "functions_failing_reference_known_wrong": {
+  "0x0069266a": "FYL2X with ST(0) <= 0: QEMU/Unicorn leaves the stack untouched and sets C2; a real x87 raises #IA / #Z, stores NaN / infinity and pops (Intel SDM, FYL2X). The lifted code follows the SDM."
+ },
+ "functions_failing_unexplained": {},
+ "failure_lines_by_kind": {
+  "xNN top": 1
+ }
 }

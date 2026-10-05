@@ -65,7 +65,16 @@ void rt_dispatch(Cpu *cpu, uint32_t target);                      // indirect ca
 void rt_trap(Cpu *cpu, uint32_t addr, uint32_t code) __attribute__((noreturn));
 void rt_cpuid(Cpu *cpu);                                          // fixed feature set, see runtime.c
 void rt_rdtsc(Cpu *cpu);
-enum { TRAP_INT3 = 1, TRAP_BAD_JUMP = 2, TRAP_DIV = 3, TRAP_UNSUPPORTED = 4, TRAP_NO_TARGET = 5, TRAP_TIMEOUT = 6, TRAP_FALLTHROUGH = 7 };
+enum { TRAP_INT3 = 1, TRAP_BAD_JUMP = 2, TRAP_DIV = 3, TRAP_UNSUPPORTED = 4, TRAP_NO_TARGET = 5, TRAP_TIMEOUT = 6, TRAP_FALLTHROUGH = 7,
+       TRAP_HOST_FAULT = 8, TRAP_UNIMPLEMENTED_IMPORT = 9 };
+
+// Per-instruction trace hook (debug builds of single functions: tests/diff/debug_vector.py)
+#ifdef LIFT_TRACE
+void rt_trace(Cpu *cpu, uint32_t addr);
+#define RT_TRACE(cpu, addr) rt_trace((cpu), (addr))
+#else
+#define RT_TRACE(cpu, addr) ((void)0)
+#endif
 
 // ---- flag helpers ----------------------------------------------------------------------------
 #define LIFT_INLINE static inline __attribute__((always_inline))
@@ -289,6 +298,17 @@ LIFT_INLINE int lk_cas64(uint32_t a, uint64_t *expected, uint64_t desired) {
     *expected = cur;
     return 0;
 }
+#define LK_RMW32(name, builtin, expr)                                                               \
+    LIFT_INLINE uint32_t name(uint32_t a, uint32_t v) { /* returns the OLD value */                 \
+        if (__builtin_expect((a & 3) == 0, 1)) return builtin((uint32_t *)(g_mem + a), v, __ATOMIC_SEQ_CST); \
+        uint32_t cur = M32(a);                                                                      \
+        M32(a) = (expr);                                                                            \
+        return cur;                                                                                 \
+    }
+LK_RMW32(lk_and32, __atomic_fetch_and, cur & v)
+LK_RMW32(lk_or32, __atomic_fetch_or, cur | v)
+LK_RMW32(lk_xor32, __atomic_fetch_xor, cur ^ v)
+LK_RMW32(lk_xchg32, __atomic_exchange_n, v)
 LIFT_INLINE uint32_t lk_xadd32(uint32_t a, uint32_t v) {
     if (__builtin_expect((a & 3) == 0, 1)) return __atomic_fetch_add((uint32_t *)(g_mem + a), v, __ATOMIC_SEQ_CST);
     uint32_t cur = M32(a);

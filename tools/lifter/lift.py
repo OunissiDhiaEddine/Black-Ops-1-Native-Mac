@@ -46,6 +46,7 @@ class Unsupported(Exception):
 
 class Lifter:
     Unsupported = Unsupported
+    trace = False
 
     def __init__(self):
         raw = EXE.read_bytes()
@@ -73,6 +74,8 @@ class Lifter:
             self.fl_in = {int(k, 16) for k in a["entry_live"]}
             self.fl_out = {int(c["target"], 16) for c in a["after_call"] if c["target"] != "indirect"}
         self.tables = {}                      # insn addr -> [targets]
+        self.inferred_tables = {}             # insn addr -> entries (tables Ghidra missed, see infer_table)
+        self.locked_plain = Counter()         # LOCKed instructions emitted without atomicity
         with (EXP / "jumptables.csv").open() as f:
             for r in csv.DictReader(f):
                 if r["kind"] == "jump" and r["targets"]:
@@ -154,8 +157,31 @@ class Lifter:
         n = len(ops)
         out = []
         sz = ops[0].size if n else 4
+        locked = False
         if any(p in i.prefix for p in (0xF0,)) and m.split()[0] == "lock":
-            m = m.split(" ", 1)[1]            # lock prefix: atomicity handled in T-044 (single-threaded tests)
+            m = m.split(" ", 1)[1]
+            locked = True
+        # LOCKed read-modify-write and XCHG with memory (implicitly locked): atomic for 32-bit operands.
+        # xadd/cmpxchg/cmpxchg8b are handled (atomically) in lift_fp.lift_int.
+        if (locked or m == "xchg") and n >= 1 and m not in ("xadd", "cmpxchg", "cmpxchg8b"):
+            mem = next((o for o in ops if o.type == X.X86_OP_MEM), None)
+            if mem is not None and sz == 4 and (ops[0].type == X.X86_OP_MEM or m == "xchg"):
+                ea = self.ea(mem)
+                if m == "xchg":
+                    reg = ops[1] if ops[0].type == X.X86_OP_MEM else ops[0]
+                    return [f"{{ uint32_t v_ = lk_xchg32({ea}, {self.rd(reg)}); {self.wr(reg, 'v_')} }}"]
+                if m in ("add", "sub", "and", "or", "xor"):
+                    src = self.rd(ops[1], 4)
+                    if ops[1].type == X.X86_OP_IMM:
+                        src = f"(uint32_t)0x{ops[1].imm & 0xFFFFFFFF:x}u"
+                    op = {"add": ("lk_xadd32({ea}, b_)", "add32(&fl, a_, b_)"), "sub": ("lk_xadd32({ea}, 0u - b_)", "sub32(&fl, a_, b_)"),
+                          "and": ("lk_and32({ea}, b_)", "logic32(&fl, a_ & b_)"), "or": ("lk_or32({ea}, b_)", "logic32(&fl, a_ | b_)"),
+                          "xor": ("lk_xor32({ea}, b_)", "logic32(&fl, a_ ^ b_)")}[m]
+                    return [f"{{ uint32_t b_ = {src}; uint32_t a_ = {op[0].format(ea=ea)}; (void){op[1]}; }}"]
+                if m in ("inc", "dec"):
+                    return [f"{{ uint32_t a_ = lk_xadd32({ea}, {'1u' if m == 'inc' else '0xFFFFFFFFu'}); (void){m}32(&fl, a_); }}"]
+            if locked:
+                self.locked_plain[m] += 1         # 8/16-bit or unusual locked form: emitted non-atomically
         parts = m.split()
         rep = None
         if parts[0] in ("rep", "repe", "repne", "repz", "repnz"):
@@ -330,6 +356,24 @@ class Lifter:
             return [f"{pre}cpu->esp += {4 + extra}; return;"]
         raise Unsupported(m.split()[0] if not rep else m)
 
+    def infer_table(self, i):
+        """`jmp [idx*4 + table]` that Ghidra did not resolve: take the run of code pointers at `table`."""
+        o = i.operands[0]
+        if o.type != X.X86_OP_MEM or o.mem.base or not o.mem.index or o.mem.scale != 4 or o.mem.segment:
+            return
+        t = o.mem.disp & 0xFFFFFFFF
+        off = t - self.base
+        targets = []
+        while 0 <= off and off + 4 <= len(self.image) and len(targets) < 1024:
+            v = int.from_bytes(self.image[off: off + 4], "little")
+            if not self.is_code(v):
+                break
+            targets.append(v)
+            off += 4
+        if targets:
+            self.tables[i.address] = targets
+            self.inferred_tables[i.address] = len(targets)
+
     # ---- function body repair ---------------------------------------------------------------------
     TERMINATORS = ("jmp", "ret", "retn", "retf", "int3", "hlt", "ud2")
 
@@ -345,6 +389,8 @@ class Lifter:
             out = []
             for i in got:
                 m = i.mnemonic
+                if m == "jmp" and i.address not in self.tables:
+                    self.infer_table(i)
                 if (m == "jmp" or m == "jecxz" or (m[0] == "j" and m[1:] in CC)) and i.operands[0].type == X.X86_OP_IMM:
                     out.append((i.operands[0].imm & 0xFFFFFFFF, False))
                 if i.address in self.tables:
@@ -401,7 +447,7 @@ class Lifter:
         # every direct branch target inside the function must start a block we emit
         lines = [f"void f_{fn:08x}(Cpu *cpu) {{",
                  "    Flags fl = cpu->xfl; (void)fl;" if fn in self.fl_in else "    Flags fl = {0, 0, 0, 0, 0, 0}; (void)fl;"]
-        if blocks[0][0] != fn:
+        if insns[0][0] != fn:                    # a lower block exists (Ghidra's body or one added by extend())
             lines.append(f"    goto L_{fn:08x};")
         info = {"calls": 0, "indirect": 0, "fs": False, "insns": 0}
         if ext:
@@ -431,7 +477,8 @@ class Lifter:
                     info["calls"] += 1
                 if "rt_dispatch" in " ".join(c):
                     info["indirect"] += 1
-                lines.append(f"    /* {i.address:08x} {i.mnemonic} {i.op_str} */ " + " ".join(c))
+                tr = f"RT_TRACE(cpu, 0x{i.address:08x}u); " if self.trace else ""
+                lines.append(f"    /* {i.address:08x} {i.mnemonic} {i.op_str} */ {tr}" + " ".join(c))
             last = got[-1]
             nxt = last.address + last.size
             falls = last.mnemonic not in ("jmp", "ret", "retn", "int3") and not last.mnemonic.startswith("ret")
@@ -461,11 +508,25 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", default=str(ROOT / "artifacts" / "lifted"))
     ap.add_argument("--only", help="comma-separated function addresses")
+    ap.add_argument("--closure", action="store_true", help="with --only: also lift every function reachable by direct calls")
+    ap.add_argument("--trace", action="store_true", help="emit RT_TRACE() before every instruction (debug)")
     ap.add_argument("--stats", help="write coverage statistics JSON here")
     ap.add_argument("--chunk", type=int, default=400, help="functions per generated .c file")
     args = ap.parse_args()
     L = Lifter()
+    L.trace = args.trace
     todo = sorted(int(a, 16) for a in args.only.split(",")) if args.only else sorted(L.funcs)
+    if args.only and args.closure:
+        seen, work = set(todo), list(todo)
+        while work:
+            try:
+                text, _ = L.lift_function(work.pop())
+            except Unsupported:
+                continue
+            for t in {int(x, 16) for x in re.findall(r"\bf_([0-9a-f]{8})\(cpu\)", text)} - seen:
+                seen.add(t)
+                work.append(t)
+        todo = sorted(seen)
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
     written = set()
@@ -529,6 +590,8 @@ def main() -> int:
             "leaf_lifted": sum(1 for m in meta.values() if not m["xfer"] and not m["indirect"]),
             "functions_with_repaired_body": sum(1 for m in meta.values() if m.get("ext")),
             "blocks_added_by_repair": sum(m.get("ext", 0) for m in meta.values()),
+            "locked_instructions_not_atomic": dict(L.locked_plain),
+            "jump_tables_inferred": {f"0x{a:08x}": n for a, n in sorted(L.inferred_tables.items())},
             "x87_decode_mismatches": dict(lift_fp.MISMATCH),
             "unlifted": unlifted,
             "blockers": dict(reasons.most_common()),

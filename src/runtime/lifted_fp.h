@@ -35,10 +35,28 @@ static inline double fix_nan64(double a, double b) {
     if (b != b) return bits_f64(f64_bits(b) | 0x0008000000000000ull);
     return bits_f64(0xFFF8000000000000ull);
 }
+// x87 rule (Intel SDM vol. 1, table 4-7): with two NaN operands the one with the larger significand
+// wins, a QNaN beats an SNaN, and on a tie the positive one; operand order does not matter.
+static inline double fix_nan_x87(double a, double b) {
+    const uint64_t quiet = 0x0008000000000000ull, frac = 0x000FFFFFFFFFFFFFull;
+    uint64_t ua = f64_bits(a), ub = f64_bits(b);
+    int an = a != a, bn = b != b;
+    if (an && bn) {
+        int as = !(ua & quiet), bs = !(ub & quiet);
+        int a_larger = (ua & frac) != (ub & frac) ? (ua & frac) > (ub & frac) : (ua >> 63) < (ub >> 63);
+        int pick_a = as ? (bs ? a_larger : 0) : (bs ? 1 : a_larger);
+        return bits_f64((pick_a ? ua : ub) | quiet);
+    }
+    if (an) return bits_f64(ua | quiet);
+    if (bn) return bits_f64(ub | quiet);
+    return bits_f64(0xFFF8000000000000ull);
+}
 #if LIFT_EXACT_NAN
+#define NANFIX87(r, a, b) do { if (__builtin_expect((r) != (r), 0)) (r) = fix_nan_x87((a), (b)); } while (0)
 #define NANFIX32(r, a, b) do { if (__builtin_expect((r) != (r), 0)) (r) = fix_nan32((a), (b)); } while (0)
 #define NANFIX64(r, a, b) do { if (__builtin_expect((r) != (r), 0)) (r) = fix_nan64((a), (b)); } while (0)
 #else
+#define NANFIX87(r, a, b) ((void)0)
 #define NANFIX32(r, a, b) ((void)0)
 #define NANFIX64(r, a, b) ((void)0)
 #endif
@@ -296,11 +314,20 @@ LIFT_INLINE uint32_t x_pmovmskb(Xmm a, int n) {
 LIFT_INLINE void x87_push(Cpu *cpu, double v) { cpu->ftop = (cpu->ftop - 1) & 7; cpu->st[cpu->ftop] = v; }
 LIFT_INLINE void x87_pop(Cpu *cpu) { cpu->ftop = (cpu->ftop + 1) & 7; }
 // precision control (FCW bits 8-9): 00 = 24-bit significand -> results rounded to float
-LIFT_INLINE double x87_pc(const Cpu *cpu, double r) { return (cpu->fcw & 0x300) ? r : (double)(float)r; }
-LIFT_INLINE double x87_add(const Cpu *cpu, double a, double b) { double r = a + b; NANFIX64(r, a, b); return x87_pc(cpu, r); }
-LIFT_INLINE double x87_sub(const Cpu *cpu, double a, double b) { double r = a - b; NANFIX64(r, a, b); return x87_pc(cpu, r); }
-LIFT_INLINE double x87_mul(const Cpu *cpu, double a, double b) { double r = a * b; NANFIX64(r, a, b); return x87_pc(cpu, r); }
-LIFT_INLINE double x87_div(const Cpu *cpu, double a, double b) { double r = a / b; NANFIX64(r, a, b); return x87_pc(cpu, r); }
+// (only the significand is shortened: the exponent range stays that of the register, so values
+// outside the float range must not be flushed to 0 / infinity)
+static inline double x87_round24(double r) {
+    double a = fabs(r);
+    if (__builtin_expect((a >= 1.17549435e-38 && a <= 3.40282347e+38) || a == 0 || a != a || a == INFINITY, 1)) return (double)(float)r;
+    int e;
+    double m = frexp(r, &e); // |m| in [0.5, 1)
+    return ldexp(rint(ldexp(m, 24)), e - 24);
+}
+LIFT_INLINE double x87_pc(const Cpu *cpu, double r) { return (cpu->fcw & 0x300) ? r : x87_round24(r); }
+LIFT_INLINE double x87_add(const Cpu *cpu, double a, double b) { double r = a + b; NANFIX87(r, a, b); return x87_pc(cpu, r); }
+LIFT_INLINE double x87_sub(const Cpu *cpu, double a, double b) { double r = a - b; NANFIX87(r, a, b); return x87_pc(cpu, r); }
+LIFT_INLINE double x87_mul(const Cpu *cpu, double a, double b) { double r = a * b; NANFIX87(r, a, b); return x87_pc(cpu, r); }
+LIFT_INLINE double x87_div(const Cpu *cpu, double a, double b) { double r = a / b; NANFIX87(r, a, b); return x87_pc(cpu, r); }
 LIFT_INLINE double x87_sqrt(const Cpu *cpu, double a) { double r = sqrt(a); NANFIX64(r, a, a); return x87_pc(cpu, r); }
 // FCOM family: C3 (bit 14), C2 (bit 10), C0 (bit 8)
 LIFT_INLINE void x87_com(Cpu *cpu, double a, double b) {
@@ -342,6 +369,9 @@ static inline double x87_ld80(uint32_t a) {
     uint16_t se = M16(a + 8);
     int e = se & 0x7FFF;
     double v;
+    // "unnormal" / pseudo-NaN / pseudo-infinity encodings (integer bit clear with a non-zero exponent) are
+    // invalid operands on every x87 since the 387: any use yields the default NaN
+    if (e != 0 && !(mant >> 63)) return bits_f64(0xFFF8000000000000ull);
     if (e == 0x7FFF) v = (mant << 1) ? bits_f64(0x7FF8000000000000ull | (mant >> 11)) : INFINITY;
     else v = ldexp((double)mant, (e ? e : 1) - 16383 - 63);
     return (se & 0x8000) ? -v : v;

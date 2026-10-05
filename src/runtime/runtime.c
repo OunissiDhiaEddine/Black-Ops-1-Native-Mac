@@ -54,7 +54,14 @@ LiftedFn rt_lookup(uint32_t va) {
     return lo < g_lifted_count && g_lifted_table[lo].va == va ? g_lifted_table[lo].fn : NULL;
 }
 
+void (*g_rt_host_call)(Cpu *cpu, uint32_t target);
+void (*g_rt_trap_handler)(Cpu *cpu, uint32_t addr, uint32_t code);
+
 void rt_dispatch(Cpu *cpu, uint32_t target) {
+    if (target >= RT_TRAMP_BASE && g_rt_host_call) {
+        g_rt_host_call(cpu, target);
+        return;
+    }
     LiftedFn fn = rt_lookup(target);
     if (!fn) rt_trap(cpu, target, TRAP_NO_TARGET);
     fn(cpu);
@@ -63,6 +70,7 @@ void rt_dispatch(Cpu *cpu, uint32_t target) {
 void rt_trap(Cpu *cpu, uint32_t addr, uint32_t code) {
     cpu->trap_addr = addr;
     cpu->trap_code = code;
+    if (g_rt_trap_handler) g_rt_trap_handler(cpu, addr, code);
     longjmp(g_trap_jmp, (int)code);
 }
 

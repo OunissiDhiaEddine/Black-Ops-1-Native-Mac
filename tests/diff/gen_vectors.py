@@ -37,6 +37,7 @@ STACK_TOP = 0x7FF00000
 STACK_SIZE = 0x100000
 HEAP = 0x60000000        # must match difftest.c
 HEAP_SIZE = 0x4000
+POISON = 0xFE000000       # unmapped: import slots point here
 ESP0 = STACK_TOP - 0x10000
 MAX_INSNS = 100000
 MAX_OUT = 1 << 16
@@ -88,7 +89,18 @@ def main() -> int:
     base = pe.OPTIONAL_HEADER.ImageBase
     image = bytes(pe.get_memory_mapped_image())
     img_size = (pe.OPTIONAL_HEADER.SizeOfImage + 0xFFF) & ~0xFFF
-    image = image.ljust(img_size, b"\0")
+    image = bytearray(image.ljust(img_size, b"\0"))
+    # Import slots hold hint/name RVAs in the file; as jump targets those would land in random code.
+    # Poison them (same values on the lifted side, via the file header) so that any call into an
+    # import faults under Unicorn and the vector is dropped.
+    pe.parse_data_directories(directories=[pefile.DIRECTORY_ENTRY["IMAGE_DIRECTORY_ENTRY_IMPORT"]])
+    patches = []
+    for entry in getattr(pe, "DIRECTORY_ENTRY_IMPORT", []):
+        for imp in entry.imports:
+            patches.append((imp.address, POISON + 16 * len(patches)))
+    for addr, val in patches:
+        struct.pack_into("<I", image, addr - base, val)
+    image = bytes(image)
 
     lazy = set()
     written = []
@@ -110,7 +122,15 @@ def main() -> int:
 
     run_pcs, covered = set(), set()
 
+    code = [(base + sec.VirtualAddress, base + sec.VirtualAddress + sec.Misc_VirtualSize)
+            for sec in pe.sections if sec.Characteristics & 0x20000000]
+    wild = [False]
+
     def on_block(u, addr, size, _):                           # per block, not per instruction: 50x cheaper
+        if not any(a <= addr < b for a, b in code) and addr != SENTINEL:
+            wild[0] = True                                    # executing data / lazily mapped zero pages
+            u.emu_stop()
+            return
         run_pcs.add((addr, size))
 
     def make_uc():
@@ -174,6 +194,7 @@ def main() -> int:
     rng.seed(args.seed * 7919 + 2 + shard_i)
 
     out = bytearray(b"BO1DIFF3" + struct.pack("<III", 0, len(heaps), HEAP_SIZE) + b"".join(heaps))
+    out += struct.pack("<I", len(patches)) + b"".join(struct.pack("<II", a, v) for a, v in patches)
     count, skipped, funcs_ok = 0, Counter(), 0
     for fn in cands:
         got = 0
@@ -197,6 +218,7 @@ def main() -> int:
             uc.reg_write(UC_X86_REG_EFLAGS, 0x202)
             written.clear()
             run_pcs.clear()
+            wild[0] = False
             try:
                 uc.emu_start(fn, SENTINEL, timeout=5_000_000, count=MAX_INSNS)
                 ok = uc.reg_read(UC_X86_REG_ESP) > ESP0 and True
@@ -206,8 +228,11 @@ def main() -> int:
                 skipped[str(e)] += 1
                 if DEBUG: print(f'{fn:08x} {e} eip={uc.reg_read(UC_X86_REG_EIP):08x} esp={uc.reg_read(UC_X86_REG_ESP):08x}')
             if finished:
-                # emu_start returns normally both at the sentinel and at the instruction limit
-                if uc.reg_read(UC_X86_REG_EIP) != SENTINEL:
+                # emu_start returns normally at the sentinel, at the instruction limit and after emu_stop()
+                if wild[0]:
+                    ok = False
+                    skipped["executed outside the code sections"] += 1
+                elif uc.reg_read(UC_X86_REG_EIP) != SENTINEL:
                     ok = False
                     skipped["did not return within the instruction limit"] += 1
             pages = {}

@@ -24,15 +24,18 @@ facts in `docs/RE_NOTES.md` (tagged there) or marked as a design choice. Address
 
 ## 2. CPU state
 ```c
-struct Cpu {
+struct Cpu {                       // as implemented: src/runtime/lifted.h (P4)
     uint32_t eax, ecx, edx, ebx, esp, ebp, esi, edi;   // esp/ebp are guest addresses
-    uint32_t eflags_lazy[4];                            // lazy flags (op, a, b, result)
-    X87      fpu;                                       // 8-entry stack, control/status words
-    uint8_t  xmm[8][16]; uint32_t mxcsr;
     uint32_t teb;                                       // guest address of this thread's TEB
-    uint32_t pending_target;                            // for the dispatcher (see §3)
+    uint8_t  df;                                        // direction flag
+    Flags    xfl;                                       // flags handed across the few audited call boundaries
+    uint8_t  ftop; uint16_t fcw, fsw; double st[8];     // x87 (doubles; see docs/LIFTER.md §5)
+    uint64_t mm[8]; Xmm xmm[8]; uint32_t mxcsr;
+    uint32_t trap_addr, trap_code;
 };
 ```
+- Status flags are NOT in `Cpu`: each lifted function keeps them in a local `Flags fl` (eager helpers,
+  dead ones removed by the C compiler). Shims never see or return flags.
 - One `Cpu` per guest thread, owned by its host pthread; a pinned host register holds `arena_base`.
 - **x87 is live at ABI edges**: 27.6% of FP instructions are x87, mostly `fld`/`fstp` because
   `float`/`double` are returned in ST(0). Shims that return floating point must push onto

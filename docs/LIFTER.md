@@ -90,7 +90,7 @@ which changes results.
 | Topic | Model | Deviation |
 |---|---|---|
 | SSE scalar/packed arithmetic | C `float`/`double` (IEEE-754, round-to-nearest-even) | none for finite values |
-| NaN results | `LIFT_EXACT_NAN=1`: x86 rule (first NaN operand quieted, else the *negative* default NaN) restored after each operation | arm64's default NaN is positive; without the fix-up the sign/payload differ |
+| NaN results | `LIFT_EXACT_NAN=1`: x86 rules restored after each operation — SSE: first NaN operand quieted; x87: larger significand / QNaN over SNaN / positive on a tie; no NaN operand: the *negative* default NaN | arm64's default NaN is positive; without the fix-up the sign/payload differ |
 | float -> int (`cvt(t)ss2si`, `fist(p)`, …) | explicit range check, x86 "integer indefinite" (0x80000000) on overflow/NaN | none (arm64 natively saturates) |
 | MXCSR | rounding field honoured by conversions only; exception masks ignored; **FTZ/DAZ not modelled** | arithmetic under a non-default rounding mode or with FTZ/DAZ set would differ — check what the game sets (T-044) |
 | `rcpss/rsqrtss/rcpps/rsqrtps` | exact `1/x`, `1/sqrt(x)` | x86 returns 12-bit table approximations (differs in low bits; 1 use in the image) |
@@ -109,8 +109,14 @@ the x87 significands; here they are separate arrays and `emms` is a no-op.
 
 ## 6. Differential testing (`tests/diff/`, `scripts/difftest.sh`)
 ```
-scripts/difftest.sh [max_funcs] [vectors_per_func] [seed]     # default 400 3 1; 100000 = every leaf
+scripts/difftest.sh [max_funcs] [vectors_per_func] [seed] [leaf|all]   # default 400 3 1 leaf; 100000 = everything
+  env: JOBS=4  SKIP_VECTORS=1 (reuse vectors)  REPORT=re/difftest_report.json
 ```
+`leaf` = functions without calls, tail calls, indirect transfers or `fs:`. `all` = every lifted function:
+the whole call tree executes on both sides, so calls, returns, stack discipline and callee effects are
+compared too; a vector is dropped when Unicorn cannot finish it (import call — import slots are poisoned
+on both sides —, wild pointer, execution outside the code sections, instruction limit).
+
 1. `tests/diff/gen_vectors.py` executes the **original** bytes of each selected function under
    Unicorn from a random state (registers; 32 stack slots; XMM registers; a 16 KiB "heap" of
    floats, small integers, pointers and random words that 40% of the random values point into;
@@ -126,7 +132,6 @@ scripts/difftest.sh [max_funcs] [vectors_per_func] [seed]     # default 400 3 1;
    tested functions were actually executed by at least one vector.
 
 Unmapped memory reads as zero on both sides, so wild pointers behave identically.
-Selection today: leaf functions only (no calls, tail calls, indirect transfers or `fs:` access).
 
 Known limits of the method (do not read more into a green run than this):
 - status flags at return are not compared (A1);
@@ -135,11 +140,29 @@ Known limits of the method (do not read more into a green run than this):
 - memory the original only *reads* outside the supplied blocks is zero, which hides bugs that
   depend on real global state.
 
+Deviations of the REFERENCE found so far (the lifted code follows the Intel SDM in both cases):
+- QEMU/Unicorn chooses between two NaN operands with the x87 rule (larger significand) for SSE as
+  well; real SSE returns the first operand. Such vectors are reported as "nan-only", not as passes.
+- QEMU's `FYL2X` leaves the stack alone when ST(0) <= 0; a real x87 stores NaN/infinity and pops.
+  Functions affected are listed in `tests/diff/reference_deviations.json` and reported separately.
+
+Debugging a failing vector: `tests/diff/debug_vector.sh <func_va> [nth]` lifts the function (and its
+callees) with `RT_TRACE` before every instruction, runs the vector through both sides and prints the
+first instruction after which registers / XMM / x87 differ.
+
 Harness sanity check (mutation test, 2026-10-05): making `add` wrong for 1 input in 8 turned
 32 of 1,160 vectors red; making `sub` wrong for a single input value turned 3 red.
 
 ## 7. Open items
-- Non-leaf functions and `fs:` in the vectors (T-043).
-- Compile time and binary size of the whole image; `-O1` vs `-O2` (T-044).
+- 8 functions are not lifted (`re/lift_coverage.json` -> `unlifted`): 3 CRT crash handlers that push segment
+  registers (`__invoke_watson`, `_abort`, `___report_gsfailure`), 2 SSSE3 (`palignr`) routines behind a CPUID
+  check, `fnsave`/`fnstenv` users (2), one `pushaw` (LIKELY data decoded as code).
+- 1 indirect jump through a table in `.data` that is filled at run time (0x00509821, 8 entries): goes through
+  `rt_dispatch`; if the entries turn out to be labels inside a function it will trap with the address.
+- 5,432 indirect call sites and 101 indirect jumps (34 import thunks) rely on `rt_dispatch`; targets that are
+  not function entries trap (`TRAP_NO_TARGET`) — the list of such targets comes from running (T-045).
+- Indirect transfers and imports are not exercised by the diff tests (they need a live process image): T-045.
+- Whole-image numbers (measured on one 400-function unit, M1): ~5 s to compile at -O1/-O2, ~0.46 MB arm64
+  text -> ~25 MB of code for the image (x4.3 over the original 5.9 MB), ~1.5 min full build with 6 jobs.
 - Unicorn must be rebuilt after a faulting run (a failed run left it returning to garbage
   addresses for every later function) — handled in `gen_vectors.py`.
