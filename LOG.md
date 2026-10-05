@@ -2,7 +2,7 @@
 
 ## STATE  (OVERWRITE this block at every checkpoint — it is the resume point)
 - **Date/time:** 2026-10-05 ~19:10
-- **Phase / task:** **P3 exit review done (PASS with open items). Waiting for the user: ADR-004/005 approval and Gate G1.**
+- **Phase / task:** P3 done; ADR-004/005 ACCEPTED; **G1 = go (delegated to the agent). P4 started: T-041** (`tools/lifter/`, `src/runtime/`, `tests/diff/` — see TASKS.md P4).
 - **Last completed:** SM3 -> MSL translator (6,845/6,845 shaders compile), Metal replay backend, frame comparison; all four golden scenarios replay at SSIM 0.968–0.999 with 0 skipped draws; Metal validation layer shows no errors.
 - **Next exact step:** after the user's answer — if G1 = go: expand P4 into tasks (lifter design doc first: instruction coverage from `re/float_census.json`, function list from `re/ghidra_export`, dispatcher/ABI from `docs/HOST_ABI.md`; milestone M4a = lift one leaf function and diff-test it under Unicorn). Independent of G1: T-036 (shader/pipeline disk cache), T-037 (native D3D9 reference from the Windows PC), T-038 (video textures), T-024 (steam_api.dll spike).
 - **Standard commands:** `scripts/build.sh`; `scripts/replay_check.sh [threshold]`; `build/replay <trace> --backend metal|null --frames A-B --dump DIR`; `build/sm3c [--out DIR] [--no-compile] <dir>`; `tools/compare_frames.py GOLDEN REPLAY --diff OUT`; baseline: `scripts/run_baseline.sh --wine cx --net --trace …`, `scripts/capture_golden_all.sh`.
@@ -167,3 +167,7 @@ Entry template:
 - Learned: first-run fidelity is high because the D3D9 surface is small; Metal forbids swizzled render targets (sample through a view); fragment inputs need `[[stage_in]]`; Metal compiles ~10 generated shaders/s -> caching is mandatory.
 - Problems: which side is right for the two open differences cannot be decided without a native D3D9 image.
 - Next: user decisions (STATE).
+
+### 2026-10-05 ~19:20 — user decisions: ADR-004/005 accepted, G1 delegated -> go; P4 started
+- Did: recorded ADR-004/005 ACCEPTED; G1 decision (go) with rationale; ADR-013 (lifter = Python + capstone -> generated C); P4 task list. User wants the Windows PC kept as a last resort (T-037 parked).
+- Next: T-041 lifter first cut + differential tests.

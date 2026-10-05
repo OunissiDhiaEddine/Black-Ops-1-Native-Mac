@@ -3,7 +3,7 @@ Status: TODO · NOW · DONE · BLOCKED. Only ONE task is NOW at a time. Mark DON
 Update this file at every checkpoint (see AGENTS.md rule 2).
 
 ## NOW
-- **P3 exit review done — waiting for the user: ADR-004 / ADR-005 approval and Gate G1** (continue to P4 static recompilation?). Optional first: native D3D9 reference frames from the user's Windows PC to settle the two open rendering differences.
+- **T-041** (P4/M4a) Lifter first cut (integer subset) + differential test harness: lift leaf functions and match Unicorn.
 
 ## DONE
 - **T-001** (P0) DONE 2026-10-05 — game install present in `reference/`, `scripts/doctor.sh` run, tool availability recorded.
@@ -50,5 +50,16 @@ Update this file at every checkpoint (see AGENTS.md rule 2).
 
 - [ ] **T-024** (P2 follow-up, before P5) Spike for ADR-010: measure which Windows APIs the shipped `steam_api.dll` calls (baseline, `GetProcAddress` log / relay for that module), then run its `DllMain` + `SteamAPI_Init` under Unicorn with stub shims. Evidence: list of APIs + init returning.
 
-## P4+ (expand into tasks only after G1)
-Lifter design doc -> M4a/M4b/M4c -> integration -> strangler fig -> Metal optimization -> QA. See docs/PLAN.md.
+## P4 — Static recompilation (G1 passed 2026-10-05; ADR-013)
+- [ ] **T-040** `docs/LIFTER.md`: design (register/flag/memory model, control flow, calls, tables, x87/SSE plan, test method). Keep it current with the code.
+- [ ] **T-041** (M4a) Lifter first cut: integer instructions; runtime skeleton (`src/runtime`: Cpu, arena, PE loader, address table); diff harness (`tests/diff`): Unicorn vs lifted on leaf functions. Evidence: pass rate report `re/difftest_report.json`.
+- [ ] **T-042** Coverage loop: lift ALL functions, histogram of unsupported instructions (`re/lift_coverage.json`), implement by frequency until >= 99% of functions lift. Order: remaining integer ops, string ops, x87, SSE/SSE2 scalar, SSE packed, MMX/SSSE3 leftovers.
+- [ ] **T-043** Diff tests for non-leaf functions (calls stubbed/recorded), fs: (TEB) support in the harness, x87/SSE state comparison.
+- [ ] **T-044** Whole-image build: split into translation units, measure compile time and binary size on this machine; flags-live-across-call audit; unresolved switch tables (64) and unreached code (0.8%) lists.
+- [ ] **T-045** Runtime for M4b: loader, TEB/TLS, threads, the shims the boot path calls (from `re/platform_map.csv`, hottest first), null D3D9 device -> boot headless to the main loop.
+- [ ] **T-046** (M4c) Diff-test suite green; x86_64 (Rosetta) build of the lifted code as a cross-check.
+- [ ] **T-024** (from P2) steam_api.dll interpreter spike (ADR-010) — needed before M4b can pass Steam init.
+- [ ] **T-036** (from P3) shader/pipeline disk cache. **T-037** native D3D9 reference (Windows PC: user prefers to keep it as a last resort). **T-038** video textures in a trace.
+
+## P5+ (expand after P4 exit)
+Integration -> strangler fig -> Metal optimisation -> QA. See docs/PLAN.md.

@@ -13,3 +13,6 @@ build/
 .venv/
 __pycache__/
 re/ghidra_export/
+src/lifted/*
+!src/lifted/.gitkeep
+artifacts/lifted/
