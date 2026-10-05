@@ -4,6 +4,7 @@
 - **Date/time:** 2026-10-05 (P1 started)
 - **Phase / task:** P1 — T-010 decided (ADR-007 ACCEPTED), **blocked on two user actions** before T-011; T-012 proxy v0 built but untested.
 - **Last completed:** `scripts/run_baseline.sh`, `tools/d3d9_proxy/` (builds to `artifacts/d3d9_proxy/d3d9.dll`), ADR-007, `reference/` made read-only, working copy cloned to `artifacts/game` (APFS clone, 0 extra bytes).
+- **UPDATE:** Rosetta 2 installed by the user (verified). User placed `wine-devel-11.18` and `wine-staging-11.18` tarballs in `artifacts/wine/`; devel is unpacked to `artifacts/wine/Wine Devel.app`. **Blocker now:** the app carries `com.apple.quarantine` (Safari download) and is unsigned -> `wine --version` is killed (exit 137). User must run `xattr -dr com.apple.quarantine "artifacts/wine/Wine Devel.app"` (their trust decision), then go to step 3 below. User said to launch the game directly ("just run it").
 - **Next exact step (after the user answers):**
   1. User installs Rosetta 2 themselves: `softwareupdate --install-rosetta` (licence prompt is theirs to accept). Verify: `arch -x86_64 /usr/bin/true`.
   2. With the user's yes: `mkdir -p artifacts/wine && curl -L -o artifacts/wine/wine-stable-11.0_1-osx64.tar.xz https://github.com/Gcenx/macOS_Wine_builds/releases/download/11.0_1/wine-stable-11.0_1-osx64.tar.xz` (185,303,032 B), check SHA-256 against `brew info --cask --json=v2 wine-stable`, `tar -xJf` into `artifacts/wine/`.
@@ -78,3 +79,10 @@ Entry template:
 - Proxy design: in-place vtable patching (no wrapper objects, because Wine's d3d9 asserts vtable identity on some arguments); one generic asm thunk per slot reports (slot, args*) then tail-jumps to the original; `CreateDevice` has a post-hook to patch the device vtable. T-013 extends the same thunks with per-method argument decoders.
 - Problems: cannot run anything until Rosetta + Wine exist -> T-011 not started, T-012 not verified.
 - Next: see STATE.
+
+### 2026-10-05 — T-009a — unreached code seeded: 10.1% -> 0.8%
+- Did: `tools/seed_functions.py` (data-pointer + aligned-after-padding seeds), `tools/ghidra/SeedFunctions.java`, `scripts/ghidra_analyze.sh --seed`; two rounds to fixpoint; re-ran coverage and xref attribution.
+- Evidence: `re/seeds.csv` (4,391), `re/ghidra_summary.json` (21,960 functions, 1,643,274 instructions), `re/coverage_gaps.json` (likely-unreached code 46,882 B = 0.8%).
+- Learned: almost all pointer-only code is recoverable statically; 64 switch tables remain unresolved; 499 pointer targets without preceding padding were deliberately not seeded.
+- Problems: Wine is unpacked but quarantined (see STATE) — cannot run the baseline until the user clears it.
+- Next: user clears quarantine -> `scripts/run_baseline.sh`.

@@ -191,36 +191,47 @@ Source: `tools/float_census.py` -> `re/float_census.json`. Method: capstone 5.0.
 ## D3D9 census (functions, states, formats, shader models, per-frame call volumes)
 ## Platform map (every import -> shim | lift | stub | not needed)
 ## Engine structures (name, VA of known instances, layout, confidence)
-## Code structure (Ghidra export, T-006)
-Reproduce: `GHIDRA_HEADLESS_MAXMEM=5G scripts/ghidra_analyze.sh` (Ghidra 12.1.4 headless, default analyzers, `x86:LE:32:default` / `windows` cspec; 156 s analysis on the M1; **3G heap OOMs** in the x86 Constant Reference Analyzer). Export script `tools/ghidra/ExportProgramFacts.java` -> `re/ghidra_export/*.csv` (gitignored, regenerate) + `re/ghidra_summary.json` (committed). CONFIRMED = tool output; interpretation tagged separately.
+## Code structure (Ghidra export, T-006 + T-009a)
+Reproduce from scratch (Ghidra 12.1.4 headless, default analyzers, `x86:LE:32:default` / `windows` cspec; **needs `GHIDRA_HEADLESS_MAXMEM=5G`** — 3G OOMs in the x86 Constant Reference Analyzer):
+1. `scripts/ghidra_analyze.sh` — import + auto-analysis + export (156 s on the M1)
+2. `scripts/ghidra_analyze.sh --seed` — create functions from the committed `re/seeds.csv` (4,391 seeds), re-analyse, re-export (~100 s)
+3. `.venv/bin/python tools/coverage_gaps.py` — re-measure; `tools/seed_functions.py` should report only seeds that Ghidra already rejected.
+Exports: `re/ghidra_export/*.csv` (gitignored, regenerate), `re/ghidra_summary.json` (committed). CONFIRMED = tool output; interpretation tagged separately.
 
-| Fact | Value |
-|---|---|
-| Functions (non-external) | 17,490 (138 thunks); median size 136 B, largest 18,500 B (0x006CA1C0) |
-| Instructions / code bytes reached | 1,480,860 / 5,086,563 B |
-| Basic blocks / edges | 211,515 / 378,468 |
-| Computed jumps (switches) | 648, of which **51 unresolved**; 4,783 targets recovered, largest table 288 |
-| Computed calls | 5,407 (only 125 with a statically known target) |
-| Direct call references | 89,368 |
-| Address-taken functions (data refs to a function start) | 1,141 functions / 1,833 refs |
-| Named by Function ID / demangler | 529 (CRT + STL, e.g. `_memcpy`, `_free`, `__cfltcvt_init`) — everything else is `FUN_xxxxxxxx` |
-| Calling convention recovered | 351 of 17,490 (318 cdecl, 14 stdcall, 14 thiscall, 5 fastcall); the rest "unknown" -> the lifter must not rely on Ghidra's convention; derive stack effect per call site (`ret imm`, callee-purge analysis) |
+| Fact | Default analysis | After seeding (current) |
+|---|---|---|
+| Functions (non-external) | 17,490 | **21,960** (195 thunks) |
+| Instructions / code bytes | 1,480,860 / 5,086,563 | **1,643,274 / 5,635,523** |
+| Basic blocks / edges | 211,515 / 378,468 | 241,488 / 428,951 |
+| Computed jumps (switches) | 648 (51 unresolved) | 690 (**64 unresolved**) |
+| Computed calls | 5,407 (125 with known target) | 5,548 (136) |
+| Direct call references | 89,368 | 102,441 |
+| Address-taken functions | 1,141 | 1,297 (2,062 refs) |
+
+Other facts (default run): 529 functions named by Function ID / demangler (CRT + STL); calling convention recovered for only 351 functions -> the lifter must derive stack effect per function itself (`ret imm`, callee-purge), not trust Ghidra's convention. 95.4% of function starts are 16-byte aligned; 90% are preceded by 0xCC, 8% by 0xC3.
+
+**Seeding (T-009a, `tools/seed_functions.py` -> `re/seeds.csv`)** — function starts recursive descent cannot see:
+- 1,952 `data-pointer` seeds: a dword in `.rdata`/`.data` points at an uncovered address that follows padding/ret and decodes cleanly (callback, handler and script-builtin tables, vtables).
+- 2,439 `aligned-after-padding` seeds: 16-byte aligned, preceded by 0xCC/ret, uncovered, decodes cleanly to a ret/jmp (weaker evidence: LIKELY functions; no reference found statically).
+- Ghidra accepted 4,343 and rejected 48. A second round found 1 more; fixpoint reached.
+- Not seeded (left for runtime evidence): 499 data pointers into uncovered code with no padding/ret before the target, 67 that do not decode.
 
 **Coverage of `.text` (tools/coverage_gaps.py -> re/coverage_gaps.json)** — every byte classified:
-| Class | Bytes | Share |
+| Class | Default analysis | After seeding |
 |---|---|---|
-| code inside a Ghidra function | 4,905,573 | 83.1% |
-| code reached but in no function | 180,990 | 3.1% |
-| padding (0xCC/0x90/0x00) | 180,051 | 3.0% |
-| pointer tables inside `.text` (jump tables) | 11,676 | 0.2% |
-| **likely code Ghidra never reached** | 595,620 | **10.1%** (4,229 regions; largest 7,185 B at 0x00948B20, 7,027 B at 0x005DB210) |
-| unknown (inline data / undecodable) | 31,002 | 0.5% |
+| code inside a function | 4,905,573 (83.1%) | **5,468,176 (92.6%)** |
+| code reached but in no function | 180,990 (3.1%) | 167,347 (2.8%) |
+| padding (0xCC/0x90/0x00) | 180,051 (3.0%) | 181,378 (3.1%) |
+| pointer tables inside `.text` | 11,676 (0.2%) | 12,088 (0.2%) |
+| **likely code never reached** | 595,620 (**10.1%**, 4,229 regions) | 46,882 (**0.8%**, 491 regions) |
+| unknown (inline data / undecodable) | 31,002 (0.5%) | 29,041 (0.5%) |
 
-- Interpretation (LIKELY): ~10% of the code is reachable only through pointers that default analysis did not follow — script builtin tables, dvar/command callbacks, asset-type handler tables, vtables, thread entry points (e.g. `Bink_UpdateFrame` 0x006D9000 has zero direct callers). **This is the main CFG-recovery risk for P4.** Mitigation to try before G1: seed function starts from (a) every dword in `.rdata`/`.data` that points at a post-padding address in `.text`, (b) the `likely_code_region_starts` list, then re-run analysis and re-measure. Anything still unreached must be handled by a runtime "unknown guest target" trap that logs the address (the P1 baseline can also record real indirect-call targets).
-- 51 unresolved switch jumps need manual or pattern-based table recovery (list: `jumptables.csv`, `kind=jump,num_targets=0`).
+- Interpretation (LIKELY): about 10% of the game's code is reachable only through pointers (e.g. `Bink_UpdateFrame` 0x006D9000 has zero direct callers). Seeding recovers nearly all of it statically. The residual 0.8% + the 2.8% "code in no function" (GUESS: exception-handling funclets and tail fragments) must be covered by a runtime "unknown guest target" trap in P4 that logs the address; the P1 baseline can also record real indirect-call targets.
+- 64 unresolved switch jumps need pattern-based table recovery (list: `jumptables.csv`, `kind=jump,num_targets=0`).
+- Caveat: `aligned-after-padding` seeds are unproven as *entry points*; a wrong one costs only a dead lifted function, not incorrect behaviour.
 
 ## Function index (WinMain, Com_Init, R_Init, R_EndFrame, FS_*, Sys_*, ...)
-Single source of truth: **`re/symbols.csv`** (52 entries: 2 CONFIRMED, 21 LIKELY, 29 GUESS). Method: `tools/find_xrefs.py` (capstone sweep for instructions referencing chosen IAT slots, incl. calls through `jmp [iat]` thunks, and engine log/error strings) attributed to Ghidra function starts -> `re/xrefs_anchor.csv` (501 xrefs, 468 inside a Ghidra function body); callers from `re/ghidra_export/calls.csv`. Names follow the IW-engine convention where the function prints its own name; otherwise they are descriptive placeholders (marked "Engine name unknown").
+Single source of truth: **`re/symbols.csv`** (52 entries: 2 CONFIRMED, 21 LIKELY, 29 GUESS). Method: `tools/find_xrefs.py` (capstone sweep for instructions referencing chosen IAT slots, incl. calls through `jmp [iat]` thunks, and engine log/error strings) attributed to Ghidra function starts -> `re/xrefs_anchor.csv` (501 xrefs, 493 inside a Ghidra function body after seeding); callers from `re/ghidra_export/calls.csv`. Names follow the IW-engine convention where the function prints its own name; otherwise they are descriptive placeholders (marked "Engine name unknown").
 
 Boot chain (LIKELY): `mainCRTStartup` 0x0096DA57 -> `__tmainCRTStartup` 0x0096D8D9 -> **`WinMain` 0x0050A730** -> `Com_Init` 0x004069C0 -> `Com_Init_Try_Block_Function` 0x0082CD10 -> { `Steam_Init` 0x005A2680, `CL_Init` 0x00664BE0, … }.
 Renderer anchors (LIKELY): `R_Init` 0x006B82E0; `R_CreateD3D9` 0x006B7760 (the only real `Direct3DCreate9` user besides 0x005B07A0, a second site reached from 0x00867A90 — GUESS: adapter/caps probe at startup); `R_InitRenderResources` 0x006B6F20; **frame end: `R_PresentAndPumpMessages` 0x006EB1F0** (Present-failure string + Win32 message pump in one function).

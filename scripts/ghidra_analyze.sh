@@ -2,6 +2,9 @@
 # T-006: one-command, reproducible Ghidra headless analysis + export of BlackOps.exe.
 #   scripts/ghidra_analyze.sh            import + auto-analyse + export   (slow: tens of minutes)
 #   scripts/ghidra_analyze.sh --export   re-run only the export script on the existing project
+#   scripts/ghidra_analyze.sh --seed     create functions from re/seeds.csv (tools/seed_functions.py),
+#                                        re-analyse, re-export. Pipeline for full coverage:
+#                                        (no arg) -> seed_functions.py -> --seed -> coverage_gaps.py
 # Outputs: re/ghidra_projects/bo1 (project, gitignored), re/ghidra_export/*.csv (gitignored),
 #          re/ghidra_summary.json (committed), artifacts/ghidra/analyze.log
 set -euo pipefail
@@ -21,6 +24,12 @@ if [ "${1:-}" = "--export" ]; then
   "$HEADLESS" "$PROJ_DIR" bo1 -process BlackOps.exe -noanalysis -readOnly \
     -scriptPath tools/ghidra -postScript ExportProgramFacts.java "$EXPORT_DIR" \
     -log artifacts/ghidra/export.log
+elif [ "${1:-}" = "--seed" ]; then
+  [ -f re/seeds.csv ] || { echo "re/seeds.csv missing: run .venv/bin/python tools/seed_functions.py"; exit 1; }
+  "$HEADLESS" "$PROJ_DIR" bo1 -process BlackOps.exe \
+    -scriptPath tools/ghidra -preScript SeedFunctions.java re/seeds.csv \
+    -postScript ExportProgramFacts.java "$EXPORT_DIR" \
+    -log artifacts/ghidra/seed.log
 else
   "$HEADLESS" "$PROJ_DIR" bo1 -import "$EXE" -overwrite \
     -scriptPath tools/ghidra -postScript ExportProgramFacts.java "$EXPORT_DIR" \

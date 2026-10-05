@@ -19,7 +19,7 @@ Update this file at every checkpoint (see AGENTS.md rule 2).
 - [x] **T-008** DONE 2026-10-05 (evidence: RE_NOTES § Asset formats: 146 ff headers, 47 IWD listings, IWI/Bink header samples). Asset layout survey (fastfiles/IWD/dirs; compression; sizes) -> RE_NOTES § Asset formats.
 - [x] **T-009** DONE 2026-10-05 (evidence: `re/symbols.csv` 52 entries, `re/xrefs_anchor.csv`; Com_Frame / CreateDevice site still open -> P1 trace). Locate key entry points (WinMain, main loop, R_Init/R_EndFrame equivalents via D3D9 import xrefs) -> `re/symbols.csv` with confidence tags.
 - **P0 exit review** — DONE 2026-10-05, see LOG. **Waiting for user go-ahead for P1** (and ADR-007 choice).
-- [ ] **T-009a** (carry-over, optional before G1) Seed unreached code (10.1% of `.text`) from data pointer scan + `likely_code_region_starts`, re-run Ghidra, re-measure coverage.
+- [x] **T-009a** DONE 2026-10-05 (evidence: `re/seeds.csv` 4,391 seeds; `re/coverage_gaps.json`: unreached likely code 10.1% -> 0.8%; functions 17,490 -> 21,960). Seed unreached code, re-run Ghidra, re-measure coverage.
 
 ## P1 — Reference baseline
 - [x] **T-010** DECIDED 2026-10-05 (ADR-007 ACCEPTED: wine-stable 11.0 + wined3d under Rosetta 2, project-local). Install pending user action; versions to be recorded on first run. Choose baseline stack (ADR-007): install CrossOver or Wine+wine32on64 (ASK USER before installing). Record versions.
