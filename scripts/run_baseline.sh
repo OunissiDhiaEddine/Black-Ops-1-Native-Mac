@@ -7,6 +7,10 @@
 #     --seconds S   stop the game after S seconds (wineserver -k); default: run until it exits
 #     --wine NAME   which unpacked build under artifacts/wine to use: devel (default) | staging | stable | cx
 #                   (each build gets its own prefix: artifacts/wineprefix[-NAME])
+#     --record      with --trace: write the full binary call trace (docs/TRACE_FORMAT.md) ->
+#                   artifacts/traces/trace-<stamp>.bin   (--record-max-mb N, default 4096)
+#     --record-frames A-B   record dynamic uploads only for frames A..B (keeps the trace small);
+#                   --record-video also keeps Bink video frames
 #     --dxvk        use DXVK (artifacts/dxvk/*/x32/d3d9.dll, D3D9 -> Vulkan -> MoltenVK) instead of wined3d
 #     --keys SPEC   with --trace: scripted key presses, "ms:vk,ms:vk" (ms after device creation,
 #                   vk = Windows virtual-key code, e.g. 0x20 space, 0x0D enter, 0x1B esc, 0x28 down)
@@ -20,7 +24,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 ROOT=$PWD
-TRACE=0; NET=0; CAPTURE=0; SECONDS_LIMIT=0; WINE_NAME=devel; SHOTS=0; DXVK=0
+TRACE=0; NET=0; CAPTURE=0; SECONDS_LIMIT=0; WINE_NAME=devel; SHOTS=0; DXVK=0; RECORD=0; RECORD_MAX=4096
 while [ $# -gt 0 ]; do
   case "$1" in
     --trace) TRACE=1 ;;
@@ -31,6 +35,10 @@ while [ $# -gt 0 ]; do
     --shots) SHOTS="$2"; shift ;;
     --keys) export BO1_KEYS="$2"; shift ;;
     --dxvk) DXVK=1 ;;
+    --record) RECORD=1 ;;
+    --record-max-mb) RECORD_MAX="$2"; shift ;;
+    --record-frames) export BO1_TRACE_FRAMES="$2"; shift ;;
+    --record-video) export BO1_TRACE_VIDEO=1 ;;
     --) shift; break ;;
     *) echo "unknown option $1"; exit 2 ;;
   esac
@@ -99,6 +107,8 @@ if [ "$TRACE" = 1 ]; then
   cp "$ROOT/artifacts/d3d9_proxy/d3d9.dll" "$GAME/d3d9.dll"
   export WINEDLLOVERRIDES="$WINEDLLOVERRIDES;d3d9=n,b"
   export BO1_D3D9_LOG='G:\d3d9_census.txt'
+  rm -f "$GAME/trace.bin"
+  if [ "$RECORD" = 1 ]; then export BO1_TRACE_FILE='G:\trace.bin' BO1_TRACE_MAX_MB="$RECORD_MAX"; fi
   export BO1_IAT_HOOKS="${BO1_IAT_HOOKS:-0}" BO1_MSGBOX_AUTO="${BO1_MSGBOX_AUTO:-1}"
   rm -f "$GAME/d3d9_census.txt"
   if [ "$CAPTURE" != 0 ]; then
@@ -156,6 +166,10 @@ if [ "$CAPTURE" != 0 ] && ls "$GAME/capture"/*.bmp >/dev/null 2>&1; then
   mkdir -p "$OUT/frames-$STAMP"
   for b in "$GAME/capture"/*.bmp; do sips -s format png "$b" --out "$OUT/frames-$STAMP/$(basename "${b%.bmp}").png" >/dev/null; done
   rm -rf "$GAME/capture"; echo "frames: $OUT/frames-$STAMP ($(ls "$OUT/frames-$STAMP" | wc -l | tr -d ' '))"
+fi
+if [ -f "$GAME/trace.bin" ]; then
+  mkdir -p "$ROOT/artifacts/traces"; mv "$GAME/trace.bin" "$ROOT/artifacts/traces/trace-$STAMP.bin"
+  echo "trace: artifacts/traces/trace-$STAMP.bin ($(du -h "$ROOT/artifacts/traces/trace-$STAMP.bin" | cut -f1))"
 fi
 for f in "$GAME"/players/*.log "$GAME"/main/*.log "$GAME"/*_d3d9.log; do [ -f "$f" ] && cp "$f" "$OUT/$(basename "${f%.log}")-$STAMP.log"; done
 echo "log: $LOG"

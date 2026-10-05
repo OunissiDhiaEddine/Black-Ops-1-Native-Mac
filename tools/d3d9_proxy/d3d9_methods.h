@@ -58,8 +58,71 @@
     X(9, GetPresentParameters)
 #define IDIRECT3DSWAPCHAIN9_COUNT 10
 
-// Interface ids used in the log and by the thunks.
+#define RESOURCE_METHODS(X) \
+    X(0, QueryInterface) X(1, AddRef) X(2, Release) X(3, GetDevice) X(4, SetPrivateData) \
+    X(5, GetPrivateData) X(6, FreePrivateData) X(7, SetPriority) X(8, GetPriority) X(9, PreLoad) \
+    X(10, GetType)
+#define BASETEXTURE_METHODS(X) \
+    RESOURCE_METHODS(X) X(11, SetLOD) X(12, GetLOD) X(13, GetLevelCount) \
+    X(14, SetAutoGenFilterType) X(15, GetAutoGenFilterType) X(16, GenerateMipSubLevels)
+
+#define IDIRECT3DTEXTURE9_METHODS(X) \
+    BASETEXTURE_METHODS(X) X(17, GetLevelDesc) X(18, GetSurfaceLevel) X(19, LockRect) \
+    X(20, UnlockRect) X(21, AddDirtyRect)
+#define IDIRECT3DTEXTURE9_COUNT 22
+
+#define IDIRECT3DCUBETEXTURE9_METHODS(X) \
+    BASETEXTURE_METHODS(X) X(17, GetLevelDesc) X(18, GetCubeMapSurface) X(19, LockRect) \
+    X(20, UnlockRect) X(21, AddDirtyRect)
+#define IDIRECT3DCUBETEXTURE9_COUNT 22
+
+#define IDIRECT3DVOLUMETEXTURE9_METHODS(X) \
+    BASETEXTURE_METHODS(X) X(17, GetLevelDesc) X(18, GetVolumeLevel) X(19, LockBox) \
+    X(20, UnlockBox) X(21, AddDirtyBox)
+#define IDIRECT3DVOLUMETEXTURE9_COUNT 22
+
+#define IDIRECT3DVERTEXBUFFER9_METHODS(X) \
+    RESOURCE_METHODS(X) X(11, Lock) X(12, Unlock) X(13, GetDesc)
+#define IDIRECT3DVERTEXBUFFER9_COUNT 14
+
+#define IDIRECT3DINDEXBUFFER9_METHODS(X) \
+    RESOURCE_METHODS(X) X(11, Lock) X(12, Unlock) X(13, GetDesc)
+#define IDIRECT3DINDEXBUFFER9_COUNT 14
+
+#define IDIRECT3DSURFACE9_METHODS(X) \
+    RESOURCE_METHODS(X) X(11, GetContainer) X(12, GetDesc) X(13, LockRect) X(14, UnlockRect) \
+    X(15, GetDC) X(16, ReleaseDC)
+#define IDIRECT3DSURFACE9_COUNT 17
+
+#define IDIRECT3DQUERY9_METHODS(X) \
+    X(0, QueryInterface) X(1, AddRef) X(2, Release) X(3, GetDevice) X(4, GetType) \
+    X(5, GetDataSize) X(6, Issue) X(7, GetData)
+#define IDIRECT3DQUERY9_COUNT 8
+
+// Interface ids: index into the proxy's interface table, first byte of every trace record,
+// and the first macro argument of FOR_EACH_IFACE. Keep in sync with docs/TRACE_FORMAT.md.
 #define IFACE_D3D9 0
 #define IFACE_DEVICE 1
 #define IFACE_SWAPCHAIN 2
-#define IFACE_COUNT 3
+#define IFACE_TEXTURE 3
+#define IFACE_CUBE 4
+#define IFACE_VOLUME 5
+#define IFACE_VB 6
+#define IFACE_IB 7
+#define IFACE_SURFACE 8
+#define IFACE_QUERY 9
+#define IFACE_COUNT 10
+#define IFACE_MAX_SLOTS 119
+
+// F(id, symbol, COM interface, method-list macro, count)
+#define FOR_EACH_IFACE(F) \
+    F(0, d3d9, IDirect3D9, IDIRECT3D9_METHODS, IDIRECT3D9_COUNT) \
+    F(1, device, IDirect3DDevice9, IDIRECT3DDEVICE9_METHODS, IDIRECT3DDEVICE9_COUNT) \
+    F(2, swapchain, IDirect3DSwapChain9, IDIRECT3DSWAPCHAIN9_METHODS, IDIRECT3DSWAPCHAIN9_COUNT) \
+    F(3, texture, IDirect3DTexture9, IDIRECT3DTEXTURE9_METHODS, IDIRECT3DTEXTURE9_COUNT) \
+    F(4, cube, IDirect3DCubeTexture9, IDIRECT3DCUBETEXTURE9_METHODS, IDIRECT3DCUBETEXTURE9_COUNT) \
+    F(5, volume, IDirect3DVolumeTexture9, IDIRECT3DVOLUMETEXTURE9_METHODS, IDIRECT3DVOLUMETEXTURE9_COUNT) \
+    F(6, vb, IDirect3DVertexBuffer9, IDIRECT3DVERTEXBUFFER9_METHODS, IDIRECT3DVERTEXBUFFER9_COUNT) \
+    F(7, ib, IDirect3DIndexBuffer9, IDIRECT3DINDEXBUFFER9_METHODS, IDIRECT3DINDEXBUFFER9_COUNT) \
+    F(8, surface, IDirect3DSurface9, IDIRECT3DSURFACE9_METHODS, IDIRECT3DSURFACE9_COUNT) \
+    F(9, query, IDirect3DQuery9, IDIRECT3DQUERY9_METHODS, IDIRECT3DQUERY9_COUNT)
