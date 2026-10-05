@@ -1,0 +1,53 @@
+addr,name,kind,confidence,notes
+0x0096DA57,mainCRTStartup,func,CONFIRMED,PE entry point (re/inventory.json); jumps into __tmainCRTStartup
+0x0096D8D9,__tmainCRTStartup,func,LIKELY,calls GetCommandLineA then `push 0x400000; call 0x0050A730` at 0x0096D9E7 (tools/find_xrefs.py)
+0x0050A730,WinMain,func,LIKELY,called from CRT startup with hInstance=0x400000; calls SetUnhandledExceptionFilter + RegisterClassExA wrapper + Com_Init
+0x004069C0,Com_Init,func,LIKELY,only caller of 0x0082CD10; called from WinMain (calls.csv)
+0x0082CD10,Com_Init_Try_Block_Function,func,LIKELY,references "--- Common Initialization Complete ---"; calls CL_Init and Steam init
+0x00664BE0,CL_Init,func,LIKELY,references "----- Client Initialization -----" / "... Complete -----"
+0x0050F030,SV_Init,func,LIKELY,references "------ Server Initialization ------"
+0x005C8250,FS_Startup,func,LIKELY,references "----- FS_Startup -----"
+0x0043B390,Com_ExecStartupConfigs,func,GUESS,references "exec default.cfg"; name by analogy with IW engine
+0x0043EEB0,Hunk_AllocAlign,func,LIKELY,references its own error string "Hunk_AllocAlign failed on %i bytes"; also calls VirtualAlloc
+0x005A2680,Steam_Init,func,LIKELY,calls SteamAPI_Init + SteamAPI_RestartAppIfNecessary + SteamUtils; called from Com_Init_Try_Block_Function. Engine name unknown
+0x00867F30,Sys_RegisterWindowClass,func,GUESS,only RegisterClassExA site; called from WinMain. Engine name unknown
+0x006B82E0,R_Init,func,LIKELY,references "----- R_Init -----"; single caller 0x006EBE00
+0x006EBE00,R_InitThenPresent_caller,func,GUESS,calls R_Init and 0x006EB1F0; render-thread entry or CL_InitRenderer — resolve in P1
+0x006B7F90,R_InitGraphicsApi,func,GUESS,only caller of 0x006B7760
+0x006B7760,R_CreateD3D9,func,LIKELY,calls Direct3DCreate9; references "Getting Direct3D 9 interface..."
+0x006B7A20,R_CreateWindow,func,GUESS,CreateWindowExA site next to the D3D init code
+0x006B6F20,R_InitRenderResources,func,LIKELY,references "Initializing render targets..." / "dynamic buffers..." / "static model cache..."
+0x00726950,R_CheckShaderModel3,func,GUESS,references "Shader model 3.0 not available."
+0x006EB1F0,R_PresentAndPumpMessages,func,LIKELY,references "Direct3DDevice9::Present failed: %s (%d)"; contains PeekMessageA/GetMessageA/DispatchMessageA. Frame-end anchor (R_EndFrame equivalent). Engine name unknown
+0x007094F0,R_LockVertexBuffer,func,GUESS,references "DirectX didn't lock a vertex buffer: %s"
+0x006D2100,R_PerfEventScope,func,GUESS,only D3DPERF_BeginEvent/EndEvent site
+0x00601DF0,R_SetGammaRamp_or_DisplayMode,func,GUESS,SetDeviceGammaRamp + ChangeDisplaySettingsA site
+0x007017B0,Material_CompileShader,func,LIKELY,only D3DXCompileShader call site; references "%s compilation failed - NULL shader"; callers 0x00701A40 / 0x00701B40
+0x00701560,Material_CopyTextToDXBuffer,func,LIKELY,D3DXCreateBuffer site; name taken from its own error string
+0x00701F60,Material_ReflectShader,func,GUESS,D3DXGetShaderConstantTable / InputSemantics / OutputSemantics site
+0x007015B0,Material_ShaderCachePath_A,func,GUESS,references "%s/%s/shadercache%d"
+0x007016C0,Material_ShaderCachePath_B,func,GUESS,references "%s/%s/shadercache%d"
+0x006FE9F0,Material_LoadShaderText,func,GUESS,references "Couldn't read shader '%s'"
+0x007074A0,R_SaveSurfaceToFile,func,GUESS,only D3DXSaveSurfaceToFileA site (screenshots)
+0x004064D0,DB_LoadXFile,func,LIKELY,compares fastfile magic "IWffu100"/"IWff0100"; references "Loading fastfile '%s'"; single caller 0x00580E60
+0x007A3540,DB_AddFastfileToQueue,func,GUESS,references "Adding fastfile '%s' to queue"
+0x007A34A0,DB_BuildZonePath_A,func,GUESS,references "%s\zone\Common\%s%s"
+0x007A3730,DB_BuildZonePath_B,func,GUESS,references "%s\zone\Common\%s%s"
+0x00559AD0,DB_ZlibDecompress,func,GUESS,references "zlib decompress %d"
+0x00477410,Scr_LoadScript,func,GUESS,references "%s.gsc"
+0x006D99F0,Bink_InitPlayback,func,LIKELY,BinkSetSoundSystem / BinkOpenDirectSound / BinkRegisterFrameBuffers / BinkSetMemory site. Engine name unknown
+0x006D96E0,Bink_Open,func,LIKELY,BinkOpen / BinkSetIOSize / BinkGetError site
+0x006D9000,Bink_UpdateFrame,func,LIKELY,BinkDoFrame / BinkNextFrame / BinkWait / BinkShouldSkip site; no direct callers (called through a pointer)
+0x008B19D0,SND_InitDriver,func,GUESS,only caller of both CoCreateInstance sites
+0x008B17E0,SND_CreateXAudio2,func,GUESS,CoInitializeEx + CoCreateInstance site; XAudio2 RTTI present in exe — CLSID not yet read
+0x004AAC80,SND_CoCreate_B,func,GUESS,second CoCreateInstance site; same caller as 0x008B17E0
+0x005BD7D0,Voice_InitDirectSound,func,GUESS,DSOUND #11 site; references "ERROR: [play] failed to initialize DirectSound"
+0x0063E5D0,Voice_InitCapture,func,GUESS,DSOUND #6 (DirectSoundCaptureCreate) site
+0x0052A430,Voice_Init,func,LIKELY,references "--- Initializing Voice ---"
+0x00434C30,GPad_UpdateState,func,GUESS,XINPUT1_3 #2 (XInputGetState) site; caller 0x00867600
+0x004ACE60,GPad_SetRumble,func,GUESS,XINPUT1_3 #3 (XInputSetState) site
+0x00867100,GPad_GetCapabilities,func,GUESS,XINPUT1_3 #4 site
+0x00868350,IN_PollAsyncKeys,func,GUESS,only GetAsyncKeyState site
+0x005A3800,SaveGame_Screenshot,func,GUESS,references "screenshotJPEG savegame save/%s"
+0x0051B0A0,CL_InitCGame,func,LIKELY,references "CL_InitCGame: %5.2f seconds"
+0x03956508,_tls_index,data,CONFIRMED,TLS directory AddressOfIndex (re/inventory.json)

@@ -1,17 +1,16 @@
 # LOG
 
 ## STATE  (OVERWRITE this block at every checkpoint — it is the resume point)
-- **Date/time:** 2026-10-05 ~14:00
-- **Phase / task:** P0 — T-001..T-005, T-007, T-008 DONE. **T-006 in progress** (Ghidra headless analysis running), T-009 preliminary.
-- **Last completed:** fastfile/shader survey (commit after 16f8476).
-- **Next exact step:**
-  1. If `re/ghidra_summary.json` does not exist: `GHIDRA_HEADLESS_MAXMEM=5G scripts/ghidra_analyze.sh` (3G heap OOMs in X86Analyzer; watch `artifacts/ghidra/analyze.log`). If the project exists but export is missing: `scripts/ghidra_analyze.sh --export`.
-  2. `.venv/bin/python tools/find_xrefs.py` (re-attributes xrefs with Ghidra function starts) -> write `re/symbols.csv` + RE_NOTES § Function index (T-009).
-  3. P0 exit review entry in LOG, then ask user before P1.
-- **Files in flight:** none uncommitted except Ghidra outputs (gitignored).
-- **Open questions for the user:** P1 needs a Windows-capable baseline (CrossOver or Wine) — ADR-007; ask before installing.
-- **Half-done / how to resume:** T-009 function index currently uses heuristic function starts (0xCC padding) — redo with Ghidra data before trusting addresses.
-- **Machine:** Apple M1 (arm64), 8 GB RAM, macOS 27.0.1 (26A434), Xcode 27.0, ~56 GB free. Installed this session (user-approved): cmake, ninja, ffmpeg 9.0.2, sevenzip (`7zz`), ghidra 12.1.4 (formula, `/opt/homebrew/opt/ghidra/libexec`), openjdk@21.
+- **Date/time:** 2026-10-05 (end of P0)
+- **Phase / task:** **P0 COMPLETE** (T-001..T-009 DONE). Waiting for user go-ahead for P1.
+- **Last completed:** T-006 Ghidra export, T-009 symbols.csv, P0 exit review (entry below).
+- **Next exact step:** on user go-ahead -> T-010: decide ADR-007 (CrossOver vs Wine/Game Porting Toolkit; needs install approval, and check disk: ~56 GB free), then `scripts/run_baseline.sh` (T-011). Optional first: T-009a (seed unreached code and re-run `GHIDRA_HEADLESS_MAXMEM=5G scripts/ghidra_analyze.sh`).
+- **Files in flight:** none. Regenerable (gitignored): `re/ghidra_projects/`, `re/ghidra_export/`, `artifacts/`.
+- **Open questions for the user:**
+  1. Go-ahead for P1?
+  2. ADR-007: which baseline — CrossOver (paid, simplest 32-bit support on Apple Silicon) or a free Wine build? Both are system-level installs.
+- **Half-done / how to resume:** nothing half-done. `reference/` is still writable (chmod deferred; do `chmod -R a-w reference/` if the user agrees).
+- **Machine:** Apple M1 (arm64), 8 GB RAM, macOS 27.0.1 (26A434), Xcode 27.0, ~56 GB free. Installed (user-approved 2026-10-05): cmake, ninja, ffmpeg 9.0.2, sevenzip (`7zz`), ghidra 12.1.4 (`/opt/homebrew/opt/ghidra/libexec`), openjdk@21. Python tooling in `.venv` (`scripts/setup_venv.sh`).
 - **Reference copy:** user confirmed (2026-10-05) they own BO1 and that the DRM-free copy in `reference/` is the project reference.
 
 ---
@@ -60,3 +59,13 @@ Entry template:
   - WinMain candidate 0x0050A730 (called from CRT startup at 0x0096D9E7 after `push 0x400000`) — LIKELY.
 - Problems: Ghidra OOM at 3G heap in X86Analyzer on this 8 GB machine; rerunning with 5G. `brew install --cask ghidra` no longer exists — it is a formula now.
 - Next: see STATE.
+
+### 2026-10-05 — T-006, T-009, P0 exit review — P0 complete
+- Did: Ghidra 12.1.4 headless analysis + structural export; coverage-gap measurement; xref-based entry-point location; `re/symbols.csv`; identified sound codec (MS-ADPCM) and confirmed fastfiles are plain zlib with precompiled SM3 shaders.
+- Evidence: `re/ghidra_summary.json`, `re/coverage_gaps.json`, `re/xrefs_anchor.csv`, `re/symbols.csv`; `artifacts/ghidra/analyze.log` ("Analysis succeeded", 156 s).
+- **P0 exit criteria (docs/PLAN.md):** binaries table OK · import census OK · middleware list OK · float-model note OK · Ghidra export reproducible by one script OK (`scripts/ghidra_analyze.sh`). -> **P0 exit: PASS.**
+- Lifter-feasibility data for G1 (all in RE_NOTES):
+  - Favourable: not packed; fixed image base, no relocs needed; no TLS callbacks; no VirtualProtect; clean decode; SM3-only precompiled shaders; tiny import surface (334); D3D9 use is all through COM vtables; assets readable with stock zlib/zip; Bink decodable by FFmpeg; audio is MS-ADPCM -> XAudio2.
+  - Risks: (1) **10.1% of .text is code Ghidra did not reach** (pointer-only reachability) + 5,407 indirect call sites -> need pointer-seeded discovery + runtime trap/logging; (2) 51 unresolved switch tables; (3) x87 is 27.6% of FP instructions (mostly fld/fstp, but real arithmetic exists); (4) 1,320 SEH-frame sites + RaiseException/RtlUnwind -> C++ EH may be live; (5) heavily multi-threaded (430 lock-prefixed ops, 10 CreateThread sites); (6) `D3DXCompileShader` is imported — runtime HLSL compile must be ruled out by the P1 trace; (7) this Mac has 8 GB RAM / 56 GB disk — tight for compiling ~1.5 M lifted instructions and for a Wine baseline + traces.
+- Problems: none blocking.
+- Next: ask user for P1 go-ahead + ADR-007.

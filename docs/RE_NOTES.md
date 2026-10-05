@@ -191,7 +191,41 @@ Source: `tools/float_census.py` -> `re/float_census.json`. Method: capstone 5.0.
 ## D3D9 census (functions, states, formats, shader models, per-frame call volumes)
 ## Platform map (every import -> shim | lift | stub | not needed)
 ## Engine structures (name, VA of known instances, layout, confidence)
+## Code structure (Ghidra export, T-006)
+Reproduce: `GHIDRA_HEADLESS_MAXMEM=5G scripts/ghidra_analyze.sh` (Ghidra 12.1.4 headless, default analyzers, `x86:LE:32:default` / `windows` cspec; 156 s analysis on the M1; **3G heap OOMs** in the x86 Constant Reference Analyzer). Export script `tools/ghidra/ExportProgramFacts.java` -> `re/ghidra_export/*.csv` (gitignored, regenerate) + `re/ghidra_summary.json` (committed). CONFIRMED = tool output; interpretation tagged separately.
+
+| Fact | Value |
+|---|---|
+| Functions (non-external) | 17,490 (138 thunks); median size 136 B, largest 18,500 B (0x006CA1C0) |
+| Instructions / code bytes reached | 1,480,860 / 5,086,563 B |
+| Basic blocks / edges | 211,515 / 378,468 |
+| Computed jumps (switches) | 648, of which **51 unresolved**; 4,783 targets recovered, largest table 288 |
+| Computed calls | 5,407 (only 125 with a statically known target) |
+| Direct call references | 89,368 |
+| Address-taken functions (data refs to a function start) | 1,141 functions / 1,833 refs |
+| Named by Function ID / demangler | 529 (CRT + STL, e.g. `_memcpy`, `_free`, `__cfltcvt_init`) — everything else is `FUN_xxxxxxxx` |
+| Calling convention recovered | 351 of 17,490 (318 cdecl, 14 stdcall, 14 thiscall, 5 fastcall); the rest "unknown" -> the lifter must not rely on Ghidra's convention; derive stack effect per call site (`ret imm`, callee-purge analysis) |
+
+**Coverage of `.text` (tools/coverage_gaps.py -> re/coverage_gaps.json)** — every byte classified:
+| Class | Bytes | Share |
+|---|---|---|
+| code inside a Ghidra function | 4,905,573 | 83.1% |
+| code reached but in no function | 180,990 | 3.1% |
+| padding (0xCC/0x90/0x00) | 180,051 | 3.0% |
+| pointer tables inside `.text` (jump tables) | 11,676 | 0.2% |
+| **likely code Ghidra never reached** | 595,620 | **10.1%** (4,229 regions; largest 7,185 B at 0x00948B20, 7,027 B at 0x005DB210) |
+| unknown (inline data / undecodable) | 31,002 | 0.5% |
+
+- Interpretation (LIKELY): ~10% of the code is reachable only through pointers that default analysis did not follow — script builtin tables, dvar/command callbacks, asset-type handler tables, vtables, thread entry points (e.g. `Bink_UpdateFrame` 0x006D9000 has zero direct callers). **This is the main CFG-recovery risk for P4.** Mitigation to try before G1: seed function starts from (a) every dword in `.rdata`/`.data` that points at a post-padding address in `.text`, (b) the `likely_code_region_starts` list, then re-run analysis and re-measure. Anything still unreached must be handled by a runtime "unknown guest target" trap that logs the address (the P1 baseline can also record real indirect-call targets).
+- 51 unresolved switch jumps need manual or pattern-based table recovery (list: `jumptables.csv`, `kind=jump,num_targets=0`).
+
 ## Function index (WinMain, Com_Init, R_Init, R_EndFrame, FS_*, Sys_*, ...)
+Single source of truth: **`re/symbols.csv`** (52 entries: 2 CONFIRMED, 21 LIKELY, 29 GUESS). Method: `tools/find_xrefs.py` (capstone sweep for instructions referencing chosen IAT slots, incl. calls through `jmp [iat]` thunks, and engine log/error strings) attributed to Ghidra function starts -> `re/xrefs_anchor.csv` (501 xrefs, 468 inside a Ghidra function body); callers from `re/ghidra_export/calls.csv`. Names follow the IW-engine convention where the function prints its own name; otherwise they are descriptive placeholders (marked "Engine name unknown").
+
+Boot chain (LIKELY): `mainCRTStartup` 0x0096DA57 -> `__tmainCRTStartup` 0x0096D8D9 -> **`WinMain` 0x0050A730** -> `Com_Init` 0x004069C0 -> `Com_Init_Try_Block_Function` 0x0082CD10 -> { `Steam_Init` 0x005A2680, `CL_Init` 0x00664BE0, … }.
+Renderer anchors (LIKELY): `R_Init` 0x006B82E0; `R_CreateD3D9` 0x006B7760 (the only real `Direct3DCreate9` user besides 0x005B07A0, a second site reached from 0x00867A90 — GUESS: adapter/caps probe at startup); `R_InitRenderResources` 0x006B6F20; **frame end: `R_PresentAndPumpMessages` 0x006EB1F0** (Present-failure string + Win32 message pump in one function).
+Shader path: `Material_CompileShader` 0x007017B0 is the only `D3DXCompileShader` site (callers 0x00701A40, 0x00701B40).
+Not yet located: `Com_Frame` (main loop body — one of the calls WinMain makes after `Com_Init`), `R_BeginFrame`, the IDirect3DDevice9 global pointer, `CreateDevice` call site (vtable call — find from the P1 trace return addresses).
 ## Asset formats
 Method: header sampling with python (inline, 2026-10-05) over `reference/.../zone` and `main`. The port only reads these; nothing is converted.
 - **Fastfiles** — 146 `.ff`, 2.85 GB (`zone/Common` 74 + `zone/English` 72 `en_*`). All have magic `IWffu100` (unsigned variant; the exe also knows `IWff0100`), **version 473 (0x1D9)**, followed directly by a zlib stream (`78 01`). CONFIRMED (all 146 headers). No per-file encryption visible at the header level. SP-relevant zones: `code_pre_gfx`, `code_post_gfx` (2.1 MB), `common` (19.5 MB), `patch`, `frontend` (39 MB), campaign levels ~96–102 MB each (cuba, vorkuta, pentagon, flashpoint, khe_sanh, hue_city, kowloon, creek_1, river, wmd_sr71, wmd, pow, fullahead, rebirth, int_escape, underwaterbase, outro), plus `so_narrative*_frontend`. Zombie/MP zones are present but out of scope.

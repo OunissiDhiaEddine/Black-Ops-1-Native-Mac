@@ -1,0 +1,20 @@
+{
+ "program": "BlackOps.exe",
+ "ghidra_version": "12.1.4",
+ "language": "x86:LE:32:default",
+ "compiler_spec": "windows",
+ "functions": 17490,
+ "thunks": 138,
+ "instructions": 1480860,
+ "code_bytes": 5086563,
+ "basic_blocks": 211515,
+ "block_edges": 378468,
+ "computed_jumps": 648,
+ "computed_jumps_unresolved": 51,
+ "computed_calls": 5407,
+ "computed_calls_with_known_target": 125,
+ "call_refs": 89368,
+ "address_taken_functions": 1141,
+ "function_pointer_refs": 1833,
+ "strings": 21073
+}

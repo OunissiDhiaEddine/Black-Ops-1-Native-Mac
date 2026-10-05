@@ -3,7 +3,7 @@ Status: TODO · NOW · DONE · BLOCKED. Only ONE task is NOW at a time. Mark DON
 Update this file at every checkpoint (see AGENTS.md rule 2).
 
 ## NOW
-- **T-006** (P0) Ghidra headless project + export — `scripts/ghidra_analyze.sh` running; then T-009.
+- **P0 complete — waiting for user go-ahead to start P1** (T-010: choose/install baseline stack, ADR-007).
 
 ## DONE
 - **T-001** (P0) DONE 2026-10-05 — game install present in `reference/`, `scripts/doctor.sh` run, tool availability recorded.
@@ -14,11 +14,12 @@ Update this file at every checkpoint (see AGENTS.md rule 2).
 - [x] **T-003** DONE 2026-10-05 (evidence: `re/imports.csv` 542 rows, RE_NOTES § Imports; commit b0be0c7). Import census -> `re/imports.csv` + RE_NOTES § Imports (group by DLL; flag d3d9/d3dx9, audio, input, net, steam, bink).
 - [x] **T-004** DONE 2026-10-05 — not packed/wrapped (evidence: RE_NOTES § Protection / packing check: entry in .text, max window entropy 6.79, clean linear decode). Open risk logged for P1. Packing/protection check on `BlackOps.exe`. If packed/wrapped -> BLOCKED + tell user.
 - [x] **T-005** DONE 2026-10-05 (evidence: `re/float_census.json`, RE_NOTES § Float model; commit b0be0c7). Float-model census (count x87 vs SSE/SSE2 instructions via capstone) -> RE_NOTES § Float model.
-- [ ] **T-006** Ghidra headless project + export script (functions, basic blocks, jump tables, xrefs, strings) -> `re/` ; one-command reproducible.
+- [x] **T-006** DONE 2026-10-05 (evidence: `re/ghidra_summary.json` — 17,490 functions, 211,515 blocks; `scripts/ghidra_analyze.sh` one-command; `re/coverage_gaps.json`). Ghidra headless project + export script (functions, basic blocks, jump tables, xrefs, strings) -> `re/` ; one-command reproducible.
 - [x] **T-007** DONE 2026-10-05 (evidence: RE_NOTES § Middleware table; sound codec still unidentified -> follow-up under T-009). Identify middleware (video/audio/physics/network) from imports, strings, bundled DLLs -> RE_NOTES § Middleware.
 - [x] **T-008** DONE 2026-10-05 (evidence: RE_NOTES § Asset formats: 146 ff headers, 47 IWD listings, IWI/Bink header samples). Asset layout survey (fastfiles/IWD/dirs; compression; sizes) -> RE_NOTES § Asset formats.
-- [ ] **T-009** Locate key entry points (WinMain, main loop, R_Init/R_EndFrame equivalents via D3D9 import xrefs) -> `re/symbols.csv` with confidence tags.
-- **P0 exit review** -> LOG entry, ask user to proceed.
+- [x] **T-009** DONE 2026-10-05 (evidence: `re/symbols.csv` 52 entries, `re/xrefs_anchor.csv`; Com_Frame / CreateDevice site still open -> P1 trace). Locate key entry points (WinMain, main loop, R_Init/R_EndFrame equivalents via D3D9 import xrefs) -> `re/symbols.csv` with confidence tags.
+- **P0 exit review** — DONE 2026-10-05, see LOG. **Waiting for user go-ahead for P1** (and ADR-007 choice).
+- [ ] **T-009a** (carry-over, optional before G1) Seed unreached code (10.1% of `.text`) from data pointer scan + `likely_code_region_starts`, re-run Ghidra, re-measure coverage.
 
 ## P1 — Reference baseline
 - [ ] **T-010** Choose baseline stack (ADR-007): install CrossOver or Wine+wine32on64 (ASK USER before installing). Record versions.
