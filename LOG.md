@@ -1,16 +1,16 @@
 # LOG
 
 ## STATE  (OVERWRITE this block at every checkpoint — it is the resume point)
-- **Date/time:** 2026-10-05 ~19:10
-- **Phase / task:** P3 done; ADR-004/005 ACCEPTED; **G1 = go (delegated to the agent). P4 started: T-041** (`tools/lifter/`, `src/runtime/`, `tests/diff/` — see TASKS.md P4).
-- **Last completed:** SM3 -> MSL translator (6,845/6,845 shaders compile), Metal replay backend, frame comparison; all four golden scenarios replay at SSIM 0.968–0.999 with 0 skipped draws; Metal validation layer shows no errors.
-- **Next exact step:** after the user's answer — if G1 = go: expand P4 into tasks (lifter design doc first: instruction coverage from `re/float_census.json`, function list from `re/ghidra_export`, dispatcher/ABI from `docs/HOST_ABI.md`; milestone M4a = lift one leaf function and diff-test it under Unicorn). Independent of G1: T-036 (shader/pipeline disk cache), T-037 (native D3D9 reference from the Windows PC), T-038 (video textures), T-024 (steam_api.dll spike).
-- **Standard commands:** `scripts/build.sh`; `scripts/replay_check.sh [threshold]`; `build/replay <trace> --backend metal|null --frames A-B --dump DIR`; `build/sm3c [--out DIR] [--no-compile] <dir>`; `tools/compare_frames.py GOLDEN REPLAY --diff OUT`; baseline: `scripts/run_baseline.sh --wine cx --net --trace …`, `scripts/capture_golden_all.sh`.
-- **Files in flight:** none uncommitted.
-- **Open questions for the user:** (1) approve ADR-004 (D3D9-shaped renderer) and ADR-005 (own shader translator)? (2) G1: proceed to P4? (3) can they run the proxy on their Windows PC for native reference frames (T-037)?
-- **Half-done / how to resume:** nothing half-done. The renderer lives in `tests/replay/` as a replay backend; `src/rhi` and `src/metal` are still empty (production backend = P5).
-- **Machine:** Apple M1 (arm64), 8 GB RAM, macOS 27.0.1, Xcode 27.0, ~40 GB free. brew: cmake, ninja, ffmpeg, sevenzip, ghidra, openjdk@21, mingw-w64. venv: pefile, capstone, lief, unicorn, numpy, pillow. Wine baseline: `artifacts/wine/cx` (WineCX 24.0.7) + `Wine Staging.app` (support dylibs), prefix `artifacts/wineprefix-cx`.
-- **Reference copy / decisions:** user owns BO1 (stated 2026-10-05); `reference/` read-only; working copy `artifacts/game`. ADR-006/008/009/011/012 ACCEPTED; ADR-010 = shipped steam_api.dll unmodified in an embedded x86 interpreter (spike T-024 pending); ADR-004/005 PROPOSED.
+- **Date/time:** 2026-10-05 ~23:45
+- **Phase / task:** P4. T-040 + T-041 DONE. **NOW: T-042** (FP/SIMD coverage in the lifter + FP state in the diff tests).
+- **Last completed:** integer lifter (`tools/lifter/lift.py`, 70.3% of functions), runtime skeleton (`src/runtime/`), differential harness (`tests/diff/`, `scripts/difftest.sh`): 11,212/11,212 vectors on 2,867 leaf functions match Unicorn.
+- **Next exact step:** T-042 — (1) add `Xmm xmm[8]; double st[8]; uint64_t mm[8]; uint32_t mxcsr; uint16_t fcw, fsw; uint8_t ftop;` to `Cpu` in `src/runtime/lifted.h` and `#include "lifted_fp.h"` at its end (helpers are written, file untested); (2) `tools/lifter/lift_fp.py`: x87 decoded from opcode bytes (D8–DF + modrm, table in docs/LIFTER.md §5), SSE/MMX table-driven from capstone operands; (3) vector format v2 with xmm/x87 state (`tests/diff/gen_vectors.py`, `difftest.c`); (4) `scripts/difftest.sh 100000 4 1`, fix, repeat. Blocker histogram: `re/lift_coverage.json` (`blockers_all_instructions`).
+- **Standard commands:** `scripts/difftest.sh [max_funcs] [per_func] [seed]` (full leaf run = `100000 4 1`, ~14 min); `.venv/bin/python tools/lifter/lift.py --stats re/lift_coverage.json`; P3: `scripts/build.sh`, `scripts/replay_check.sh`; baseline: `scripts/run_baseline.sh --wine cx --net --trace …`.
+- **Files in flight:** `src/runtime/lifted_fp.h` (FP/SIMD helpers, written, not yet included or compiled).
+- **Open questions for the user:** none.
+- **Half-done / how to resume:** T-042 just started (see next step). Renderer still lives in `tests/replay/`; `src/rhi`, `src/metal` empty until P5.
+- **Machine:** Apple M1 (arm64), 8 GB RAM, macOS 27.0.1, Xcode 27.0. brew: cmake, ninja, ffmpeg, sevenzip, ghidra, openjdk@21, mingw-w64. venv: pefile, capstone, lief, unicorn, numpy, pillow. Wine baseline: `artifacts/wine/cx` (WineCX 24.0.7), prefix `artifacts/wineprefix-cx`.
+- **Reference copy / decisions:** user owns BO1 (stated 2026-10-05); `reference/` read-only; working copy `artifacts/game`. ADR-004/005/006/008/009/011/012 ACCEPTED; ADR-010 = shipped steam_api.dll unmodified in an embedded x86 interpreter (spike T-024 pending); ADR-013 lifter = Python -> C; G1 = go. Windows PC: last resort only (user).
 
 ---
 ## SESSION LOG (append-only; newest at the bottom)
@@ -171,3 +171,10 @@ Entry template:
 ### 2026-10-05 ~19:20 — user decisions: ADR-004/005 accepted, G1 delegated -> go; P4 started
 - Did: recorded ADR-004/005 ACCEPTED; G1 decision (go) with rationale; ADR-013 (lifter = Python + capstone -> generated C); P4 task list. User wants the Windows PC kept as a last resort (T-037 parked).
 - Next: T-041 lifter first cut + differential tests.
+
+### 2026-10-05 23:45 — T-040, T-041 — integer lifter + differential tests: 11,212/11,212 vectors match Unicorn
+- Did: `src/runtime/lifted.h` (Cpu, function-local flags, arithmetic helpers), `tools/lifter/lift.py` (capstone + Ghidra export -> C in `artifacts/lifted/`), `src/runtime/runtime.{h,c}` (4 GiB arena, PE loader, dispatch table, traps), `tests/diff/gen_vectors.py` (Unicorn runs the original bytes from random state), `tests/diff/difftest.c` (same inputs through the lifted code, compares registers + written memory), `scripts/difftest.sh`, `docs/LIFTER.md`.
+- Evidence: `re/difftest_report.json` — 15,439 / 21,960 functions lift (774,039 instructions); 2,924 leaf functions tried, 2,867 produced vectors, **11,212 vectors: 11,212 pass, 0 fail**; 45,720 of 76,883 instructions in those functions executed (59.5%). Mutation check: breaking `add` for 1 input in 8 -> 32 of 1,160 vectors fail; breaking `sub` for one input value -> 3 fail.
+- Learned: (1) Unicorn must be rebuilt after a faulting run — one bad function made every later run "return" to garbage (0x1f4f…), which first looked like 90% of functions failing. (2) "Leaf" must exclude tail calls (`xfer` in `lifted_meta.json`). (3) What blocks the remaining 30%: `re/lift_coverage.json` -> `blockers_all_instructions` (movss 86k, mulss 26k, fstp 26k, fld 23k, addss 17k, movaps 17k … 217 distinct; MMX `movq` 8.4k).
+- Problems / limits (also in docs/LIFTER.md §6): flags at return not compared; 40% of instructions in the tested functions not reached by random inputs; agreement is with Unicorn, not a real CPU; non-leaf functions untested (T-043).
+- Next: T-042.

@@ -3,7 +3,7 @@ Status: TODO · NOW · DONE · BLOCKED. Only ONE task is NOW at a time. Mark DON
 Update this file at every checkpoint (see AGENTS.md rule 2).
 
 ## NOW
-- **T-041** (P4/M4a) Lifter first cut (integer subset) + differential test harness: lift leaf functions and match Unicorn.
+- **T-042** (P4) Lifter coverage loop: x87 + SSE/SSE2 (scalar, packed) + MMX + leftovers, driven by `re/lift_coverage.json`; FP state in the diff tests.
 
 ## DONE
 - **T-001** (P0) DONE 2026-10-05 — game install present in `reference/`, `scripts/doctor.sh` run, tool availability recorded.
@@ -51,8 +51,8 @@ Update this file at every checkpoint (see AGENTS.md rule 2).
 - [ ] **T-024** (P2 follow-up, before P5) Spike for ADR-010: measure which Windows APIs the shipped `steam_api.dll` calls (baseline, `GetProcAddress` log / relay for that module), then run its `DllMain` + `SteamAPI_Init` under Unicorn with stub shims. Evidence: list of APIs + init returning.
 
 ## P4 — Static recompilation (G1 passed 2026-10-05; ADR-013)
-- [ ] **T-040** `docs/LIFTER.md`: design (register/flag/memory model, control flow, calls, tables, x87/SSE plan, test method). Keep it current with the code.
-- [ ] **T-041** (M4a) Lifter first cut: integer instructions; runtime skeleton (`src/runtime`: Cpu, arena, PE loader, address table); diff harness (`tests/diff`): Unicorn vs lifted on leaf functions. Evidence: pass rate report `re/difftest_report.json`.
+- [x] **T-040** DONE 2026-10-05 (evidence: `docs/LIFTER.md`). `docs/LIFTER.md`: design (register/flag/memory model, control flow, calls, tables, x87/SSE plan, test method). Keep it current with the code.
+- [x] **T-041** DONE 2026-10-05 (evidence: `re/difftest_report.json` — 15,439/21,960 functions lift; 11,212/11,212 vectors over 2,867 leaf functions match Unicorn; 59.5% of their instructions executed; mutation check catches injected faults). (M4a) Lifter first cut: integer instructions; runtime skeleton (`src/runtime`: Cpu, arena, PE loader, address table); diff harness (`tests/diff`): Unicorn vs lifted on leaf functions. Evidence: pass rate report `re/difftest_report.json`.
 - [ ] **T-042** Coverage loop: lift ALL functions, histogram of unsupported instructions (`re/lift_coverage.json`), implement by frequency until >= 99% of functions lift. Order: remaining integer ops, string ops, x87, SSE/SSE2 scalar, SSE packed, MMX/SSSE3 leftovers.
 - [ ] **T-043** Diff tests for non-leaf functions (calls stubbed/recorded), fs: (TEB) support in the harness, x87/SSE state comparison.
 - [ ] **T-044** Whole-image build: split into translation units, measure compile time and binary size on this machine; flags-live-across-call audit; unresolved switch tables (64) and unreached code (0.8%) lists.

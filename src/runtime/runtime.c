@@ -1,0 +1,67 @@
+#include "runtime.h"
+
+#include <stdio.h>
+#include <sys/mman.h>
+
+uint8_t *g_mem;
+jmp_buf g_trap_jmp;
+
+extern const struct LiftedEntry { uint32_t va; LiftedFn fn; } g_lifted_table[];
+extern const unsigned g_lifted_count;
+
+#define ARENA_SIZE (1ull << 32)
+
+int rt_arena_reset(void) {
+    // Anonymous, lazily zero-filled, fully accessible: any guest address reads as zero until
+    // written. MAP_FIXED over the old mapping drops every page touched by the previous user.
+    void *want = g_mem;
+    void *p = mmap(want, ARENA_SIZE, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON | MAP_NORESERVE | (want ? MAP_FIXED : 0), -1, 0);
+    if (p == MAP_FAILED) return -1;
+    g_mem = (uint8_t *)p;
+    return 0;
+}
+
+static uint32_t rd32(const uint8_t *p) { uint32_t v; memcpy(&v, p, 4); return v; }
+static uint16_t rd16(const uint8_t *p) { uint16_t v; memcpy(&v, p, 2); return v; }
+
+int rt_load_image(const void *file, size_t size) {
+    const uint8_t *f = (const uint8_t *)file;
+    if (size < 0x40 || rd16(f) != 0x5A4D) return -1;
+    uint32_t nt = rd32(f + 0x3C);
+    if (nt + 0xF8 > size || rd32(f + nt) != 0x00004550) return -1;
+    uint16_t nsec = rd16(f + nt + 6), opt_size = rd16(f + nt + 20);
+    const uint8_t *opt = f + nt + 24;
+    if (rd16(opt) != 0x10B) return -1; // PE32 only
+    uint32_t base = rd32(opt + 28), headers = rd32(opt + 60);
+    if (headers <= size) memcpy(g_mem + base, f, headers);
+    const uint8_t *sec = opt + opt_size;
+    for (unsigned i = 0; i < nsec; i++, sec += 40) {
+        uint32_t vsize = rd32(sec + 8), va = rd32(sec + 12), raw_size = rd32(sec + 16), raw = rd32(sec + 20);
+        uint32_t n = raw_size < vsize ? raw_size : vsize;
+        if ((uint64_t)raw + n > size) return -1;
+        memcpy(g_mem + base + va, f + raw, n); // the rest of the virtual size is already zero
+    }
+    return 0;
+}
+
+LiftedFn rt_lookup(uint32_t va) {
+    unsigned lo = 0, hi = g_lifted_count;
+    while (lo < hi) {
+        unsigned mid = (lo + hi) / 2;
+        if (g_lifted_table[mid].va < va) lo = mid + 1;
+        else hi = mid;
+    }
+    return lo < g_lifted_count && g_lifted_table[lo].va == va ? g_lifted_table[lo].fn : NULL;
+}
+
+void rt_dispatch(Cpu *cpu, uint32_t target) {
+    LiftedFn fn = rt_lookup(target);
+    if (!fn) rt_trap(cpu, target, TRAP_NO_TARGET);
+    fn(cpu);
+}
+
+void rt_trap(Cpu *cpu, uint32_t addr, uint32_t code) {
+    cpu->trap_addr = addr;
+    cpu->trap_code = code;
+    longjmp(g_trap_jmp, (int)code);
+}

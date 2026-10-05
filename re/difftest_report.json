@@ -1,0 +1,17 @@
+{
+ "functions_total": 21960,
+ "functions_lifted": 15439,
+ "instructions_lifted": 774039,
+ "leaf_functions_lifted": 3508,
+ "functions_tried": 2924,
+ "functions_with_vectors": 2867,
+ "instructions_executed": 45720,
+ "instructions_in_tried_functions": 76883,
+ "vectors_per_function": 4,
+ "seed": 1,
+ "vectors": 11212,
+ "pass": 11212,
+ "fail": 0,
+ "trapped": 0,
+ "functions_with_failure": 0
+}
