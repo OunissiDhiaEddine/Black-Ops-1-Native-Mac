@@ -18,5 +18,9 @@ Lifted code uses `uint32_t` guest pointers over a reserved arena + base register
 
 ## ADR-006 — Platform layer: SDL3 vs raw AppKit/GameController — OPEN (decide in P2)
 
-## ADR-007 — Reference baseline stack — OPEN (decide in P1)
-CrossOver vs vanilla Wine + wine32on64; DXVK/MoltenVK vs wined3d. Pick whichever is most stable and scriptable.
+## ADR-007 — Reference baseline stack — ACCEPTED (2026-10-05; user delegated: "choose the most optimized free way")
+**Decision:** WineHQ **wine-stable 11.0** for macOS (x86_64 build by Gcenx, the packaging WineHQ's macOS page and the Homebrew casks point to), running in new-WoW64 mode under **Rosetta 2**, D3D9 -> **wined3d** (Wine's built-in translation). Unpacked into `artifacts/wine/` (project-local, nothing in /Applications), prefix in `artifacts/wineprefix/`, launched only via `scripts/run_baseline.sh`.
+**Why:** free; scriptable from the CLI; runs 32-bit PE on Apple Silicon without 32-bit host libraries; wined3d needs no extra components. Used only as an oracle (golden frames, D3D9 trace) — performance of the baseline is irrelevant, correctness and repeatability matter.
+**Alternatives considered:** CrossOver (paid); Apple Game Porting Toolkit (D3DMetal targets D3D10+, download needs an Apple developer login); DXVK-macOS over MoltenVK (keep as fallback if wined3d misrenders: extra moving parts); Homebrew casks `wine-stable`/`wine@staging` (disabled by Homebrew on 2026-09-01: builds are not notarized and fail Gatekeeper).
+**Constraints found (2026-10-05):** Rosetta 2 is **not installed** on this Mac (`arch -x86_64 /usr/bin/true` fails) and every macOS Wine build needs it. Wine builds are unsigned/un-notarized.
+**Containment:** the prefix's `Z:` drive (whole filesystem) is removed; only `G:` -> `artifacts/game` is mapped; outbound network is denied with `sandbox-exec` unless `--net` is passed. Reason: the install's `steam_api.dll` is a packed third-party binary of unknown provenance.
