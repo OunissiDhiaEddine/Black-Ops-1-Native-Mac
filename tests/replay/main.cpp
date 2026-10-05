@@ -1,5 +1,5 @@
 // Trace replay harness (T-031).
-//   replay <trace.bin> [--backend null] [--frames A-B] [--dump DIR]
+//   replay <trace.bin> [--backend null|metal] [--frames A-B] [--dump DIR]
 // Feeds the game's recorded D3D9 calls (depth 0 only) to a backend, frame by frame.
 #include <chrono>
 #include <cstdio>
@@ -14,7 +14,7 @@ using namespace bo1;
 
 int main(int argc, char **argv) {
     if (argc < 2) {
-        std::fprintf(stderr, "usage: replay <trace.bin> [--backend null] [--frames A-B] [--dump DIR]\n");
+        std::fprintf(stderr, "usage: replay <trace.bin> [--backend null|metal] [--frames A-B] [--dump DIR]\n");
         return 2;
     }
     std::string path = argv[1], backend_name = "null";
@@ -36,6 +36,7 @@ int main(int argc, char **argv) {
         trace::Reader reader(path);
         std::unique_ptr<replay::Backend> backend;
         if (backend_name == "null") backend = replay::make_null_backend(opts);
+        else if (backend_name == "metal") backend = replay::make_metal_backend(opts);
         else {
             std::fprintf(stderr, "unknown backend %s\n", backend_name.c_str());
             return 2;

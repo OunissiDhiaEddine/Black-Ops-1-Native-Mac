@@ -27,5 +27,6 @@ public:
 };
 
 std::unique_ptr<Backend> make_null_backend(const Options &opts);
+std::unique_ptr<Backend> make_metal_backend(const Options &opts); // offscreen Metal renderer
 
 } // namespace bo1::replay
