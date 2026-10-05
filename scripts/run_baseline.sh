@@ -7,6 +7,8 @@
 #     --seconds S   stop the game after S seconds (wineserver -k); default: run until it exits
 #     --wine NAME   which unpacked build under artifacts/wine to use: devel (default) | staging | stable
 #                   (each build gets its own prefix: artifacts/wineprefix[-NAME])
+#     --keys SPEC   with --trace: scripted key presses, "ms:vk,ms:vk" (ms after device creation,
+#                   vk = Windows virtual-key code, e.g. 0x20 space, 0x0D enter, 0x1B esc, 0x28 down)
 #     --shots S     screenshot the game WINDOW (not the screen) every S seconds ->
 #                   artifacts/baseline/shots-<stamp>/ (needs Screen Recording permission)
 # Layout (all under artifacts/, gitignored):
@@ -26,6 +28,7 @@ while [ $# -gt 0 ]; do
     --seconds) SECONDS_LIMIT="$2"; shift ;;
     --wine) WINE_NAME="$2"; shift ;;
     --shots) SHOTS="$2"; shift ;;
+    --keys) export BO1_KEYS="$2"; shift ;;
     --) shift; break ;;
     *) echo "unknown option $1"; exit 2 ;;
   esac
@@ -94,7 +97,11 @@ LOG="$OUT/run-$STAMP.log"
 } >"$LOG"
 
 TIMER=""; SHOOTER=""
-trap '[ -n "$TIMER" ] && { pkill -P $TIMER 2>/dev/null; kill $TIMER 2>/dev/null; }; [ -n "$SHOOTER" ] && { pkill -P $SHOOTER 2>/dev/null; kill $SHOOTER 2>/dev/null; }; true' EXIT INT TERM
+cleanup() {   # every step tolerant of failure: set -e must not abort the trap half-way
+  if [ -n "$TIMER" ]; then pkill -P "$TIMER" 2>/dev/null || true; kill "$TIMER" 2>/dev/null || true; fi
+  if [ -n "$SHOOTER" ]; then pkill -P "$SHOOTER" 2>/dev/null || true; kill "$SHOOTER" 2>/dev/null || true; fi
+}
+trap cleanup EXIT INT TERM
 if [ "$SHOTS" != 0 ]; then
   [ -x "$ROOT/artifacts/bin/winlist" ] || { mkdir -p "$ROOT/artifacts/bin"; xcrun swiftc -O "$ROOT/tools/macos/winlist.swift" -o "$ROOT/artifacts/bin/winlist"; }
   mkdir -p "$OUT/shots-$STAMP"

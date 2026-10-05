@@ -14,6 +14,7 @@
 //   BO1_IAT_HOOKS       1: also hook CreateThread/MessageBoxA/VirtualAlloc/HeapAlloc/GlobalMemoryStatus
 //                       in the exe import table and log them (diagnostics)
 //   BO1_MSGBOX_AUTO     1 (with BO1_IAT_HOOKS): answer message boxes without showing them
+//   BO1_KEYS            "ms:vk,ms:vk": post key presses to the game window (ms after device creation)
 //   BO1_HOSTNAME        name: make WSOCK32!gethostname return this short name (experiment)
 //   BO1_HOOK_HEAP       1 (with BO1_IAT_HOOKS): also log HeapAlloc requests >= 256 MiB
 #define WIN32_LEAN_AND_MEAN
@@ -250,6 +251,33 @@ static void on_present(IDirect3DDevice9 *dev) {
         capture_backbuffer(dev, fr);
 }
 
+// ---- scripted input: BO1_KEYS="ms:vk,ms:vk,..." posts key presses to the game window --------
+// Times are milliseconds after device creation; vk is a Windows virtual-key code (hex or dec).
+// Lets an unattended run get past "Press Any Key" and through menus reproducibly.
+static HWND g_hwnd;
+static DWORD g_device_t0;
+static DWORD WINAPI input_thread(LPVOID) {
+    char spec[512];
+    if (!GetEnvironmentVariableA("BO1_KEYS", spec, sizeof(spec))) return 0;
+    while (!g_hwnd) Sleep(100);
+    for (char *tok = strtok(spec, ","); tok; tok = strtok(NULL, ",")) {
+        char *colon = strchr(tok, ':');
+        if (!colon) continue;
+        DWORD at = strtoul(tok, NULL, 0), vk = strtoul(colon + 1, NULL, 0);
+        while (GetTickCount() - g_device_t0 < at) Sleep(50);
+        UINT scan = MapVirtualKeyA(vk, 0 /*MAPVK_VK_TO_VSC*/);
+        LPARAM down = 1 | (scan << 16), up = down | (1u << 30) | (1u << 31);
+        PostMessageA(g_hwnd, WM_KEYDOWN, vk, down);
+        UINT ch = MapVirtualKeyA(vk, 2 /*MAPVK_VK_TO_CHAR*/);
+        if (ch) PostMessageA(g_hwnd, WM_CHAR, ch, down);
+        Sleep(80);
+        PostMessageA(g_hwnd, WM_KEYUP, vk, up);
+        event("key vk=0x%lx posted to hwnd=%p at t=%lums (frame %ld, foreground=%p)\n", vk, (void *)g_hwnd,
+              GetTickCount() - g_device_t0, g_frames, (void *)GetForegroundWindow());
+    }
+    return 0;
+}
+
 // The game is normally killed, not unloaded, and may stop calling D3D entirely: flush on a timer.
 static DWORD WINAPI flush_thread(LPVOID) {
     for (;;) {
@@ -478,6 +506,11 @@ static HRESULT __stdcall hooked_CreateDevice(IDirect3D9 *self, UINT adapter, D3D
     event("CreateDevice -> hr=0x%08lx device=%p\n", (unsigned long)hr, out ? (void *)*out : NULL);
     if (SUCCEEDED(hr) && out && *out) {
         g_device = *out;
+        if (!g_hwnd) {
+            g_device_t0 = GetTickCount();
+            g_hwnd = (pp && pp->hDeviceWindow) ? pp->hDeviceWindow : hwnd;
+            CloseHandle(CreateThread(NULL, 0, input_thread, NULL, 0, NULL));
+        }
         hook_vtable((void **)(*out)->lpVtbl, orig_device, thunks_device, IDIRECT3DDEVICE9_COUNT, &g_vtbl_device);
         // The game presents through the implicit swap chain, not IDirect3DDevice9::Present.
         typedef HRESULT(__stdcall *GetSwapChain_t)(IDirect3DDevice9 *, UINT, IDirect3DSwapChain9 **);

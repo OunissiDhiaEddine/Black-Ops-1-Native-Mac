@@ -1,19 +1,18 @@
 # LOG
 
 ## STATE  (OVERWRITE this block at every checkpoint — it is the resume point)
-- **Date/time:** 2026-10-05 ~15:05
-- **Phase / task:** P1 — T-010 done, T-012 done, **T-011 blocked**: the baseline boots and renders the intro but never reaches the main menu (unstable under wine-devel 11.18 + wined3d-GL + Rosetta).
-- **Last completed:** proxy census + frame capture + engine console capture; 24 diagnostic runs; RE_NOTES § D3D9 census (preliminary) and § Baseline status.
-- **Next exact step:** user picks the next baseline attempt (see open questions). Cheapest first: unpack `artifacts/wine/wine-staging-11.18-osx64.tar.xz` (user must clear its quarantine like the devel build) and run `WINEDEBUG=-all,warn+debugstr scripts/run_baseline.sh --trace --capture 150 --seconds 90` three times; compare `frames_presented` and the last engine log lines.
-- **How to read a run:** `artifacts/baseline/d3d9_census-<stamp>.txt` ([events] = device creation, message boxes; counts per method), `run-<stamp>.log` (grep `debugstr` = engine console, `err:` = Wine errors), `frames-<stamp>/` (PNG back buffers).
+- **Date/time:** 2026-10-05 ~15:50
+- **Phase / task:** P1 — T-010 done, T-012 done, **T-011 blocked**: under wine-devel/staging 11.18 + wined3d-GL the game reaches the title screen ("Press Any Key") only in a minority of launches and never the main menu.
+- **Last completed:** network test (title-screen fatal error disappears with `--net`), scripted key presses (`--keys`), window screenshots (`--shots`), per-build prefixes (`--wine`), cleanup-trap fix.
+- **Next exact step:** needs a different D3D9 translation stack (user decision below). When one is available: `WINEDEBUG=-all,warn+debugstr scripts/run_baseline.sh --wine <name> --net --trace --capture 150 --shots 8 --seconds 120 --keys "32000:0x20,42000:0x0D"` and check `frames_presented` keeps growing past ~940 and the shots show the main menu.
+- **How to read a run:** `artifacts/baseline/d3d9_census-<stamp>.txt` ([events]: device creation, message boxes, key posts; per-method counts), `run-<stamp>.log` (`debugstr` = engine console, `err:` = Wine), `frames-<stamp>/` (back buffers), `shots-<stamp>/` (window screenshots).
 - **Files in flight:** none uncommitted.
-- **UPDATE 15:25:** wine-staging 11.18 tried (user approved it; `--wine staging`, prefix `artifacts/wineprefix-staging`): same instability. Screen Recording granted -> `--shots N` captures the game window. **Title screen "Press Any Key" reached and captured** in the good runs; game dies 1–2 s later after "Failed to log on." x3. Hostname and Offline=1 experiments negative (Offline reverted to 0).
 - **Open questions for the user:**
-  1. Next baseline attempt: DXVK-macOS on the current Wine (small download, replaces the OpenGL path) or CrossOver trial (most likely to work; user installs)?
-  2. May the baseline run with outbound network allowed (`--net`)? "Failed to log on." precedes the fatal error; untested because the default denies network.
-- **Half-done / how to resume:** the wineprefix registry is back to defaults (VideoMemorySize / renderer values deleted). `artifacts/game/players/config.cfg` is rewritten by the script on every run (windowed, no AA, no vsync, 60 fps cap). Proxy env: `BO1_MSGBOX_AUTO=1` (default with --trace) answers dialogs; `BO1_IAT_HOOKS=1` adds CreateThread/VirtualAlloc/GlobalMemoryStatus logging; `BO1_HOOK_HEAP=1` adds HeapAlloc (suspected of destabilising, unproven).
-- **Machine:** Apple M1 (arm64), 8 GB RAM, macOS 27.0.1 (26A434), Xcode 27.0, ~52 GB free. Rosetta 2 installed (by user). brew: cmake, ninja, ffmpeg 9.0.2, sevenzip, ghidra 12.1.4, openjdk@21, mingw-w64 14.0.0. Wine: `artifacts/wine/Wine Devel.app` = wine-devel 11.18 (user-supplied tarball, user cleared Gatekeeper).
-- **Reference copy:** user confirmed (2026-10-05) they own BO1; `reference/` is read-only; working copy = `artifacts/game` (APFS clone).
+  1. OK to download DXVK-macOS (github.com/Gcenx/DXVK-macOS release tarball, ~10–20 MB) and try it on the current Wine?
+  2. CrossOver: the installed copy is not CodeWeavers' build (main executable replaced + ad-hoc signed) and was not run. If they install the official trial from codeweavers.com (verify: `codesign -dv /Applications/CrossOver.app` shows `TeamIdentifier=9C6B7X7Z8E`), adapt run_baseline.sh to its CLI.
+- **Half-done / how to resume:** prefixes are at registry defaults (`VideoMemorySize`, `renderer`, `csmt` experiments all removed). `artifacts/game/steam_emu.ini` is back to `Offline=0`. Network is still denied by default; `--net` allows it (user said either is fine).
+- **Machine:** Apple M1 (arm64), 8 GB RAM, macOS 27.0.1 (26A434), Xcode 27.0, ~52 GB free. Rosetta 2 installed. Screen Recording granted to this app (window screenshots work). brew: cmake, ninja, ffmpeg, sevenzip, ghidra 12.1.4, openjdk@21, mingw-w64 14.0.0. Wine: `artifacts/wine/Wine Devel.app`, `Wine Staging.app` (both 11.18, user-supplied, user-approved in Gatekeeper).
+- **Reference copy:** user confirmed (2026-10-05) they own BO1; `reference/` read-only; working copy `artifacts/game` (APFS clone).
 
 ---
 ## SESSION LOG (append-only; newest at the bottom)
@@ -101,3 +100,10 @@ Entry template:
 - Learned: the good runs reach the title screen; failure there follows "Failed to log on." (network is denied by the sandbox — untested with network). Startup crashes are in Wine's 64-bit WoW64 layer during GL init (LIKELY). Hostname-overflow and Offline=1 hypotheses refuted.
 - Problems: about half of all launches still die before the first frame.
 - Next: user decision (STATE).
+
+### 2026-10-05 ~15:50 — T-011 — network test, scripted input; Wine stack still the blocker
+- Did: user allowed network and provided a CrossOver copy. Ran 14 more launches on wine-staging with `--net`; added `--keys` (proxy posts WM_KEYDOWN/WM_CHAR/WM_KEYUP to the device window) and fixed the script's cleanup trap (under `set -e` a failed `kill` aborted the trap and leaked the screenshot loop). Tried wined3d `csmt=0`.
+- Evidence: `artifacts/baseline/shots-20261005-153413/shot_00{3,4,5}_*.png` (title screen held for 20+ s with network), `run-20261005-153413.log` (963 "Failed to log on.", no Com_ERROR), census events `key vk=0x20 posted …`.
+- Learned: the title-screen fatal error goes away with network allowed (LIKELY sandbox-refusal specific). Everything else unchanged: most launches die in Wine's 64-bit layer at GL init or when the render thread starts.
+- Problems: CrossOver copy not usable (modified main executable, ad-hoc signature) -> not executed. No run after the key-press feature survived long enough to test it.
+- Next: see STATE.

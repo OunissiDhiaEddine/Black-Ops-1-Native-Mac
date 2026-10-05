@@ -210,7 +210,12 @@ Stack: wine-devel 11.18 (x86_64, new WoW64) under Rosetta 2 on macOS 27.0.1 / M1
 - wine-staging 11.18 behaves like devel 11.18 (same failure mix, 12 more runs).
 - Refuted: long macOS hostname overflowing a buffer (the game calls `gethostname` with a 256-byte buffer at 0x004C2595; returning a 6-char name changes nothing). Steam-emulator `Offline=1` makes it worse (render thread dies after 1 frame in 6 of 8 runs) — reverted to `Offline=0`.
 - Sharper reading of the startup crashes (LIKELY): `err:seh:call_seh_handlers invalid frame 0x0026B6xx (0x100002000-0x1000FFD20)` is the **64-bit** ntdll rejecting a 32-bit frame, i.e. the fault happens while the thread is inside Wine's 64-bit WoW64 thunk/unix-call layer during the first wined3d/OpenGL initialisation — not in game code. That points at the WoW64 OpenGL path of this Wine on macOS 27, and argues for a different D3D9 translation layer rather than more game-side debugging.
-- Not tried: wine-stable 11.0, DXVK-macOS, CrossOver, allowing network (`--net`).
+- **Network (15:35, user allowed it):** with `--net` the one run that got to the title screen did **not** hit the fatal error — it stayed on "Press Any Key" for the rest of the run (window screenshots t=30–51 s) while the engine logged "Failed to log on." 963 times. So the title-screen `Com_ERROR` in the no-network runs is LIKELY caused by the sandbox refusing the connection, not by the logon failing as such (1 run of evidence). Presented frames still stopped at 940 (cause unknown; process alive).
+- Scripted input: the proxy can post key presses to the game window (`--keys "ms:vk,…"`); posting is CONFIRMED in the log, the effect on the menu is untested because no later run survived to the title screen.
+- `csmt=0` (wined3d single-threaded command stream): no improvement (4 runs); removed again.
+- CrossOver 26.0 found in `/Applications` and `artifacts/crossover/` was **not used**: its main executable was replaced on 2026-10-05 15:29 and is ad-hoc signed (inner Wine binaries still carry CodeWeavers' Developer ID). Not the vendor's build -> not executed.
+- Tally so far: ~60 launches on wine-devel/staging 11.18; roughly half die before the first frame, most of the rest when the render thread starts, a handful reach the title screen.
+- Not tried: wine-stable 11.0, DXVK-macOS, an unmodified CrossOver.
 ## Platform map (every import -> shim | lift | stub | not needed)
 ## Engine structures (name, VA of known instances, layout, confidence)
 ## Code structure (Ghidra export, T-006 + T-009a)
