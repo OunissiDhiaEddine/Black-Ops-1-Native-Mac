@@ -1,16 +1,19 @@
 # LOG
 
 ## STATE  (OVERWRITE this block at every checkpoint — it is the resume point)
-- **Date/time:** 2026-10-05 ~17:35
-- **Phase / task:** P3 — T-031 DONE. **NOW: T-033 (SM3 -> MSL translator prototype in `src/shaders/`, checker tool in `tools/sm3c/`), then T-030 ADR proposals.** `src/shaders/sm3.h` (interface) exists; parser/emitter not written yet.
-- **Last completed:** platform map with runtime import census; host-call ABI spec; ADR proposals 006, 008–012.
-- **Next exact step:** after the user's answers: mark the ADRs ACCEPTED/changed in `docs/DECISIONS.md`; then P3 — T-030 (ADR-004 / ADR-005 proposals from the census: thin D3D9-shaped RHI + own SM3 -> MSL translator look sufficient), T-031 trace reader + replay harness skeleton in `tests/replay/` against `artifacts/traces/menu.bin` (C++; format in `docs/TRACE_FORMAT.md`), T-032 Metal device/swapchain.
-- **Standard commands:** baseline `scripts/run_baseline.sh --wine cx --net --trace …`; golden `scripts/capture_golden.sh`; traces `tools/trace_reader.py`, `tools/trace_census.py`; platform map `tools/platform_map.py`; COM/Steam survey `tools/com_steam_usage.py`.
-- **Files in flight:** none uncommitted.
-- **Open questions for the user:** (1) approve ADR-006 (SDL3), ADR-008 (Bink via FFmpeg), ADR-009 (FAudio), ADR-011 (real sockets), ADR-012 (minimal exceptions)? (2) ADR-010: Steam bridged to the real Steam client — needs Steam for Mac installed and logged in with the account that owns BO1; is that acceptable? (3) go-ahead for P3; later `brew install sdl3 faudio` will be needed (P5, not yet).
-- **Half-done / how to resume:** nothing half-done.
-- **Machine:** Apple M1 (arm64), 8 GB RAM, macOS 27.0.1 (26A434), Xcode 27.0, ~41 GB free. Rosetta 2 installed; Screen Recording granted. brew: cmake, ninja, ffmpeg 9.0.2, sevenzip, ghidra 12.1.4, openjdk@21, mingw-w64 14.0.0. Wine baseline: `artifacts/wine/cx/wswine.bundle` (WineCX 24.0.7) + `Wine Staging.app` (support dylibs), prefix `artifacts/wineprefix-cx`. Removed 2026-10-05 with the user's OK: WineHQ prefixes, DXVK download (the CrossOver copy was already gone).
-- **Reference copy:** user confirmed (2026-10-05) they own BO1; `reference/` read-only; working copy `artifacts/game` (APFS clone). User also has a Windows PC available.
+- **Date/time:** 2026-10-05 ~18:15
+- **Phase / task:** P3 — T-031 DONE; **T-033 prototype working** (translator `src/shaders/sm3_msl.cpp`, checker `tools/sm3c`); next **T-032/T-034: Metal replay backend** (`tests/replay/metal_backend.mm`, not started), then T-035 frame comparison. T-030 (ADR-004/005 proposals) to be written and shown to the user.
+- **Last completed:** 6,845/6,845 corpus shaders translate to MSL; all 260 VS + a 299-PS sample compile with Metal; full-corpus compile was started in the background (`artifacts/baseline/sm3c_full.out`, report `re/shader_translation_report.json`) — check its result first.
+- **Next exact step:**
+  1. `cat artifacts/baseline/sm3c_full.out` — expect "compiled by Metal 6845"; fix any compile-error class it lists (`build/sm3c <dir>` on the failing example).
+  2. Write `tests/replay/metal_backend.mm` (Backend interface in `tests/replay/backend.h`): D3D9 state machine over the trace records -> MTLTexture/MTLBuffer objects, lazy shader translation, PSO/depth/sampler caches, offscreen back buffer, PNG dump of frames inside `--frames A-B`. Plan notes: buffers locked with DISCARD get a fresh MTLBuffer; texture uploads go through blit encoders to stay in command order; clears with a partial viewport need a quad; D3D cull CCW = Metal cullMode Back with clockwise front; half-pixel offset in `Consts.extra.xy = (1/W, -1/H)`; alpha test via `Consts.extra` in the PS; samplers bound to depth textures use the translator's `shadow_samplers` variant.
+  3. `build/replay artifacts/traces/menu.bin --backend metal --frames 1700-1760 --dump artifacts/replay/menu` and compare with `tests/golden/menu/frame_0017{00,20,40,60}.png` (T-035: SSIM script).
+- **Standard commands:** `scripts/build.sh`; `build/replay <trace> [--frames A-B]`; `build/sm3c [--out DIR] [--no-compile] <dir>`; baseline/golden scripts as before.
+- **Files in flight:** none uncommitted except the background compile's outputs.
+- **Open questions for the user:** ADR-004 / ADR-005 proposals (to be written up): D3D9-shaped renderer interface; own SM3 -> MSL translator (measured) vs vkd3d-shader + SPIRV-Cross (not measured; needs `brew install vkd3d spirv-cross`).
+- **Half-done / how to resume:** translator known gaps (by design, need the backend): shadow-sampler variants chosen at draw time; fixed varying superset (TEXCOORD0–15, COLOR0–1); numerical edge cases unverified until frames are compared.
+- **Machine:** Apple M1 (arm64), 8 GB RAM, macOS 27.0.1, Xcode 27.0, ~41 GB free. brew: cmake, ninja, ffmpeg, sevenzip, ghidra, openjdk@21, mingw-w64. Wine baseline: `artifacts/wine/cx` (WineCX 24.0.7) + `Wine Staging.app` (support dylibs), prefix `artifacts/wineprefix-cx`.
+- **Reference copy / decisions:** user owns BO1 (stated 2026-10-05); `reference/` read-only; working copy `artifacts/game`. ADR-006/008/009/011/012 ACCEPTED; ADR-010 = shipped steam_api.dll runs unmodified in an embedded x86 interpreter (user decision; spike T-024 pending).
 
 ---
 ## SESSION LOG (append-only; newest at the bottom)
@@ -153,3 +156,9 @@ Entry template:
 - Did: C++ trace reader and replay harness (`tests/replay/`, CMake target `replay`, `scripts/build.sh`) with a validating null backend. Its first run exposed two recorder flaws: (1) calls the D3D9 implementation makes inside a call recorded on entry showed up as game calls; (2) shaders and vertex declarations never reported destruction, so reused pointers looked like wrong-kind objects. Fixed in the proxy: every call now gets a shadow frame (exact depth), 3 more interfaces hooked, the proxy's own D3D use is excluded. Trace format v2; all four scenarios re-captured.
 - Evidence: validator output for the four traces — 0 findings each (menu 16.9 M records, cuba 24.8 M, vorkuta 23.4 M, khe_sanh 24.3 M); `tests/golden/*/metrics.json` refreshed.
 - Next: T-033 shader translator prototype; T-030 ADR-004/005 proposals.
+
+### 2026-10-05 ~18:15 — T-033 prototype — SM3 -> MSL translator
+- Did: `src/shaders/sm3.h` + `sm3_msl.cpp` (decode + emit, ~600 lines, no dependencies), `tools/sm3c` (translate + compile through `MTLDevice newLibraryWithSource`, parallel), CMake targets `bo1_shaders`, `sm3c`.
+- Evidence: `build/sm3c --no-compile artifacts/shaders/all` -> 6845/6845 translated in 0.6 s (1,142,172 instructions, 65 MiB of MSL); first full compile: 260/260 VS OK, all PS failed on one missing `[[stage_in]]`; after the fix a 299-PS sample compiles 299/299; full re-run in the background.
+- Learned: Metal compiles ~11 shaders/s here (~90 ms each) -> a mission's ~5,000 shaders would take minutes on first use: the on-disk shader/pipeline cache planned in docs/PLAN.md is mandatory, whichever translation route is chosen.
+- Next: see STATE.
