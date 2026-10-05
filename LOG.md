@@ -7,8 +7,9 @@
 - **Next exact step:** user picks the next baseline attempt (see open questions). Cheapest first: unpack `artifacts/wine/wine-staging-11.18-osx64.tar.xz` (user must clear its quarantine like the devel build) and run `WINEDEBUG=-all,warn+debugstr scripts/run_baseline.sh --trace --capture 150 --seconds 90` three times; compare `frames_presented` and the last engine log lines.
 - **How to read a run:** `artifacts/baseline/d3d9_census-<stamp>.txt` ([events] = device creation, message boxes; counts per method), `run-<stamp>.log` (grep `debugstr` = engine console, `err:` = Wine errors), `frames-<stamp>/` (PNG back buffers).
 - **Files in flight:** none uncommitted.
+- **UPDATE 15:25:** wine-staging 11.18 tried (user approved it; `--wine staging`, prefix `artifacts/wineprefix-staging`): same instability. Screen Recording granted -> `--shots N` captures the game window. **Title screen "Press Any Key" reached and captured** in the good runs; game dies 1–2 s later after "Failed to log on." x3. Hostname and Offline=1 experiments negative (Offline reverted to 0).
 - **Open questions for the user:**
-  1. Which baseline to try next: wine-staging 11.18 (already downloaded), wine-stable 11.0 (new download), DXVK-macOS on top of the current Wine (new download), or CrossOver (paid, free trial exists)?
+  1. Next baseline attempt: DXVK-macOS on the current Wine (small download, replaces the OpenGL path) or CrossOver trial (most likely to work; user installs)?
   2. May the baseline run with outbound network allowed (`--net`)? "Failed to log on." precedes the fatal error; untested because the default denies network.
 - **Half-done / how to resume:** the wineprefix registry is back to defaults (VideoMemorySize / renderer values deleted). `artifacts/game/players/config.cfg` is rewritten by the script on every run (windowed, no AA, no vsync, 60 fps cap). Proxy env: `BO1_MSGBOX_AUTO=1` (default with --trace) answers dialogs; `BO1_IAT_HOOKS=1` adds CreateThread/VirtualAlloc/GlobalMemoryStatus logging; `BO1_HOOK_HEAP=1` adds HeapAlloc (suspected of destabilising, unproven).
 - **Machine:** Apple M1 (arm64), 8 GB RAM, macOS 27.0.1 (26A434), Xcode 27.0, ~52 GB free. Rosetta 2 installed (by user). brew: cmake, ninja, ffmpeg 9.0.2, sevenzip, ghidra 12.1.4, openjdk@21, mingw-w64 14.0.0. Wine: `artifacts/wine/Wine Devel.app` = wine-devel 11.18 (user-supplied tarball, user cleared Gatekeeper).
@@ -93,3 +94,10 @@ Entry template:
 - Problems: (1) baseline unstable — different crash each run, root cause not established (LIKELY Wine WoW64/OpenGL on this macOS; one reproducible 2.85 GB heap request is unexplained). (2) `screencapture` needs Screen Recording permission -> replaced by in-proxy capture. (3) heuristic backtrace is polluted by stale stack slots; not reliable for Com_Error's origin.
 - Not done: main menu (T-011), full-argument trace (T-013), golden scenes (T-014), census of menu/in-game (T-015).
 - Next: see STATE.
+
+### 2026-10-05 ~15:25 — T-011 — title screen reached under wine-staging; still dies there
+- Did: `--wine NAME` (per-build prefix) and `--shots S` (window-only screenshots via `tools/macos/winlist.swift`) in run_baseline.sh; 16 more runs on wine-staging 11.18; proxy: ordinal-import hooks, `BO1_HOSTNAME` experiment.
+- Evidence: `tests/golden/baseline_wine_title_press_any_key_t31s.png` (from `artifacts/baseline/shots-20261005-150910/`), `d3d9_census-20261005-150910.txt` (927 frames), `run-20261005-150910.log`.
+- Learned: the good runs reach the title screen; failure there follows "Failed to log on." (network is denied by the sandbox — untested with network). Startup crashes are in Wine's 64-bit WoW64 layer during GL init (LIKELY). Hostname-overflow and Offline=1 hypotheses refuted.
+- Problems: about half of all launches still die before the first frame.
+- Next: user decision (STATE).

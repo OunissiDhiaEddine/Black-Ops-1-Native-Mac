@@ -14,6 +14,7 @@
 //   BO1_IAT_HOOKS       1: also hook CreateThread/MessageBoxA/VirtualAlloc/HeapAlloc/GlobalMemoryStatus
 //                       in the exe import table and log them (diagnostics)
 //   BO1_MSGBOX_AUTO     1 (with BO1_IAT_HOOKS): answer message boxes without showing them
+//   BO1_HOSTNAME        name: make WSOCK32!gethostname return this short name (experiment)
 //   BO1_HOOK_HEAP       1 (with BO1_IAT_HOOKS): also log HeapAlloc requests >= 256 MiB
 #define WIN32_LEAN_AND_MEAN
 #define CINTERFACE
@@ -277,7 +278,7 @@ extern "C" void __stdcall trace_swapchain(unsigned slot, void **) {
 
 // ---- process diagnostics: IAT hooks on the exe (thread creation, message boxes) ---------
 // Needed to understand baseline failures, and the thread inventory feeds the P2 platform map.
-static void *patch_iat(const char *dll, const char *func, void *replacement) {
+static void *patch_iat(const char *dll, const char *func, void *replacement, WORD ordinal = 0) {
     BYTE *base = (BYTE *)GetModuleHandleA(NULL);
     IMAGE_NT_HEADERS *nt = (IMAGE_NT_HEADERS *)(base + ((IMAGE_DOS_HEADER *)base)->e_lfanew);
     IMAGE_DATA_DIRECTORY dir = nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT];
@@ -286,9 +287,12 @@ static void *patch_iat(const char *dll, const char *func, void *replacement) {
         IMAGE_THUNK_DATA *names = (IMAGE_THUNK_DATA *)(base + d->OriginalFirstThunk);
         IMAGE_THUNK_DATA *iat = (IMAGE_THUNK_DATA *)(base + d->FirstThunk);
         for (; names->u1.AddressOfData; names++, iat++) {
-            if (names->u1.Ordinal & IMAGE_ORDINAL_FLAG) continue;
-            IMAGE_IMPORT_BY_NAME *n = (IMAGE_IMPORT_BY_NAME *)(base + names->u1.AddressOfData);
-            if (strcmp((const char *)n->Name, func) != 0) continue;
+            if (names->u1.Ordinal & IMAGE_ORDINAL_FLAG) { // imported by ordinal (e.g. WSOCK32)
+                if (!ordinal || (WORD)(names->u1.Ordinal & 0xFFFF) != ordinal) continue;
+            } else {
+                IMAGE_IMPORT_BY_NAME *n = (IMAGE_IMPORT_BY_NAME *)(base + names->u1.AddressOfData);
+                if (strcmp((const char *)n->Name, func) != 0) continue;
+            }
             void *old_fn = (void *)iat->u1.Function;
             DWORD old;
             VirtualProtect(&iat->u1.Function, sizeof(void *), PAGE_READWRITE, &old);
@@ -394,6 +398,21 @@ static void WINAPI hooked_GlobalMemoryStatus(LPMEMORYSTATUS ms) {
           ms->dwMemoryLoad, (unsigned long)ms->dwTotalPhys, (unsigned long)ms->dwAvailPhys,
           (unsigned long)ms->dwTotalPageFile, (unsigned long)ms->dwAvailPageFile, (unsigned long)ms->dwTotalVirtual,
           (unsigned long)ms->dwAvailVirtual, __builtin_return_address(0));
+}
+
+// Experiment: Windows machine names are <= 15 chars; a macOS hostname such as
+// "Somebodys-MacBook-Air.local" is longer than anything the game was tested with.
+typedef int(WINAPI *gethostname_t)(char *, int);
+static gethostname_t g_real_gethostname;
+static char g_fake_hostname[32];
+static int WINAPI hooked_gethostname(char *name, int len) {
+    char real[256] = "";
+    int r = g_real_gethostname(real, sizeof(real));
+    event("gethostname(len=%d) real=\"%s\" (%d chars, r=%d) -> returning \"%s\" (caller ret=%p)\n", len, real,
+          (int)strlen(real), r, g_fake_hostname, __builtin_return_address(0));
+    if (len <= (int)strlen(g_fake_hostname)) return -1;
+    strcpy(name, g_fake_hostname);
+    return 0;
 }
 
 typedef int(WINAPI *MessageBoxA_t)(HWND, LPCSTR, LPCSTR, UINT);
@@ -539,6 +558,8 @@ extern "C" BOOL WINAPI DllMain(HINSTANCE inst, DWORD reason, LPVOID) {
         bool diag = GetEnvironmentVariableA("BO1_IAT_HOOKS", num, sizeof(num)) && num[0] == '1';
         if (g_msgbox_auto || diag)
             g_real_MessageBoxA = (MessageBoxA_t)patch_iat("USER32.dll", "MessageBoxA", (void *)hooked_MessageBoxA);
+        if (GetEnvironmentVariableA("BO1_HOSTNAME", g_fake_hostname, sizeof(g_fake_hostname)) && g_fake_hostname[0])
+            g_real_gethostname = (gethostname_t)patch_iat("WSOCK32.dll", "gethostname", (void *)hooked_gethostname, 57);
         if (diag) {
             g_real_CreateThread = (CreateThread_t)patch_iat("KERNEL32.dll", "CreateThread", (void *)hooked_CreateThread);
             g_real_VirtualAlloc = (VirtualAlloc_t)patch_iat("KERNEL32.dll", "VirtualAlloc", (void *)hooked_VirtualAlloc);

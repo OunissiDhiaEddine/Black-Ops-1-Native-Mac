@@ -5,6 +5,10 @@
 #     --net     allow outbound network (default: denied with sandbox-exec; SP does not need it)
 #     --capture N   with --trace: dump the back buffer every N frames -> artifacts/baseline/frames-<stamp>/
 #     --seconds S   stop the game after S seconds (wineserver -k); default: run until it exits
+#     --wine NAME   which unpacked build under artifacts/wine to use: devel (default) | staging | stable
+#                   (each build gets its own prefix: artifacts/wineprefix[-NAME])
+#     --shots S     screenshot the game WINDOW (not the screen) every S seconds ->
+#                   artifacts/baseline/shots-<stamp>/ (needs Screen Recording permission)
 # Layout (all under artifacts/, gitignored):
 #   artifacts/game        writable APFS clone of reference/ (created here if missing)
 #   artifacts/wine        unpacked Wine build (see docs/DECISIONS.md ADR-007)
@@ -13,20 +17,22 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 ROOT=$PWD
-TRACE=0; NET=0; CAPTURE=0; SECONDS_LIMIT=0
+TRACE=0; NET=0; CAPTURE=0; SECONDS_LIMIT=0; WINE_NAME=devel; SHOTS=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --trace) TRACE=1 ;;
     --net) NET=1 ;;
     --capture) CAPTURE="$2"; shift ;;
     --seconds) SECONDS_LIMIT="$2"; shift ;;
+    --wine) WINE_NAME="$2"; shift ;;
+    --shots) SHOTS="$2"; shift ;;
     --) shift; break ;;
     *) echo "unknown option $1"; exit 2 ;;
   esac
   shift
 done
 
-WINE_BIN="${WINE_BIN:-$(ls -d "$ROOT"/artifacts/wine/*.app/Contents/Resources/wine/bin 2>/dev/null | head -1)}"
+WINE_BIN="${WINE_BIN:-$(ls -d "$ROOT"/artifacts/wine/*.app/Contents/Resources/wine/bin 2>/dev/null | grep -i "wine $WINE_NAME" | head -1)}"
 [ -n "$WINE_BIN" ] && [ -x "$WINE_BIN/wine" ] || { echo "Wine not found under artifacts/wine (ADR-007). Set WINE_BIN."; exit 1; }
 arch -x86_64 /usr/bin/true 2>/dev/null || { echo "Rosetta 2 is not installed (softwareupdate --install-rosetta)."; exit 1; }
 
@@ -38,7 +44,8 @@ if [ ! -f "$GAME/BlackOps.exe" ]; then
   rm -rf "$GAME/Redist" "$GAME/~Common Redist" "$GAME/Soundtrack"
 fi
 
-export WINEPREFIX="$ROOT/artifacts/wineprefix"
+if [ "$WINE_NAME" = devel ]; then export WINEPREFIX="$ROOT/artifacts/wineprefix"
+else export WINEPREFIX="$ROOT/artifacts/wineprefix-$WINE_NAME"; fi
 export WINEDEBUG="${WINEDEBUG:--all,+loaddll}"
 export WINEDLLOVERRIDES="mscoree,mshtml=;winemenubuilder.exe=d"
 OUT="$ROOT/artifacts/baseline"; mkdir -p "$OUT"
@@ -80,19 +87,31 @@ fi
 
 LOG="$OUT/run-$STAMP.log"
 {
-  echo "date: $(date)"; echo "wine: $("$WINE_BIN/wine" --version 2>&1)"; echo "trace: $TRACE net: $NET"
+  echo "date: $(date)"; echo "wine: $("$WINE_BIN/wine" --version 2>&1) ($WINE_NAME) prefix: $WINEPREFIX"; echo "trace: $TRACE net: $NET"
   echo "machine: $(sysctl -n machdep.cpu.brand_string) / macOS $(sw_vers -productVersion)"
   echo "args: +set r_fullscreen 0 +set logfile 2 $*"
   [ -f "$CFG" ] && grep -E "^seta (r_fullscreen|r_mode|r_aaSamples|r_vsync|com_maxfps) " "$CFG"
 } >"$LOG"
 
+TIMER=""; SHOOTER=""
+trap '[ -n "$TIMER" ] && { pkill -P $TIMER 2>/dev/null; kill $TIMER 2>/dev/null; }; [ -n "$SHOOTER" ] && kill $SHOOTER 2>/dev/null; true' EXIT
+if [ "$SHOTS" != 0 ]; then
+  [ -x "$ROOT/artifacts/bin/winlist" ] || { mkdir -p "$ROOT/artifacts/bin"; xcrun swiftc -O "$ROOT/tools/macos/winlist.swift" -o "$ROOT/artifacts/bin/winlist"; }
+  mkdir -p "$OUT/shots-$STAMP"
+  ( n=0; t0=$(date +%s)
+    while sleep "$SHOTS"; do
+      id=$("$ROOT/artifacts/bin/winlist" wine | awk -F'\t' '$3 ~ /Call of Duty/ {print $1; exit}')
+      [ -n "$id" ] || continue
+      n=$((n+1)); screencapture -x -o -l "$id" "$OUT/shots-$STAMP/shot_$(printf %03d $n)_t$(( $(date +%s) - t0 ))s.png" 2>/dev/null
+    done ) &
+  SHOOTER=$!
+fi
+
 cd "$GAME"
 CMD=("$WINE_BIN/wine" 'G:\BlackOps.exe' +set r_fullscreen 0 +set logfile 2 "$@")
 if [ "$SECONDS_LIMIT" != 0 ]; then
   ( sleep "$SECONDS_LIMIT"; "$WINE_BIN/wineserver" -k ) &
-  TIMER=$!
-  # a leftover timer would kill the NEXT run's wineserver: always reap it
-  trap 'pkill -P $TIMER 2>/dev/null; kill $TIMER 2>/dev/null || true' EXIT
+  TIMER=$!   # reaped by the EXIT trap: a leftover timer would kill the NEXT run's wineserver
 fi
 if [ "$NET" = 1 ]; then
   "${CMD[@]}" >>"$LOG" 2>&1 || echo "exit code $?" >>"$LOG"
