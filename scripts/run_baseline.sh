@@ -94,7 +94,7 @@ LOG="$OUT/run-$STAMP.log"
 } >"$LOG"
 
 TIMER=""; SHOOTER=""
-trap '[ -n "$TIMER" ] && { pkill -P $TIMER 2>/dev/null; kill $TIMER 2>/dev/null; }; [ -n "$SHOOTER" ] && kill $SHOOTER 2>/dev/null; true' EXIT
+trap '[ -n "$TIMER" ] && { pkill -P $TIMER 2>/dev/null; kill $TIMER 2>/dev/null; }; [ -n "$SHOOTER" ] && { pkill -P $SHOOTER 2>/dev/null; kill $SHOOTER 2>/dev/null; }; true' EXIT INT TERM
 if [ "$SHOTS" != 0 ]; then
   [ -x "$ROOT/artifacts/bin/winlist" ] || { mkdir -p "$ROOT/artifacts/bin"; xcrun swiftc -O "$ROOT/tools/macos/winlist.swift" -o "$ROOT/artifacts/bin/winlist"; }
   mkdir -p "$OUT/shots-$STAMP"
