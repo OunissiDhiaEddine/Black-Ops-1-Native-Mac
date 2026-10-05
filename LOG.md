@@ -7,8 +7,9 @@
 - **Next exact step:** needs a different D3D9 translation stack (user decision below). When one is available: `WINEDEBUG=-all,warn+debugstr scripts/run_baseline.sh --wine <name> --net --trace --capture 150 --shots 8 --seconds 120 --keys "32000:0x20,42000:0x0D"` and check `frames_presented` keeps growing past ~940 and the shots show the main menu.
 - **How to read a run:** `artifacts/baseline/d3d9_census-<stamp>.txt` ([events]: device creation, message boxes, key posts; per-method counts), `run-<stamp>.log` (`debugstr` = engine console, `err:` = Wine), `frames-<stamp>/` (back buffers), `shots-<stamp>/` (window screenshots).
 - **Files in flight:** none uncommitted.
+- **UPDATE 15:50:** DXVK tried with user's OK (`--dxvk`; `artifacts/dxvk/dxvk-macOS-async-v1.10.3-20230507/`): device creation fails on stock MoltenVK (geometryShader / shaderCullDistance missing). Dead end on WineHQ builds.
 - **Open questions for the user:**
-  1. OK to download DXVK-macOS (github.com/Gcenx/DXVK-macOS release tarball, ~10–20 MB) and try it on the current Wine?
+  1. OK to download the open-source CrossOver-engine Wine build `WS12WineCX24.0.7_7.tar.xz` (172,348,356 B) from github.com/Sikarugir-App/Engines (release v1.0) into `artifacts/wine/`? Then: `--wine cx --dxvk` and plain `--wine cx`.
   2. CrossOver: the installed copy is not CodeWeavers' build (main executable replaced + ad-hoc signed) and was not run. If they install the official trial from codeweavers.com (verify: `codesign -dv /Applications/CrossOver.app` shows `TeamIdentifier=9C6B7X7Z8E`), adapt run_baseline.sh to its CLI.
 - **Half-done / how to resume:** prefixes are at registry defaults (`VideoMemorySize`, `renderer`, `csmt` experiments all removed). `artifacts/game/steam_emu.ini` is back to `Offline=0`. Network is still denied by default; `--net` allows it (user said either is fine).
 - **Machine:** Apple M1 (arm64), 8 GB RAM, macOS 27.0.1 (26A434), Xcode 27.0, ~52 GB free. Rosetta 2 installed. Screen Recording granted to this app (window screenshots work). brew: cmake, ninja, ffmpeg, sevenzip, ghidra 12.1.4, openjdk@21, mingw-w64 14.0.0. Wine: `artifacts/wine/Wine Devel.app`, `Wine Staging.app` (both 11.18, user-supplied, user-approved in Gatekeeper).
@@ -106,4 +107,11 @@ Entry template:
 - Evidence: `artifacts/baseline/shots-20261005-153413/shot_00{3,4,5}_*.png` (title screen held for 20+ s with network), `run-20261005-153413.log` (963 "Failed to log on.", no Com_ERROR), census events `key vk=0x20 posted …`.
 - Learned: the title-screen fatal error goes away with network allowed (LIKELY sandbox-refusal specific). Everything else unchanged: most launches die in Wine's 64-bit layer at GL init or when the render thread starts.
 - Problems: CrossOver copy not usable (modified main executable, ad-hoc signature) -> not executed. No run after the key-press feature survived long enough to test it.
+- Next: see STATE.
+
+### 2026-10-05 ~15:50 — T-011 — DXVK on WineHQ builds: dead end
+- Did: downloaded DXVK-macOS v1.10.3-20230507 (user-approved) to `artifacts/dxvk/`; proxy can wrap any D3D9 implementation (`BO1_REAL_D3D9`); `run_baseline.sh --dxvk`; 3 runs.
+- Evidence: `artifacts/baseline/BlackOps_d3d9-20261005-154538.log`, census events (`CreateDevice -> hr=0x8876086a` x20), MoltenVK `VK_ERROR_FEATURE_NOT_PRESENT` lines in `run-20261005-154538.log`.
+- Learned: stock MoltenVK lacks geometryShader + shaderCullDistance that DXVK's D3D9 requests; DXVK runs never showed the random startup crash (3/3), which supports "OpenGL path is the unstable part".
+- Problems: user asked to fall back to the CrossOver copy in `artifacts/crossover/`; declined again (modified main executable, ad-hoc signature — RE_NOTES § Baseline status). Proposed the open-source CrossOver-engine build instead.
 - Next: see STATE.

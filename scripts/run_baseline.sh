@@ -7,6 +7,7 @@
 #     --seconds S   stop the game after S seconds (wineserver -k); default: run until it exits
 #     --wine NAME   which unpacked build under artifacts/wine to use: devel (default) | staging | stable
 #                   (each build gets its own prefix: artifacts/wineprefix[-NAME])
+#     --dxvk        use DXVK (artifacts/dxvk/*/x32/d3d9.dll, D3D9 -> Vulkan -> MoltenVK) instead of wined3d
 #     --keys SPEC   with --trace: scripted key presses, "ms:vk,ms:vk" (ms after device creation,
 #                   vk = Windows virtual-key code, e.g. 0x20 space, 0x0D enter, 0x1B esc, 0x28 down)
 #     --shots S     screenshot the game WINDOW (not the screen) every S seconds ->
@@ -19,7 +20,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 ROOT=$PWD
-TRACE=0; NET=0; CAPTURE=0; SECONDS_LIMIT=0; WINE_NAME=devel; SHOTS=0
+TRACE=0; NET=0; CAPTURE=0; SECONDS_LIMIT=0; WINE_NAME=devel; SHOTS=0; DXVK=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --trace) TRACE=1 ;;
@@ -29,6 +30,7 @@ while [ $# -gt 0 ]; do
     --wine) WINE_NAME="$2"; shift ;;
     --shots) SHOTS="$2"; shift ;;
     --keys) export BO1_KEYS="$2"; shift ;;
+    --dxvk) DXVK=1 ;;
     --) shift; break ;;
     *) echo "unknown option $1"; exit 2 ;;
   esac
@@ -73,6 +75,15 @@ if [ -f "$CFG" ]; then
 fi
 
 STAMP=$(date +%Y%m%d-%H%M%S)
+rm -f "$GAME/dxvk_d3d9.dll" "$GAME"/*_d3d9.log
+if [ "$DXVK" = 1 ]; then
+  DXVK_DLL=$(ls "$ROOT"/artifacts/dxvk/*/x32/d3d9.dll 2>/dev/null | head -1)
+  [ -n "$DXVK_DLL" ] || { echo "DXVK x32/d3d9.dll not found under artifacts/dxvk"; exit 1; }
+  export DXVK_LOG_PATH='G:\' DXVK_LOG_LEVEL=info
+  if [ "$TRACE" = 1 ]; then          # proxy in front, DXVK behind it under another file name
+    cp "$DXVK_DLL" "$GAME/dxvk_d3d9.dll"; export BO1_REAL_D3D9='G:\dxvk_d3d9.dll'
+  fi
+fi
 if [ "$TRACE" = 1 ]; then
   [ -f "$ROOT/artifacts/d3d9_proxy/d3d9.dll" ] || bash "$ROOT/tools/d3d9_proxy/build.sh"
   cp "$ROOT/artifacts/d3d9_proxy/d3d9.dll" "$GAME/d3d9.dll"
@@ -84,12 +95,15 @@ if [ "$TRACE" = 1 ]; then
     rm -rf "$GAME/capture"; mkdir -p "$GAME/capture"
     export BO1_CAPTURE_EVERY="$CAPTURE" BO1_CAPTURE_DIR='G:\capture'
   fi
+elif [ "$DXVK" = 1 ]; then
+  cp "$DXVK_DLL" "$GAME/d3d9.dll"; export WINEDLLOVERRIDES="$WINEDLLOVERRIDES;d3d9=n,b"
 else
   rm -f "$GAME/d3d9.dll"
 fi
 
 LOG="$OUT/run-$STAMP.log"
 {
+  echo "dxvk: $DXVK ${DXVK_DLL:-}"
   echo "date: $(date)"; echo "wine: $("$WINE_BIN/wine" --version 2>&1) ($WINE_NAME) prefix: $WINEPREFIX"; echo "trace: $TRACE net: $NET"
   echo "machine: $(sysctl -n machdep.cpu.brand_string) / macOS $(sw_vers -productVersion)"
   echo "args: +set r_fullscreen 0 +set logfile 2 $*"
@@ -133,6 +147,6 @@ if [ "$CAPTURE" != 0 ] && ls "$GAME/capture"/*.bmp >/dev/null 2>&1; then
   for b in "$GAME/capture"/*.bmp; do sips -s format png "$b" --out "$OUT/frames-$STAMP/$(basename "${b%.bmp}").png" >/dev/null; done
   rm -rf "$GAME/capture"; echo "frames: $OUT/frames-$STAMP ($(ls "$OUT/frames-$STAMP" | wc -l | tr -d ' '))"
 fi
-for f in "$GAME"/players/*.log "$GAME"/main/*.log; do [ -f "$f" ] && cp "$f" "$OUT/$(basename "${f%.log}")-$STAMP.log"; done
+for f in "$GAME"/players/*.log "$GAME"/main/*.log "$GAME"/*_d3d9.log; do [ -f "$f" ] && cp "$f" "$OUT/$(basename "${f%.log}")-$STAMP.log"; done
 echo "log: $LOG"
 tail -20 "$LOG"

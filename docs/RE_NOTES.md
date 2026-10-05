@@ -215,7 +215,8 @@ Stack: wine-devel 11.18 (x86_64, new WoW64) under Rosetta 2 on macOS 27.0.1 / M1
 - `csmt=0` (wined3d single-threaded command stream): no improvement (4 runs); removed again.
 - CrossOver 26.0 found in `/Applications` and `artifacts/crossover/` was **not used**: its main executable was replaced on 2026-10-05 15:29 and is ad-hoc signed (inner Wine binaries still carry CodeWeavers' Developer ID). Not the vendor's build -> not executed.
 - Tally so far: ~60 launches on wine-devel/staging 11.18; roughly half die before the first frame, most of the rest when the render thread starts, a handful reach the title screen.
-- Not tried: wine-stable 11.0, DXVK-macOS, an unmodified CrossOver.
+- **DXVK-macOS v1.10.3-20230507 (x32 `d3d9.dll`, SHA-256 `26d8a5a9…3624b90`) behind the proxy on wine-staging 11.18: fails deterministically (3/3)** — CONFIRMED by `artifacts/baseline/BlackOps_d3d9-20261005-154538.log` + MoltenVK output: `vkCreateDevice(): Requested physical device feature … 5th flag (geometryShader) … 39th flag (shaderCullDistance) … not available`, `DxvkAdapter: Failed to create device`, `CreateDevice -> 0x8876086A` x20, then the game's "DirectX encountered an unrecoverable error". The MoltenVK bundled with WineHQ builds does not expose what DXVK's D3D9 path requires; DXVK-macOS is meant for CrossOver's patched MoltenVK. Notable: **no startup crash in any of the 3 DXVK runs** — consistent with the OpenGL path being the source of the random early crashes. (The newest DXVK-macOS "repack" release ships no `d3d9.dll` at all.)
+- Not tried: wine-stable 11.0; a CrossOver-engine Wine (open-source builds exist: `Sikarugir-App/Engines` `WS12WineCX24.0.7_7.tar.xz`, 172 MB — bundles the patched MoltenVK and the 32-on-64 loader); an unmodified CrossOver.
 ## Platform map (every import -> shim | lift | stub | not needed)
 ## Engine structures (name, VA of known instances, layout, confidence)
 ## Code structure (Ghidra export, T-006 + T-009a)

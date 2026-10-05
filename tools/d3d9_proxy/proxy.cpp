@@ -14,6 +14,7 @@
 //   BO1_IAT_HOOKS       1: also hook CreateThread/MessageBoxA/VirtualAlloc/HeapAlloc/GlobalMemoryStatus
 //                       in the exe import table and log them (diagnostics)
 //   BO1_MSGBOX_AUTO     1 (with BO1_IAT_HOOKS): answer message boxes without showing them
+//   BO1_REAL_D3D9       full path of the D3D9 implementation to wrap (default: system d3d9.dll)
 //   BO1_KEYS            "ms:vk,ms:vk": post key presses to the game window (ms after device creation)
 //   BO1_HOSTNAME        name: make WSOCK32!gethostname return this short name (experiment)
 //   BO1_HOOK_HEAP       1 (with BO1_IAT_HOOKS): also log HeapAlloc requests >= 256 MiB
@@ -528,9 +529,13 @@ static HRESULT __stdcall hooked_CreateDevice(IDirect3D9 *self, UINT adapter, D3D
 static void *real_proc(const char *name) {
     if (!g_real) {
         char path[MAX_PATH];
-        GetSystemDirectoryA(path, sizeof(path));
-        strcat(path, "\\d3d9.dll");
+        // BO1_REAL_D3D9 selects another implementation (e.g. DXVK's d3d9.dll under any file name).
+        if (!GetEnvironmentVariableA("BO1_REAL_D3D9", path, sizeof(path))) {
+            GetSystemDirectoryA(path, sizeof(path));
+            strcat(path, "\\d3d9.dll");
+        }
         g_real = LoadLibraryA(path);
+        event("real d3d9: %s -> %p (err=%lu)\n", path, (void *)g_real, g_real ? 0 : GetLastError());
     }
     return g_real ? (void *)GetProcAddress(g_real, name) : NULL;
 }
