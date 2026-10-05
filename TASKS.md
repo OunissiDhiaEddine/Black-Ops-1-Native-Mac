@@ -3,7 +3,7 @@ Status: TODO · NOW · DONE · BLOCKED. Only ONE task is NOW at a time. Mark DON
 Update this file at every checkpoint (see AGENTS.md rule 2).
 
 ## NOW
-- **P0 complete — waiting for user go-ahead to start P1** (T-010: choose/install baseline stack, ADR-007).
+- **T-011** (P1) blocked on user: install Rosetta 2 + approve Wine download (LOG STATE). Then run `scripts/run_baseline.sh`.
 
 ## DONE
 - **T-001** (P0) DONE 2026-10-05 — game install present in `reference/`, `scripts/doctor.sh` run, tool availability recorded.
@@ -22,9 +22,9 @@ Update this file at every checkpoint (see AGENTS.md rule 2).
 - [ ] **T-009a** (carry-over, optional before G1) Seed unreached code (10.1% of `.text`) from data pointer scan + `likely_code_region_starts`, re-run Ghidra, re-measure coverage.
 
 ## P1 — Reference baseline
-- [ ] **T-010** Choose baseline stack (ADR-007): install CrossOver or Wine+wine32on64 (ASK USER before installing). Record versions.
+- [x] **T-010** DECIDED 2026-10-05 (ADR-007 ACCEPTED: wine-stable 11.0 + wined3d under Rosetta 2, project-local). Install pending user action; versions to be recorded on first run. Choose baseline stack (ADR-007): install CrossOver or Wine+wine32on64 (ASK USER before installing). Record versions.
 - [ ] **T-011** `scripts/run_baseline.sh`: repeatable launch of SP; confirm main menu renders. Evidence: screenshot in `tests/golden/`.
-- [ ] **T-012** `tools/d3d9_proxy/`: d3d9.dll proxy logger (32-bit PE built with mingw-w64 or clang --target=i686-windows). First: log call names only.
+- [ ] **T-012** IN PROGRESS — proxy v0 builds (`tools/d3d9_proxy/build.sh`), not yet run; Evidence needed: census file from a real run. `tools/d3d9_proxy/`: d3d9.dll proxy logger (32-bit PE built with mingw-w64 or clang --target=i686-windows). First: log call names only.
 - [ ] **T-013** Extend proxy: full args, shader bytecode blobs, texture/surface descriptors, resource uploads -> binary trace format (document in docs/).
 - [ ] **T-014** Golden capture script: main menu, loading, scenes A/B/C + frame-time CSV.
 - [ ] **T-015** D3D9 census report -> RE_NOTES § D3D9 census.

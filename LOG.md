@@ -1,17 +1,18 @@
 # LOG
 
 ## STATE  (OVERWRITE this block at every checkpoint — it is the resume point)
-- **Date/time:** 2026-10-05 (end of P0)
-- **Phase / task:** **P0 COMPLETE** (T-001..T-009 DONE). Waiting for user go-ahead for P1.
-- **Last completed:** T-006 Ghidra export, T-009 symbols.csv, P0 exit review (entry below).
-- **Next exact step:** on user go-ahead -> T-010: decide ADR-007 (CrossOver vs Wine/Game Porting Toolkit; needs install approval, and check disk: ~56 GB free), then `scripts/run_baseline.sh` (T-011). Optional first: T-009a (seed unreached code and re-run `GHIDRA_HEADLESS_MAXMEM=5G scripts/ghidra_analyze.sh`).
-- **Files in flight:** none. Regenerable (gitignored): `re/ghidra_projects/`, `re/ghidra_export/`, `artifacts/`.
-- **Open questions for the user:**
-  1. Go-ahead for P1?
-  2. ADR-007: which baseline — CrossOver (paid, simplest 32-bit support on Apple Silicon) or a free Wine build? Both are system-level installs.
-- **Half-done / how to resume:** nothing half-done. `reference/` is still writable (chmod deferred; do `chmod -R a-w reference/` if the user agrees).
-- **Machine:** Apple M1 (arm64), 8 GB RAM, macOS 27.0.1 (26A434), Xcode 27.0, ~56 GB free. Installed (user-approved 2026-10-05): cmake, ninja, ffmpeg 9.0.2, sevenzip (`7zz`), ghidra 12.1.4 (`/opt/homebrew/opt/ghidra/libexec`), openjdk@21. Python tooling in `.venv` (`scripts/setup_venv.sh`).
-- **Reference copy:** user confirmed (2026-10-05) they own BO1 and that the DRM-free copy in `reference/` is the project reference.
+- **Date/time:** 2026-10-05 (P1 started)
+- **Phase / task:** P1 — T-010 decided (ADR-007 ACCEPTED), **blocked on two user actions** before T-011; T-012 proxy v0 built but untested.
+- **Last completed:** `scripts/run_baseline.sh`, `tools/d3d9_proxy/` (builds to `artifacts/d3d9_proxy/d3d9.dll`), ADR-007, `reference/` made read-only, working copy cloned to `artifacts/game` (APFS clone, 0 extra bytes).
+- **Next exact step (after the user answers):**
+  1. User installs Rosetta 2 themselves: `softwareupdate --install-rosetta` (licence prompt is theirs to accept). Verify: `arch -x86_64 /usr/bin/true`.
+  2. With the user's yes: `mkdir -p artifacts/wine && curl -L -o artifacts/wine/wine-stable-11.0_1-osx64.tar.xz https://github.com/Gcenx/macOS_Wine_builds/releases/download/11.0_1/wine-stable-11.0_1-osx64.tar.xz` (185,303,032 B), check SHA-256 against `brew info --cask --json=v2 wine-stable`, `tar -xJf` into `artifacts/wine/`.
+  3. `scripts/run_baseline.sh` (T-011: main menu renders -> screenshot into `tests/golden/`), then `scripts/run_baseline.sh --trace` (T-012 evidence: `artifacts/baseline/d3d9_census-*.txt`).
+- **Files in flight:** none uncommitted.
+- **Open questions for the user:** (a) OK to download the Wine build above? (b) OK that I launch the game (incl. its third-party `steam_api.dll`) under Wine with the containment in ADR-007, or do they prefer to launch `scripts/run_baseline.sh` themselves?
+- **Half-done / how to resume:** `run_baseline.sh` and the proxy have never been executed — expect fixes on first run (sandbox profile syntax, `+set r_fullscreen 0` handling, UCRT imports of the proxy under Wine).
+- **Machine:** Apple M1 (arm64), 8 GB RAM, macOS 27.0.1 (26A434), Xcode 27.0, ~53 GB free. **Rosetta 2 not installed.** Installed via brew (user-approved): cmake, ninja, ffmpeg 9.0.2, sevenzip (`7zz`), ghidra 12.1.4, openjdk@21, mingw-w64 14.0.0. Python tooling in `.venv`.
+- **Reference copy:** user confirmed (2026-10-05) they own BO1 and that the DRM-free copy in `reference/` is the project reference. `reference/` is now read-only (`chmod -R a-w`).
 
 ---
 ## SESSION LOG (append-only; newest at the bottom)
@@ -69,3 +70,11 @@ Entry template:
   - Risks: (1) **10.1% of .text is code Ghidra did not reach** (pointer-only reachability) + 5,407 indirect call sites -> need pointer-seeded discovery + runtime trap/logging; (2) 51 unresolved switch tables; (3) x87 is 27.6% of FP instructions (mostly fld/fstp, but real arithmetic exists); (4) 1,320 SEH-frame sites + RaiseException/RtlUnwind -> C++ EH may be live; (5) heavily multi-threaded (430 lock-prefixed ops, 10 CreateThread sites); (6) `D3DXCompileShader` is imported — runtime HLSL compile must be ruled out by the P1 trace; (7) this Mac has 8 GB RAM / 56 GB disk — tight for compiling ~1.5 M lifted instructions and for a Wine baseline + traces.
 - Problems: none blocking.
 - Next: ask user for P1 go-ahead + ADR-007.
+
+### 2026-10-05 — T-010, T-012 (partial) — P1 started; baseline stack chosen, blocked on Rosetta + Wine download
+- Did: user gave go-ahead for P1, delegated ADR-007 ("most optimized free way"), approved making `reference/` read-only. `chmod -R a-w reference/`; `cp -c -R` clone to `artifacts/game` (minus Redist/Soundtrack); `brew install mingw-w64`; wrote ADR-007, `scripts/run_baseline.sh`, `tools/d3d9_proxy/{proxy.cpp,thunks.S,d3d9_methods.h,d3d9.def,build.sh}`.
+- Evidence: `artifacts/d3d9_proxy/d3d9.dll` (231,128 B) builds with `-Wall -Wextra -Werror`; objdump shows exports `Direct3DCreate9`, `D3DPERF_BeginEvent`, `D3DPERF_EndEvent` and thunk `_thunk_device_17` = `push esp; push 0x11; call _trace_device@8; jmp [orig]`. Slot tables are `static_assert`ed against mingw's `d3d9.h` Vtbl structs (17 + 119 methods).
+- Learned: Homebrew disabled all Wine casks on 2026-09-01 (not notarized); Rosetta 2 is absent on this Mac; `brew cat` silently turned Homebrew developer mode on — turned back off with `brew developer off`.
+- Proxy design: in-place vtable patching (no wrapper objects, because Wine's d3d9 asserts vtable identity on some arguments); one generic asm thunk per slot reports (slot, args*) then tail-jumps to the original; `CreateDevice` has a post-hook to patch the device vtable. T-013 extends the same thunks with per-method argument decoders.
+- Problems: cannot run anything until Rosetta + Wine exist -> T-011 not started, T-012 not verified.
+- Next: see STATE.
