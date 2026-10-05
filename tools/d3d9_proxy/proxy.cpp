@@ -126,6 +126,7 @@ static char g_events[65536]; // device creation, dialogs, captures, diagnostics
 static size_t g_events_len;
 static DWORD g_t0;
 static void write_census(void);
+static LONG g_d3dx_compiles; // D3DXCompileShader calls seen (IAT hook)
 
 // Events are rare, and the process is usually killed rather than unloaded, so every event
 // flushes the census file.
@@ -263,6 +264,7 @@ static void write_census(void) {
         fprintf(f, "frames_presented %ld\nelapsed_ms %lu\nrender_thread 0x%lx\ncalls_from_other_threads %ld\n",
                 frames, GetTickCount() - g_t0, g_render_thread, g_other_thread_calls);
         fprintf(f, "trace_on %ld\ntrace_records %ld\ntrace_bytes %llu\n", g_trace_on, g_trace_records, g_trace_bytes);
+        fprintf(f, "d3dx_compile_shader_calls %ld\n", g_d3dx_compiles);
         fprintf(f, "\n[events]\n%s", g_events);
         for (int k = 0; k < IFACE_COUNT; k++) {
             if (k == IFACE_DEVICE) continue;
@@ -1087,6 +1089,24 @@ static int WINAPI hooked_gethostname(char *name, int len) {
     return 0;
 }
 
+// Does the game ever compile HLSL at runtime? (ADR-005 input.) Counts every call and logs the
+// first few; installed whenever the message-box hook is.
+typedef HRESULT(WINAPI *D3DXCompileShader_t)(LPCSTR, UINT, const void *, void *, LPCSTR, LPCSTR, DWORD, void **,
+                                             void **, void **);
+static D3DXCompileShader_t g_real_D3DXCompileShader;
+static HRESULT WINAPI hooked_D3DXCompileShader(LPCSTR src, UINT len, const void *defines, void *include, LPCSTR func,
+                                               LPCSTR profile, DWORD flags, void **shader, void **errors,
+                                               void **ctab) {
+    HRESULT hr = g_real_D3DXCompileShader(src, len, defines, include, func, profile, flags, shader, errors, ctab);
+    LONG n = InterlockedIncrement(&g_d3dx_compiles);
+    if (n <= 8)
+        event("D3DXCompileShader #%ld: profile=%s entry=%s source=%u bytes flags=0x%lx -> hr=0x%08lx (frame %ld, "
+              "caller ret=%p)\n",
+              n, profile ? profile : "?", func ? func : "?", len, flags, (unsigned long)hr, g_frames,
+              __builtin_return_address(0));
+    return hr;
+}
+
 typedef int(WINAPI *MessageBoxA_t)(HWND, LPCSTR, LPCSTR, UINT);
 static MessageBoxA_t g_real_MessageBoxA;
 static bool g_msgbox_auto;
@@ -1211,8 +1231,11 @@ extern "C" BOOL WINAPI DllMain(HINSTANCE inst, DWORD reason, LPVOID) {
         // diagnostics and stay off unless BO1_IAT_HOOKS=1.
         g_msgbox_auto = GetEnvironmentVariableA("BO1_MSGBOX_AUTO", num, sizeof(num)) && num[0] == '1';
         bool diag = GetEnvironmentVariableA("BO1_IAT_HOOKS", num, sizeof(num)) && num[0] == '1';
-        if (g_msgbox_auto || diag)
+        if (g_msgbox_auto || diag) {
             g_real_MessageBoxA = (MessageBoxA_t)patch_iat("USER32.dll", "MessageBoxA", (void *)hooked_MessageBoxA);
+            g_real_D3DXCompileShader = (D3DXCompileShader_t)patch_iat("d3dx9_43.dll", "D3DXCompileShader",
+                                                                      (void *)hooked_D3DXCompileShader);
+        }
         if (GetEnvironmentVariableA("BO1_HOSTNAME", g_fake_hostname, sizeof(g_fake_hostname)) && g_fake_hostname[0])
             g_real_gethostname = (gethostname_t)patch_iat("WSOCK32.dll", "gethostname", (void *)hooked_gethostname, 57);
         if (diag) {

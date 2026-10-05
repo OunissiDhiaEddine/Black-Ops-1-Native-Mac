@@ -242,6 +242,30 @@ Raw tool output:
 - Queries created: {'OCCLUSION': 9, 'TIMESTAMP': 486}; failed calls: [].
 
 
+## D3D9 census — consolidated over the four golden scenarios (T-015, P1 exit)
+Sources: `tools/trace_census.py artifacts/traces/<name>.bin` for `menu`, `cuba`, `vorkuta`, `khe_sanh` (captured by `scripts/capture_golden_all.sh` on 2026-10-05, WineCX 24.0.7 / wined3d, 800x600). JSON: `re/d3d9_census_<name>.json`. CONFIRMED for these four runs (boot -> title -> menu -> first ~60–100 s of each mission).
+
+| Scenario | Frames | Game calls | Calls/frame | Draws/frame | Triangles/frame | Unique VS / PS | Max VS / PS const | Baseline frame time (traced) |
+|---|---|---|---|---|---|---|---|---|
+| menu | 2,443 | 18,981,534 | 12,644 | 1,613 | 528,249 | 148 / 1,444 | c68 / c46 | 32.72 ms |
+| cuba | 5,757 | 25,421,507 | 12,944 | 2,042 | 391,593 | 224 / 5,090 | c68 / c54 | 41.8 ms |
+| vorkuta | 5,714 | 24,676,832 | 8,460 | 1,245 | 281,254 | 209 / 4,430 | c68 / c47 | 44.05 ms |
+| khe_sanh | 5,843 | 29,937,107 | 13,243 | 3,121 | 722,424 | 225 / 3,717 | c68 / c47 | 54.96 ms |
+
+**Union of everything observed — this is the whole D3D9 contract the Metal backend must honour so far:**
+- **37 `IDirect3DDevice9` methods** (same set in every scenario) + swap-chain `Present`/`GetBackBuffer`, texture/cube/volume `Lock*/Unlock*`/`GetSurfaceLevel`, buffer `Lock/Unlock`, query `Issue/GetData`.
+- **Shaders: 6,845 unique blobs (260 VS, 6,585 PS), 100% `vs_3_0` / `ps_3_0`**, every one with a CTAB. VS opcodes (25): abs add dcl def dp3 dp4 else endif exp frc ifc lrp mad max min mov mova mul nrm pow rcp rsq sge sincos slt. PS opcodes (34): abs add cmp dcl def defi dp2add dp3 dp4 dsx dsy else endif endrep exp frc ifc log lrp mad max min mov mul nrm pow rcp rep rsq sincos texkill texld texldd texldl. PS samplers: 2D, cube, volume.
+- **`D3DXCompileShader` is never called at runtime — CONFIRMED** for boot -> menu and boot -> menu -> khe_sanh (import-table hook, `d3dx_compile_shader_calls 0` over 5,384 frames). The runtime-HLSL risk from P0 is closed for these paths: ADR-005 only needs an SM3 bytecode translator.
+- **Draw path:** `DrawIndexedPrimitive(D3DPT_TRIANGLELIST)`, 16-bit indices, streams 0–1. Nothing else.
+- **Vertex element types:** FLOAT2, FLOAT3, FLOAT4, D3DCOLOR, UBYTE4, UBYTE4N, SHORT4N, FLOAT16_2 (BLENDWEIGHT, in-mission only).
+- **Texture formats:** DXT1, DXT3, DXT5, A8R8G8B8, X8R8G8B8, L8 (static and DYNAMIC = Bink planes), A8L8, G16R16, R5G6B5, R32F; one 256x256x4 A8R8G8B8 volume texture rewritten every frame; DXT1/X8R8G8B8 cube maps up to 512.
+- **Render targets:** textures A8R8G8B8, A16B16G16R16, R32F; surfaces R5G6B5 and FOURCC `NULL`; depth: D24FS8 surfaces and **sampled D24S8 depth textures** (shadow maps). One colour target at a time (no MRT). `StretchRect` whole-surface, unfiltered.
+- **Render states: 30** (depth test/write/func, alpha test/ref/func, blend + separate alpha, cull, fill, stencil incl. two-sided, colour write mask, scissor, depth bias + slope scale). **Sampler states:** address WRAP/CLAMP, filter POINT/LINEAR/ANISOTROPIC (max 2, 4), mip NONE/POINT/LINEAR.
+- **Never seen:** fixed-function pipeline, FVF, `Draw*UP`, strips/fans/points/lines, instancing, state blocks, `Reset`, user clip planes, fog states, sRGB states, int/bool shader constants, vertex texture fetch, MRT, MSAA, failed D3D calls.
+- **Queries:** 9 occlusion + 486 timestamp queries created at init in every run.
+- **Scale:** up to ~3,100 draws and ~720,000 triangles per frame (khe_sanh). ~13,000 API calls per frame.
+Caveats: later parts of missions, other missions, and non-default graphics settings (AA, shadows off, lower shader detail) are untraced; 800x600 only; the baseline's frame times (18–31 fps) are Rosetta + Wine + tracing and say nothing about the game's cost.
+
 ## D3D9 census from the full trace — first mission (`cuba`, T-015)
 Source: `tools/trace_census.py artifacts/traces/trace-20261005-162759.bin --name cuba` (boot -> menu -> `devmap cuba` -> opening bar scene; 5,757 frames, 25,421,507 game calls; frames 5200–5260 with all uploads). CONFIRMED for this run. Full numbers: `re/d3d9_census_cuba.json`; shader blobs in `artifacts/shaders/cuba/`.
 
@@ -254,7 +278,7 @@ Source: `tools/trace_census.py artifacts/traces/trace-20261005-162759.bin --name
 - Workload at the bar scene: **~12,944 calls, ~2,042 draws, ~391,593 triangles per frame** (median 38 triangles per draw).
 - Recorded uploads for the whole run: textures 445 MiB, vertex buffers 123 MiB, index buffers 141 MiB, volume texture 65 MiB.
 - No failed D3D calls in either trace.
-Still unverified: whether `D3DXCompileShader` is ever called at runtime (d3dx9 is not hooked); scenes later in a mission (outdoor, water, explosions) may add shaders but are unlikely to add API surface.
+(Superseded by the consolidated section above for the D3DXCompileShader question.)
 
 ## Baseline status (P1) — what runs, what does not
 **RESOLVED 2026-10-05 15:55: the baseline is WineCX 24.0.7 (ADR-007).** On it the game boots, passes the title screen (scripted Space at t=32 s) and renders the **main menu** — the 3D interrogation room with CAMPAIGN / MULTIPLAYER / ZOMBIES / SETTINGS / QUIT (`tests/golden/baseline_cx_main_menu_f1350_800x600.png`) — and the settings pages (`…_settings_sound_f2400…`). 2 of 2 runs, 2,276 and 2,496 frames, no crash. The 2.85 GB heap request (`size aa010000`) also fails on this stack and the game carries on, so it is benign. Main-menu workload (65 s run, 2,276 frames): **~807 `DrawIndexedPrimitive` per frame on average**, 1.84 M draws, 2.1 M `SetTexture`, 2.7 M `SetPixelShaderConstantF`, 330 k `SetRenderState`; still the same 37 device methods.

@@ -1,0 +1,1353 @@
+{
+ "trace": "khe_sanh.bin",
+ "frames": 5843,
+ "game_calls": 29937107,
+ "calls": {
+  "IDirect3DDevice9::SetVertexShaderConstantF": 5700586,
+  "IDirect3DDevice9::DrawIndexedPrimitive": 5582073,
+  "IDirect3DDevice9::SetStreamSource": 3444708,
+  "IDirect3DDevice9::SetTexture": 2840089,
+  "IDirect3DDevice9::SetIndices": 2676847,
+  "IDirect3DDevice9::SetPixelShaderConstantF": 2605107,
+  "IDirect3DDevice9::SetSamplerState": 1655661,
+  "IDirect3DIndexBuffer9::Lock": 1475117,
+  "IDirect3DIndexBuffer9::Unlock": 1475117,
+  "IDirect3DDevice9::SetRenderState": 507020,
+  "IDirect3DDevice9::SetPixelShader": 506123,
+  "IDirect3DDevice9::SetVertexShader": 494701,
+  "IDirect3DDevice9::SetVertexDeclaration": 388036,
+  "IDirect3DVertexBuffer9::Lock": 80017,
+  "IDirect3DVertexBuffer9::Unlock": 80017,
+  "IDirect3DDevice9::SetRenderTarget": 55904,
+  "IDirect3DTexture9::Release": 42296,
+  "IDirect3DTexture9::AddRef": 40857,
+  "IDirect3DTexture9::LockRect": 33699,
+  "IDirect3DTexture9::UnlockRect": 33699,
+  "IDirect3DSurface9::UnlockRect": 33089,
+  "IDirect3DQuery9::GetData": 24969,
+  "IDirect3DDevice9::SetScissorRect": 17442,
+  "IDirect3DDevice9::SetViewport": 16194,
+  "IDirect3DTexture9::GetSurfaceLevel": 15198,
+  "IDirect3DSurface9::Release": 15181,
+  "IDirect3DDevice9::StretchRect": 15174,
+  "IDirect3DDevice9::Clear": 13325,
+  "IDirect3DQuery9::Issue": 13011,
+  "IDirect3DDevice9::CreatePixelShader": 6028,
+  "IDirect3DDevice9::BeginScene": 5847,
+  "IDirect3DDevice9::EndScene": 5847,
+  "IDirect3DDevice9::TestCooperativeLevel": 5844,
+  "IDirect3DSwapChain9::Present": 5843,
+  "IDirect3DDevice9::CreateIndexBuffer": 4204,
+  "IDirect3DDevice9::CreateTexture": 3380,
+  "IDirect3DDevice9::CreateVertexBuffer": 3369,
+  "IDirect3DVolumeTexture9::LockBox": 2800,
+  "IDirect3DVolumeTexture9::UnlockBox": 2799,
+  "IDirect3DDevice9::SetDepthStencilSurface": 2495,
+  "IDirect3DDevice9::Release": 2385,
+  "IDirect3DDevice9::CreateVertexShader": 1386,
+  "IDirect3DDevice9::CreateVertexDeclaration": 1004,
+  "IDirect3DDevice9::CreateQuery": 495,
+  "IDirect3DIndexBuffer9::Release": 437,
+  "IDirect3DVertexBuffer9::Release": 370,
+  "IDirect3DSurface9::AddRef": 313,
+  "IDirect3DDevice9::AddRef": 293,
+  "IDirect3DSwapChain9::GetBackBuffer": 292,
+  "IDirect3DCubeTexture9::LockRect": 162,
+  "IDirect3DCubeTexture9::UnlockRect": 162,
+  "IDirect3DTexture9::PreLoad": 22,
+  "IDirect3D9::EnumAdapterModes": 18,
+  "IDirect3DDevice9::CreateDepthStencilSurface": 7,
+  "IDirect3DDevice9::CreateCubeTexture": 7,
+  "IDirect3DDevice9::GetAvailableTextureMem": 4,
+  "IDirect3DCubeTexture9::PreLoad": 4,
+  "IDirect3D9::GetAdapterIdentifier": 3,
+  "IDirect3D9::GetAdapterMonitor": 3,
+  "IDirect3D9::CheckDepthStencilMatch": 3,
+  "IDirect3D9::CheckDeviceFormat": 3,
+  "IDirect3DSurface9::GetDesc": 3,
+  "IDirect3DDevice9::CreateRenderTarget": 3,
+  "IDirect3DCubeTexture9::Release": 3,
+  "IDirect3D9::CheckDeviceMultiSampleType": 2,
+  "IDirect3D9::Release": 1,
+  "IDirect3D9::GetAdapterCount": 1,
+  "IDirect3D9::GetDeviceCaps": 1,
+  "IDirect3D9::GetAdapterModeCount": 1,
+  "IDirect3D9::CreateDevice": 1,
+  "IDirect3D9::GetAdapterDisplayMode": 1,
+  "IDirect3DDevice9::GetSwapChain": 1,
+  "IDirect3DDevice9::GetBackBuffer": 1,
+  "IDirect3DDevice9::CreateVolumeTexture": 1,
+  "IDirect3DDevice9::SetGammaRamp": 1
+ },
+ "device_methods_used": [
+  "AddRef",
+  "BeginScene",
+  "Clear",
+  "CreateCubeTexture",
+  "CreateDepthStencilSurface",
+  "CreateIndexBuffer",
+  "CreatePixelShader",
+  "CreateQuery",
+  "CreateRenderTarget",
+  "CreateTexture",
+  "CreateVertexBuffer",
+  "CreateVertexDeclaration",
+  "CreateVertexShader",
+  "CreateVolumeTexture",
+  "DrawIndexedPrimitive",
+  "EndScene",
+  "GetAvailableTextureMem",
+  "GetBackBuffer",
+  "GetSwapChain",
+  "Release",
+  "SetDepthStencilSurface",
+  "SetGammaRamp",
+  "SetIndices",
+  "SetPixelShader",
+  "SetPixelShaderConstantF",
+  "SetRenderState",
+  "SetRenderTarget",
+  "SetSamplerState",
+  "SetScissorRect",
+  "SetStreamSource",
+  "SetTexture",
+  "SetVertexDeclaration",
+  "SetVertexShader",
+  "SetVertexShaderConstantF",
+  "SetViewport",
+  "StretchRect",
+  "TestCooperativeLevel"
+ ],
+ "per_frame_last300": {
+  "calls": 13243,
+  "draws": 3121,
+  "primitives": 722424
+ },
+ "render_states": {
+  "ZENABLE": {
+   "sets": 6894,
+   "distinct_values": 2,
+   "top_values": [
+    [
+     "0x0",
+     3448
+    ],
+    [
+     "0x1",
+     3446
+    ]
+   ]
+  },
+  "FILLMODE": {
+   "sets": 1,
+   "distinct_values": 1,
+   "top_values": [
+    [
+     "0x3",
+     1
+    ]
+   ]
+  },
+  "ZWRITEENABLE": {
+   "sets": 23331,
+   "distinct_values": 2,
+   "top_values": [
+    [
+     "0x0",
+     11666
+    ],
+    [
+     "0x1",
+     11665
+    ]
+   ]
+  },
+  "ALPHATESTENABLE": {
+   "sets": 98883,
+   "distinct_values": 2,
+   "top_values": [
+    [
+     "0x0",
+     49442
+    ],
+    [
+     "0x1",
+     49441
+    ]
+   ]
+  },
+  "SRCBLEND": {
+   "sets": 40257,
+   "distinct_values": 4,
+   "top_values": [
+    [
+     "0x2",
+     16396
+    ],
+    [
+     "0x5",
+     15294
+    ],
+    [
+     "0xa",
+     4853
+    ],
+    [
+     "0x1",
+     3714
+    ]
+   ]
+  },
+  "DESTBLEND": {
+   "sets": 26713,
+   "distinct_values": 3,
+   "top_values": [
+    [
+     "0x6",
+     13356
+    ],
+    [
+     "0x2",
+     9643
+    ],
+    [
+     "0x3",
+     3714
+    ]
+   ]
+  },
+  "CULLMODE": {
+   "sets": 68846,
+   "distinct_values": 2,
+   "top_values": [
+    [
+     "0x1",
+     34423
+    ],
+    [
+     "0x3",
+     34423
+    ]
+   ]
+  },
+  "ZFUNC": {
+   "sets": 2,
+   "distinct_values": 2,
+   "top_values": [
+    [
+     "0x8",
+     1
+    ],
+    [
+     "0x4",
+     1
+    ]
+   ]
+  },
+  "ALPHAREF": {
+   "sets": 17468,
+   "distinct_values": 3,
+   "top_values": [
+    [
+     "0x0",
+     8659
+    ],
+    [
+     "0x80",
+     5650
+    ],
+    [
+     "0xff",
+     3159
+    ]
+   ]
+  },
+  "ALPHAFUNC": {
+   "sets": 17468,
+   "distinct_values": 2,
+   "top_values": [
+    [
+     "0x7",
+     8809
+    ],
+    [
+     "0x5",
+     8659
+    ]
+   ]
+  },
+  "ALPHABLENDENABLE": {
+   "sets": 19775,
+   "distinct_values": 2,
+   "top_values": [
+    [
+     "0x0",
+     9888
+    ],
+    [
+     "0x1",
+     9887
+    ]
+   ]
+  },
+  "STENCILENABLE": {
+   "sets": 65189,
+   "distinct_values": 2,
+   "top_values": [
+    [
+     "0x0",
+     32595
+    ],
+    [
+     "0x1",
+     32594
+    ]
+   ]
+  },
+  "STENCILFAIL": {
+   "sets": 1,
+   "distinct_values": 1,
+   "top_values": [
+    [
+     "0x1",
+     1
+    ]
+   ]
+  },
+  "STENCILZFAIL": {
+   "sets": 1,
+   "distinct_values": 1,
+   "top_values": [
+    [
+     "0x1",
+     1
+    ]
+   ]
+  },
+  "STENCILPASS": {
+   "sets": 1,
+   "distinct_values": 1,
+   "top_values": [
+    [
+     "0x1",
+     1
+    ]
+   ]
+  },
+  "STENCILFUNC": {
+   "sets": 2,
+   "distinct_values": 2,
+   "top_values": [
+    [
+     "0x1",
+     1
+    ],
+    [
+     "0x3",
+     1
+    ]
+   ]
+  },
+  "COLORWRITEENABLE": {
+   "sets": 5609,
+   "distinct_values": 2,
+   "top_values": [
+    [
+     "0xf",
+     2805
+    ],
+    [
+     "0x0",
+     2804
+    ]
+   ]
+  },
+  "BLENDOP": {
+   "sets": 1,
+   "distinct_values": 1,
+   "top_values": [
+    [
+     "0x1",
+     1
+    ]
+   ]
+  },
+  "SCISSORTESTENABLE": {
+   "sets": 40812,
+   "distinct_values": 2,
+   "top_values": [
+    [
+     "0x0",
+     23370
+    ],
+    [
+     "0x1",
+     17442
+    ]
+   ]
+  },
+  "SLOPESCALEDEPTHBIAS": {
+   "sets": 28243,
+   "distinct_values": 4,
+   "top_values": [
+    [
+     "0x80000000",
+     14122
+    ],
+    [
+     "0x40000000",
+     8956
+    ],
+    [
+     "0xc0000000",
+     3090
+    ],
+    [
+     "0xbf800000",
+     2075
+    ]
+   ]
+  },
+  "TWOSIDEDSTENCILMODE": {
+   "sets": 1,
+   "distinct_values": 1,
+   "top_values": [
+    [
+     "0x1",
+     1
+    ]
+   ]
+  },
+  "CCW_STENCILFAIL": {
+   "sets": 1,
+   "distinct_values": 1,
+   "top_values": [
+    [
+     "0x1",
+     1
+    ]
+   ]
+  },
+  "CCW_STENCILZFAIL": {
+   "sets": 1,
+   "distinct_values": 1,
+   "top_values": [
+    [
+     "0x1",
+     1
+    ]
+   ]
+  },
+  "CCW_STENCILPASS": {
+   "sets": 1,
+   "distinct_values": 1,
+   "top_values": [
+    [
+     "0x1",
+     1
+    ]
+   ]
+  },
+  "CCW_STENCILFUNC": {
+   "sets": 2,
+   "distinct_values": 2,
+   "top_values": [
+    [
+     "0x1",
+     1
+    ],
+    [
+     "0x3",
+     1
+    ]
+   ]
+  },
+  "DEPTHBIAS": {
+   "sets": 28243,
+   "distinct_values": 4,
+   "top_values": [
+    [
+     "0x80000000",
+     14122
+    ],
+    [
+     "0x39200000",
+     8956
+    ],
+    [
+     "0xb8000000",
+     3090
+    ],
+    [
+     "0xb7800000",
+     2075
+    ]
+   ]
+  },
+  "SEPARATEALPHABLENDENABLE": {
+   "sets": 1,
+   "distinct_values": 1,
+   "top_values": [
+    [
+     "0x1",
+     1
+    ]
+   ]
+  },
+  "SRCBLENDALPHA": {
+   "sets": 19271,
+   "distinct_values": 2,
+   "top_values": [
+    [
+     "0x1",
+     9636
+    ],
+    [
+     "0x8",
+     9635
+    ]
+   ]
+  },
+  "DESTBLENDALPHA": {
+   "sets": 1,
+   "distinct_values": 1,
+   "top_values": [
+    [
+     "0x2",
+     1
+    ]
+   ]
+  },
+  "BLENDOPALPHA": {
+   "sets": 1,
+   "distinct_values": 1,
+   "top_values": [
+    [
+     "0x1",
+     1
+    ]
+   ]
+  }
+ },
+ "sampler_states": {
+  "ADDRESSU": {
+   "sets": 186228,
+   "top_values": [
+    [
+     "0x1",
+     120830
+    ],
+    [
+     "0x3",
+     65398
+    ]
+   ]
+  },
+  "ADDRESSV": {
+   "sets": 186228,
+   "top_values": [
+    [
+     "0x1",
+     120830
+    ],
+    [
+     "0x3",
+     65398
+    ]
+   ]
+  },
+  "ADDRESSW": {
+   "sets": 141795,
+   "top_values": [
+    [
+     "0x1",
+     114290
+    ],
+    [
+     "0x3",
+     27505
+    ]
+   ]
+  },
+  "MAGFILTER": {
+   "sets": 343894,
+   "top_values": [
+    [
+     "0x2",
+     129079
+    ],
+    [
+     "0x1",
+     108558
+    ],
+    [
+     "0x3",
+     106257
+    ]
+   ]
+  },
+  "MINFILTER": {
+   "sets": 343894,
+   "top_values": [
+    [
+     "0x2",
+     129079
+    ],
+    [
+     "0x1",
+     108558
+    ],
+    [
+     "0x3",
+     106257
+    ]
+   ]
+  },
+  "MIPFILTER": {
+   "sets": 337055,
+   "top_values": [
+    [
+     "0x0",
+     126695
+    ],
+    [
+     "0x1",
+     106767
+    ],
+    [
+     "0x2",
+     103593
+    ]
+   ]
+  },
+  "MAXANISOTROPY": {
+   "sets": 116567,
+   "top_values": [
+    [
+     "0x2",
+     70186
+    ],
+    [
+     "0x4",
+     46381
+    ]
+   ]
+  }
+ },
+ "sampler_stages_used": {
+  "0": 354306,
+  "1": 266763,
+  "2": 238721,
+  "3": 146024,
+  "4": 108012,
+  "5": 71770,
+  "6": 59805,
+  "7": 52148,
+  "8": 50282,
+  "9": 35751,
+  "10": 35064,
+  "11": 49074,
+  "12": 46284,
+  "13": 46284,
+  "14": 46284,
+  "15": 49089
+ },
+ "texture_stages_used": {
+  "0": 780605,
+  "1": 437558,
+  "2": 310424,
+  "3": 255251,
+  "4": 141771,
+  "5": 121038,
+  "6": 56380,
+  "7": 29730,
+  "8": 27685,
+  "9": 7398,
+  "10": 7169,
+  "11": 9968,
+  "12": 141274,
+  "13": 178440,
+  "14": 178440,
+  "15": 156958
+ },
+ "textures_2d": [
+  [
+   "DXT5",
+   "0",
+   "MANAGED",
+   "mips",
+   1743
+  ],
+  [
+   "DXT1",
+   "0",
+   "MANAGED",
+   "mips",
+   1088
+  ],
+  [
+   "DXT5",
+   "0",
+   "MANAGED",
+   "nomips",
+   146
+  ],
+  [
+   "DXT3",
+   "0",
+   "MANAGED",
+   "mips",
+   134
+  ],
+  [
+   "DXT3",
+   "0",
+   "MANAGED",
+   "nomips",
+   69
+  ],
+  [
+   "DXT1",
+   "0",
+   "MANAGED",
+   "nomips",
+   64
+  ],
+  [
+   "L8",
+   "0",
+   "MANAGED",
+   "mips",
+   25
+  ],
+  [
+   "L8",
+   "0",
+   "SYSTEMMEM",
+   "nomips",
+   18
+  ],
+  [
+   "A8R8G8B8",
+   "0",
+   "MANAGED",
+   "nomips",
+   16
+  ],
+  [
+   "A8R8G8B8",
+   "RENDERTARGET",
+   "DEFAULT",
+   "nomips",
+   14
+  ],
+  [
+   "A8L8",
+   "0",
+   "MANAGED",
+   "mips",
+   12
+  ],
+  [
+   "X8R8G8B8",
+   "0",
+   "MANAGED",
+   "mips",
+   11
+  ],
+  [
+   "L8",
+   "DYNAMIC",
+   "DEFAULT",
+   "nomips",
+   9
+  ],
+  [
+   "A8L8",
+   "0",
+   "MANAGED",
+   "nomips",
+   6
+  ],
+  [
+   "A16B16G16R16",
+   "RENDERTARGET",
+   "DEFAULT",
+   "nomips",
+   5
+  ],
+  [
+   "G16R16",
+   "0",
+   "MANAGED",
+   "nomips",
+   4
+  ],
+  [
+   "R5G6B5",
+   "0",
+   "MANAGED",
+   "nomips",
+   4
+  ],
+  [
+   "A8R8G8B8",
+   "0",
+   "MANAGED",
+   "mips",
+   3
+  ],
+  [
+   "R32F",
+   "RENDERTARGET",
+   "DEFAULT",
+   "nomips",
+   3
+  ],
+  [
+   "D24S8",
+   "DEPTHSTENCIL",
+   "DEFAULT",
+   "nomips",
+   2
+  ],
+  [
+   "L8",
+   "0",
+   "MANAGED",
+   "nomips",
+   2
+  ],
+  [
+   "X8R8G8B8",
+   "0",
+   "MANAGED",
+   "nomips",
+   1
+  ],
+  [
+   "R32F",
+   "0",
+   "MANAGED",
+   "nomips",
+   1
+  ]
+ ],
+ "textures_volume": [
+  [
+   256,
+   256,
+   4,
+   1,
+   "A8R8G8B8",
+   "0",
+   "MANAGED",
+   1
+  ]
+ ],
+ "textures_cube": [
+  [
+   4,
+   3,
+   "DXT1",
+   "0",
+   "MANAGED",
+   2
+  ],
+  [
+   256,
+   9,
+   "DXT1",
+   "0",
+   "MANAGED",
+   2
+  ],
+  [
+   16,
+   1,
+   "X8R8G8B8",
+   "0",
+   "MANAGED",
+   1
+  ],
+  [
+   512,
+   1,
+   "DXT1",
+   "0",
+   "MANAGED",
+   1
+  ],
+  [
+   64,
+   1,
+   "X8R8G8B8",
+   "0",
+   "MANAGED",
+   1
+  ]
+ ],
+ "vertex_buffers": [
+  [
+   "WRITEONLY",
+   "DEFAULT",
+   "decl",
+   3318
+  ],
+  [
+   "WRITEONLY|DYNAMIC",
+   "DEFAULT",
+   "decl",
+   51
+  ]
+ ],
+ "index_buffers": [
+  [
+   "INDEX16",
+   "WRITEONLY",
+   "DEFAULT",
+   4201
+  ],
+  [
+   "INDEX16",
+   "WRITEONLY|DYNAMIC",
+   "DEFAULT",
+   3
+  ]
+ ],
+ "render_targets": [
+  [
+   800,
+   600,
+   "NULL",
+   0,
+   1
+  ],
+  [
+   1024,
+   2048,
+   "R5G6B5",
+   0,
+   1
+  ],
+  [
+   512,
+   2048,
+   "R5G6B5",
+   0,
+   1
+  ]
+ ],
+ "depth_stencils": [
+  [
+   480,
+   360,
+   "D24FS8",
+   0,
+   2
+  ],
+  [
+   256,
+   256,
+   "D24FS8",
+   0,
+   2
+  ],
+  [
+   800,
+   600,
+   "D24FS8",
+   0,
+   1
+  ],
+  [
+   1024,
+   1024,
+   "D24FS8",
+   0,
+   1
+  ],
+  [
+   1024,
+   512,
+   "D24FS8",
+   0,
+   1
+  ]
+ ],
+ "offscreen_plain": [],
+ "set_render_target_index": {
+  "0": 55904
+ },
+ "clear_flags": {
+  "0x2": 4,
+  "0x1": 6465,
+  "0x7": 6856
+ },
+ "stretch_rect": [
+  [
+   "full",
+   "full",
+   0,
+   15174
+  ]
+ ],
+ "viewports": [
+  [
+   0,
+   0,
+   800,
+   600,
+   11216
+  ],
+  [
+   0,
+   0,
+   200,
+   150,
+   2804
+  ],
+  [
+   0,
+   0,
+   480,
+   360,
+   1248
+  ],
+  [
+   0,
+   512,
+   1024,
+   512,
+   622
+  ],
+  [
+   0,
+   0,
+   1024,
+   512,
+   304
+  ]
+ ],
+ "draws": {
+  "TRIANGLELIST": 5582073
+ },
+ "prims_per_draw": {
+  "max": 6528,
+  "median": 44
+ },
+ "vertex_decl_elements": [
+  [
+   "POSITION",
+   "FLOAT4",
+   896
+  ],
+  [
+   "TEXCOORD",
+   "FLOAT4",
+   813
+  ],
+  [
+   "NORMAL",
+   "UBYTE4",
+   620
+  ],
+  [
+   "TEXCOORD",
+   "UBYTE4",
+   561
+  ],
+  [
+   "COLOR",
+   "D3DCOLOR",
+   551
+  ],
+  [
+   "POSITION",
+   "FLOAT3",
+   66
+  ],
+  [
+   "TEXCOORD",
+   "FLOAT2",
+   59
+  ],
+  [
+   "POSITION",
+   "UBYTE4",
+   36
+  ],
+  [
+   "TEXCOORD",
+   "UBYTE4N",
+   24
+  ],
+  [
+   "POSITION",
+   "SHORT4N",
+   6
+  ]
+ ],
+ "vertex_decl_distinct_layouts": 70,
+ "stream_indices": {
+  "0": 3349810,
+  "1": 94898
+ },
+ "stream_strides": {
+  "0": 22024,
+  "8": 33314,
+  "12": 24017,
+  "16": 6760,
+  "20": 624,
+  "24": 22055,
+  "28": 624,
+  "32": 2859988,
+  "44": 475302
+ },
+ "shaders_unique": {
+  "vs": 225,
+  "ps": 3717
+ },
+ "shader_versions": {
+  "vs_3_0": 225,
+  "ps_3_0": 3717
+ },
+ "shader_bytes": {
+  "vs": {
+   "min": 300,
+   "max": 4168,
+   "total": 309784
+  },
+  "ps": {
+   "min": 124,
+   "max": 9312,
+   "total": 15847512
+  }
+ },
+ "shader_compilers": {
+  "Microsoft (R) D3DX9 Shader Compiler 9.15.779.0000": 3480,
+  "Microsoft (R) HLSL Shader Compiler 9.22.949.2248": 462
+ },
+ "shader_instructions": {
+  "ps:mul": 175649,
+  "ps:mad": 131058,
+  "ps:dcl": 58760,
+  "ps:mov": 43063,
+  "ps:add": 40117,
+  "ps:texld": 39080,
+  "ps:rcp": 28021,
+  "ps:dp3": 25605,
+  "ps:rsq": 22728,
+  "ps:dp4": 21990,
+  "ps:def": 21886,
+  "ps:exp": 13200,
+  "ps:dp2add": 12886,
+  "ps:nrm": 10728,
+  "ps:texldl": 8520,
+  "ps:cmp": 7911,
+  "ps:log": 7340,
+  "ps:lrp": 5902,
+  "ps:max": 5045,
+  "ps:pow": 4051,
+  "ps#shaders_using:dcl": 3709,
+  "ps#shaders_using:texld": 3695,
+  "ps#shaders_using:mul": 3683,
+  "ps#shaders_using:mov": 3668,
+  "ps#shaders_using:def": 3667,
+  "ps#shaders_using:mad": 3664,
+  "ps#shaders_using:add": 3636,
+  "ps#shaders_using:rcp": 3606,
+  "ps#shaders_using:rsq": 3586,
+  "ps#shaders_using:dp3": 3572,
+  "ps#shaders_using:nrm": 3571,
+  "ps#shaders_using:dp2add": 3176,
+  "ps#shaders_using:dp4": 3165,
+  "ps#shaders_using:exp": 3109,
+  "ps#shaders_using:cmp": 2853,
+  "ps#shaders_using:texldl": 2755,
+  "ps#shaders_using:pow": 2689,
+  "vs:mad": 2448,
+  "ps:abs": 2393,
+  "vs:dcl": 2258,
+  "ps#shaders_using:lrp": 2085,
+  "vs:dp4": 1858,
+  "ps#shaders_using:max": 1806,
+  "ps:ifc": 1687,
+  "ps:endif": 1687,
+  "vs:mul": 1603,
+  "ps:else": 1457,
+  "vs:mov": 1355,
+  "ps#shaders_using:log": 1249,
+  "ps#shaders_using:abs": 1200,
+  "vs:dp3": 1053,
+  "ps:frc": 994,
+  "vs:add": 895,
+  "vs:def": 768,
+  "vs:slt": 494,
+  "ps#shaders_using:ifc": 487,
+  "ps#shaders_using:else": 487,
+  "ps#shaders_using:endif": 487,
+  "vs:exp": 475,
+  "ps:min": 384,
+  "ps:texkill": 341,
+  "vs:rcp": 297,
+  "ps#shaders_using:min": 261,
+  "vs:min": 260,
+  "vs#shaders_using:dcl": 225,
+  "vs#shaders_using:def": 223,
+  "vs#shaders_using:mad": 223,
+  "vs#shaders_using:dp4": 223,
+  "ps#shaders_using:frc": 213,
+  "vs#shaders_using:mov": 211,
+  "vs#shaders_using:add": 183,
+  "vs:rsq": 181,
+  "vs#shaders_using:mul": 179,
+  "vs:frc": 166,
+  "vs#shaders_using:exp": 158,
+  "vs#shaders_using:dp3": 154,
+  "vs#shaders_using:slt": 144,
+  "vs:lrp": 140,
+  "vs#shaders_using:rcp": 137,
+  "vs#shaders_using:rsq": 134,
+  "vs#shaders_using:lrp": 133,
+  "ps:texldd": 131,
+  "vs#shaders_using:min": 130,
+  "vs#shaders_using:frc": 113,
+  "ps:dsx": 91,
+  "ps:dsy": 91,
+  "ps#shaders_using:dsx": 91,
+  "ps#shaders_using:dsy": 91,
+  "ps#shaders_using:texldd": 88,
+  "ps:sincos": 87,
+  "vs:nrm": 71,
+  "ps#shaders_using:texkill": 61,
+  "vs#shaders_using:nrm": 47,
+  "ps#shaders_using:sincos": 44,
+  "vs:sincos": 18,
+  "vs:mova": 8,
+  "vs#shaders_using:mova": 8,
+  "ps:defi": 7,
+  "ps:rep": 7,
+  "ps:endrep": 7,
+  "ps#shaders_using:defi": 7,
+  "ps#shaders_using:rep": 7,
+  "ps#shaders_using:endrep": 7,
+  "vs#shaders_using:sincos": 6,
+  "vs:abs": 4,
+  "vs#shaders_using:abs": 4,
+  "vs:sge": 4,
+  "vs:max": 1,
+  "vs:pow": 1,
+  "vs#shaders_using:max": 1,
+  "vs#shaders_using:pow": 1,
+  "vs#shaders_using:sge": 1
+ },
+ "shader_sampler_types": {
+  "ps:2d": 26342,
+  "ps:volume": 1608,
+  "ps:cube": 2762
+ },
+ "vs_input_semantics": {
+  "POSITION0": 450,
+  "TEXCOORD0": 413,
+  "COLOR0": 238,
+  "TEXCOORD2": 210,
+  "TEXCOORD1": 167,
+  "TEXCOORD3": 156,
+  "TEXCOORD5": 137,
+  "NORMAL0": 135,
+  "TEXCOORD4": 104,
+  "TEXCOORD6": 91,
+  "TEXCOORD8": 79,
+  "TEXCOORD7": 40,
+  "COLOR1": 34,
+  "TEXCOORD9": 4
+ },
+ "ps_input_semantics": {
+  "TEXCOORD0": 3595,
+  "TEXCOORD1": 3580,
+  "TEXCOORD5": 3427,
+  "TEXCOORD2": 3099,
+  "TEXCOORD3": 3002,
+  "TEXCOORD6": 2917,
+  "TEXCOORD8": 2502,
+  "COLOR0": 2395,
+  "TEXCOORD4": 1864,
+  "COLOR1": 911,
+  "TEXCOORD7": 585,
+  "POSITION0": 120,
+  "TEXCOORD9": 51
+ },
+ "vs_constant_set_sizes": {
+  "1": 1980408,
+  "3": 269696,
+  "4": 3450482
+ },
+ "vs_constant_max_register": 68,
+ "ps_constant_set_sizes": {
+  "1": 2605107
+ },
+ "ps_constant_max_register": 47,
+ "queries_created": {
+  "OCCLUSION": 9,
+  "TIMESTAMP": 486
+ },
+ "query_issue_flags": {
+  "2": 2182,
+  "1": 10829
+ },
+ "lock_flags_dumped": {
+  "IDirect3DTexture9": {
+   "0x0/1": 26496,
+   "0x2000/3": 7167,
+   "0x2000/0": 36
+  },
+  "IDirect3DVertexBuffer9": {
+   "0x1000/3": 67062,
+   "0x2000/3": 8417,
+   "0x0/1": 3318,
+   "0x1000/1": 1098,
+   "0x2000/2": 122
+  },
+  "IDirect3DIndexBuffer9": {
+   "0x1000/3": 1403322,
+   "0x1000/1": 57100,
+   "0x2000/3": 10372,
+   "0x0/1": 4201,
+   "0x2000/2": 61,
+   "0x2000/1": 61
+  },
+  "IDirect3DCubeTexture9": {
+   "0x0/1": 162
+  },
+  "IDirect3DVolumeTexture9": {
+   "0x0/3": 2734,
+   "0x0/1": 65
+  }
+ },
+ "upload_bytes_recorded": {
+  "CreateTexture": 0,
+  "IDirect3DTexture9": 465374644,
+  "IDirect3DVertexBuffer9": 182844344,
+  "IDirect3DIndexBuffer9": 149853364,
+  "IDirect3DCubeTexture9": 1415616,
+  "IDirect3DVolumeTexture9": 68157440
+ },
+ "failed_calls": [],
+ "present_parameters_words": [
+  800,
+  600,
+  21,
+  1,
+  0,
+  0,
+  1,
+  0,
+  1,
+  0,
+  83,
+  0,
+  0,
+  2147483648
+ ]
+}

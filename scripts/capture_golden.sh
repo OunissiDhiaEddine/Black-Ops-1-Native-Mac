@@ -16,7 +16,7 @@ CMDS=()
 [ "$MAP" != "-" ] && CMDS=(--cmds "42000|devmap $MAP")
 WINEDEBUG="${WINEDEBUG:--all,warn+debugstr}" scripts/run_baseline.sh --wine cx --net --trace --record \
   --record-frames "$FIRST-$LAST" --record-max-mb 9000 --capture 20 --seconds "$SECS" \
-  --keys "32000:0x20" "${CMDS[@]}" >"artifacts/baseline/golden-$NAME.out" 2>&1 || true
+  --keys "32000:0x20" ${CMDS[@]+"${CMDS[@]}"} >"artifacts/baseline/golden-$NAME.out" 2>&1 || true
 STAMP=$(ls -t artifacts/baseline/d3d9_census-*.txt | head -1 | sed -E 's/.*census-(.*)\.txt/\1/')
 DEST="tests/golden/$NAME"; mkdir -p "$DEST"; rm -f "$DEST"/frame_*.png
 for f in artifacts/baseline/frames-"$STAMP"/frame_*.png; do

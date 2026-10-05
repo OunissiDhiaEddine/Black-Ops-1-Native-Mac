@@ -1,20 +1,16 @@
 # LOG
 
 ## STATE  (OVERWRITE this block at every checkpoint — it is the resume point)
-- **Date/time:** 2026-10-05 ~16:40
-- **Phase / task:** P1 — T-010..T-013 DONE; **T-014 running** (`scripts/capture_golden.sh` for menu, cuba, vorkuta, khe_sanh in the background); T-015 done for menu + cuba.
-- **Last completed:** full binary trace (T-013), trace census tool, console-command channel (`--cmds "42000|devmap <map>"`), first in-mission capture (cuba).
-- **Next exact step:**
-  1. Check `artifacts/baseline/golden-all.done` and `tests/golden/<name>/metrics.json` + frames for the four scenarios; look at one frame each. If a scenario's window shows a loading screen or black frame, re-run `scripts/capture_golden.sh <name> <map> <first_frame> <seconds>` with a later window.
-  2. `tools/trace_census.py artifacts/traces/<name>.bin --name <name> --shaders artifacts/shaders/<name>` for vorkuta and khe_sanh; merge new findings into RE_NOTES.
-  3. (small) hook `D3DXCompileShader` in the exe's import table to settle whether it is ever called.
-  4. P1 exit review (docs/PLAN.md: golden frames + replayable trace of main menu and one in-game scene; census doc) -> LOG entry -> ask the user before P2.
-- **Standard commands:** baseline run `scripts/run_baseline.sh --wine cx --net --trace ...` (see its header); golden scenario `scripts/capture_golden.sh <name> <map|-> <first_frame> [seconds]`; trace tools `tools/trace_reader.py`, `tools/trace_census.py`.
-- **Files in flight:** background golden captures write to `artifacts/` and `tests/golden/` only. Do NOT rebuild `artifacts/d3d9_proxy/d3d9.dll` while they run.
-- **Open questions for the user:** none blocking. User has a Windows PC available (optional native-D3D9 ground truth).
-- **Half-done / how to resume:** if the background job died, rerun the scenarios one by one (each is independent).
-- **Machine:** Apple M1 (arm64), 8 GB RAM, macOS 27.0.1 (26A434), Xcode 27.0, ~40 GB free (traces are 1–2 GB each). Rosetta 2 installed; Screen Recording granted. brew: cmake, ninja, ffmpeg, sevenzip, ghidra 12.1.4, openjdk@21, mingw-w64 14.0.0. Wine: `artifacts/wine/cx/wswine.bundle` (WineCX 24.0.7 = baseline), `Wine Devel.app` / `Wine Staging.app` (11.18; kept for support dylibs). DXVK-macOS in `artifacts/dxvk` (unused).
-- **Reference copy:** user confirmed (2026-10-05) they own BO1; `reference/` read-only; working copy `artifacts/game` (APFS clone).
+- **Date/time:** 2026-10-05 ~17:00
+- **Phase / task:** **P1 COMPLETE** (T-010..T-015 DONE). Waiting for the user's go-ahead for P2.
+- **Last completed:** four golden scenarios (menu, cuba, vorkuta, khe_sanh) with frames, traces, timings; consolidated D3D9 census; D3DXCompileShader confirmed unused at runtime.
+- **Next exact step:** on go-ahead -> P2/T-020: classify all 334 imports of `re/imports.csv` into shim / lift / stub / not needed (RE_NOTES § Platform map), then T-021..T-023. P3 can start in parallel from the traces if the user prefers (T-031 trace replay harness against `artifacts/traces/menu.bin`).
+- **Standard commands:** baseline `scripts/run_baseline.sh --wine cx --net --trace [--record --record-frames A-B] [--keys ...] [--cmds "42000|devmap <map>"]`; golden `scripts/capture_golden.sh <name> <map|-> <first_frame> [seconds]` / `scripts/capture_golden_all.sh`; trace tools `tools/trace_reader.py`, `tools/trace_census.py`.
+- **Files in flight:** none uncommitted.
+- **Open questions for the user:** (1) go-ahead for P2 — or P3 first? (2) may the obsolete WineHQ prefixes and the DXVK download be deleted (`artifacts/wineprefix`, `artifacts/wineprefix-staging`, `artifacts/dxvk`)? `artifacts/crossover/` is unused and can go too.
+- **Half-done / how to resume:** nothing half-done.
+- **Machine:** Apple M1 (arm64), 8 GB RAM, macOS 27.0.1 (26A434), Xcode 27.0, ~41 GB free (traces 7.6 GB, shader corpus 93 MB). Rosetta 2 installed; Screen Recording granted. brew: cmake, ninja, ffmpeg, sevenzip, ghidra 12.1.4, openjdk@21, mingw-w64 14.0.0. Wine: `artifacts/wine/cx/wswine.bundle` (WineCX 24.0.7 = baseline), `Wine Staging.app` (11.18; supplies libinotify/libintl/freetype to the cx engine — keep).
+- **Reference copy:** user confirmed (2026-10-05) they own BO1; `reference/` read-only; working copy `artifacts/game` (APFS clone). User also has a Windows PC available.
 
 ---
 ## SESSION LOG (append-only; newest at the bottom)
@@ -130,3 +126,11 @@ Entry template:
 - Learned: the D3D9 surface is small and identical between menu and mission (37 device methods, SM3 only, one draw path, 30 render states); 5,314 unique shaders so far; ~2,000 draws and ~390k triangles per frame in the first mission; the game re-uploads a 2 MiB index buffer and a 1 MiB volume texture every frame.
 - Problems solved: (1) result capture crashed the game after ~900 frames — d3d9's surface AddRef/Release tail-jump into the texture's method, so two hooked calls share one return slot; fixed by recognising the tail call. (2) a naive trace was 4 GB in 474 frames (whole 8 MiB dynamic buffer dumped per lock, nested surface locks duplicating texture data, Bink frames) -> sentinel trimming, nesting detection, video frames off by default, recording window.
 - Next: see STATE.
+
+### 2026-10-05 ~17:00 — T-014, T-015, P1 exit review — P1 complete
+- Did: `scripts/capture_golden.sh` + `capture_golden_all.sh`; captured menu, cuba, vorkuta, khe_sanh (frames in a 61-frame fully recorded window, 2 GB traces, frame-time CSV); census on all four; import-table hook proving `D3DXCompileShader` is not called.
+- Evidence: `tests/golden/<name>/metrics.json` (committed) + frames (gitignored); `re/d3d9_census_*.json`; `artifacts/traces/{menu,cuba,vorkuta,khe_sanh}.bin`; 6,845 unique shader blobs in `artifacts/shaders/`.
+- **P1 exit criteria (docs/PLAN.md):** golden frames OK (4 scenarios) · replayable trace of the main menu and an in-game scene OK (format documented, parsed end to end; the replay harness itself is P3/T-031) · census doc OK. -> **P1 exit: PASS.**
+- Input for G1 / ADRs: SM3-only precompiled shaders, 25 VS + 34 PS opcodes, no runtime compile -> ADR-005 option (a) (own SM3 -> MSL translator) looks sufficient; single render thread, 37 device methods, one draw path, no fixed function -> ADR-004 can be a thin D3D9-shaped RHI. Workload up to ~3,100 draws / 720k triangles per frame.
+- Problems: baseline is slow (18–31 fps traced) — fine for an oracle. Later mission content and non-default settings are untraced.
+- Next: ask the user before P2.

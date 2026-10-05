@@ -1,0 +1,29 @@
+{
+ "scenario": "khe_sanh",
+ "map": "khe_sanh",
+ "run_stamp": "20261005-164034",
+ "window_frames": [
+  5200,
+  5260
+ ],
+ "frames_presented": 5843,
+ "frame_time_window": {
+  "frames": 61,
+  "mean_ms": 54.96,
+  "median_ms": 54.72,
+  "p95_ms": 59.58,
+  "max_ms": 79.52,
+  "fps_mean": 18.2
+ },
+ "frame_time_last_600": {
+  "frames": 601,
+  "mean_ms": 50.15,
+  "median_ms": 48.57,
+  "p95_ms": 62.33,
+  "max_ms": 150.66,
+  "fps_mean": 19.9
+ },
+ "note": "Baseline = WineCX 24.0.7 + wined3d under Rosetta 2, 800x600 windowed, com_maxfps 60, with the tracing proxy active. Frame times measure the BASELINE under tracing, not the game's potential.",
+ "git": "d5c2d41",
+ "trace_stopped_early": false
+}
