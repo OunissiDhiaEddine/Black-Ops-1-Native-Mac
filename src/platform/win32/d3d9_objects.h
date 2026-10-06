@@ -22,12 +22,20 @@ enum : uint32_t {
     R_CHILDREN = COM_DATA + 44, // textures: guest array of level objects (surfaces / volumes), faces*levels entries
     R_SIZE = 48,
 };
-enum : uint32_t { K_SURFACE = 1, K_TEXTURE, K_CUBE, K_VOLUMETEX, K_VOLUME, K_VB, K_IB };
+enum : uint32_t {
+    K_SURFACE = 1, K_TEXTURE, K_CUBE, K_VOLUMETEX, K_VOLUME, K_VB, K_IB, // resources (stored in R_KIND)
+    K_VDECL, K_VSHADER, K_PSHADER, K_QUERY, K_STATEBLOCK, K_SWAPCHAIN, K_DEVICE, K_D3D, // the other interfaces (kept host-side only)
+};
 
 // Bytes of one mip level / slice of `fmt` and its row pitch (block rows for DXT formats).
 uint32_t d3d9_format_bytes(uint32_t fmt, uint32_t w, uint32_t h, uint32_t *pitch);
 // The level object (surface or volume) of a texture; 0 if out of range.
 uint32_t d3d9_tex_child(uint32_t tex, uint32_t face, uint32_t level);
+// Object lifetime (T-059): `fn(object, K_*)` runs when an object is really destroyed — its last
+// reference is gone AND the device no longer has it bound — just before its guest memory is freed and
+// its address may be handed out again. A texture's level objects are reported before the texture.
+using D3d9DestroyHook = void (*)(uint32_t obj, uint32_t kind);
+void d3d9_set_destroy_hook(D3d9DestroyHook fn);
 // Called once the interface vtables exist (first Direct3DCreate9): d3d9_live.cpp attaches its observers.
 void d3d9_live_attach();
 

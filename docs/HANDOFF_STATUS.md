@@ -44,7 +44,7 @@ src/runtime/guest_os.cpp     arena, heap, virtual memory, threads/TEB/TLS, impor
 src/platform/win32/*.cpp     kernel32, user32/gdi32, winsock, misc DLLs
    bink_ffmpeg.cpp           Bink video on FFmpeg's decoder (ADR-008); contract in RE_NOTES "Bink as the game uses it"
    steam_local.cpp           Steam: local offline stand-in (ADR-015), table re/steam_abi.csv
-   d3d9_null.cpp             guest-visible Direct3D objects, lock memory, capability answers
+   d3d9_null.cpp             guest-visible Direct3D objects and their lifetime, lock memory, capability answers
    d3d9_live.cpp             watches every Direct3D call and feeds it to the renderer as a call record
 src/rhi + src/metal          renderer: Direct3D 9 call records in, Metal out (same code the trace replay uses)
 src/shaders/sm3_msl.cpp      SM3 bytecode -> MSL
@@ -69,7 +69,8 @@ tests/boot/main.cpp          entry point of bo1_boot; tests/boot/steam_selftest.
    keys were verified. Mouse look (relative mode), key repeat, focus changes, gamepad (the XInput shim is a stub).
 4. **T-058 performance**: nothing is measured on the live path. The renderer re-uploads constants per draw
    and resolves hazards by flushing — it was written for correctness.
-5. **T-059 Direct3D object lifetime**: `d3d9_null.cpp` never frees objects; `Reset` is not forwarded.
+5. ~~T-059 Direct3D object lifetime~~ — done 2026-10-06: objects and their guest memory are freed when Direct3D would destroy them;
+   `Reset` is implemented and forwarded but has never been called by the game yet (display-mode changes: T-061).
 6. **`Com_Error` recovery** (ADR-012): the error path jumps to a point inside `Com_Init` (0x004069D5 / 0x00406A91)
    that the lifter does not know as an entry — any dropped error ends the process today.
 7. Saves, display modes, the rest of the campaign: untested.

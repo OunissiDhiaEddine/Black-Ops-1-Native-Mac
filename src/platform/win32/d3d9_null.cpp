@@ -4,11 +4,13 @@
 // state setters succeed. Nothing is drawn HERE: d3d9_live.cpp watches every call on these objects and
 // forwards it to the Metal renderer (T-055, ADR-004); with BO1_D3D=null this file alone is the old
 // "null device". Capability answers come from the Wine baseline (re/d3d9_adapter_probe.json) so that
-// the game takes the same start-up decisions. Objects are never freed yet (T-059).
+// the game takes the same start-up decisions. Objects die the way Direct3D's do ("object lifetime" below, T-059).
 #include <cstdlib>
 #include <map>
 #include <mutex>
 #include <string>
+#include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include "d3d9_objects.h"
@@ -39,23 +41,183 @@ struct ProbeMode {
 };
 #include "d3d9_probe.inc" // kProbeCaps[], kProbeIdentifier[], kProbeChecks[], kProbeModes[], kProbeDisplayMode[4], kProbeAdapterCount
 
-// ---- generic IUnknown + default method ---------------------------------------------------------------------
-static uint32_t m_ok(Cpu *, const uint32_t *) { return D3D_OK; }
-static uint32_t m_addref(Cpu *, const uint32_t *a) {
-    uint32_t n = rd32(a[0] + COM_REFS) + 1;
-    wr32(a[0] + COM_REFS, n);
+enum : uint32_t {
+    DEV_D3D = COM_DATA + 0, DEV_BACKBUFFER = COM_DATA + 4, DEV_DEPTH = COM_DATA + 8, DEV_SWAPCHAIN = COM_DATA + 12, DEV_RT0 = COM_DATA + 16, // RT0..RT3
+    DEV_DS = COM_DATA + 32, DEV_WIDTH = COM_DATA + 36, DEV_HEIGHT = COM_DATA + 40, DEV_FORMAT = COM_DATA + 44, DEV_HWND = COM_DATA + 48,
+    DEV_BEHAVIOR = COM_DATA + 52, DEV_FRAMES = COM_DATA + 56, DEV_SIZE = 64,
+};
+enum : uint32_t { SC_DEVICE = COM_DATA };
+static const uint32_t kTargetSlots[] = {DEV_RT0, DEV_RT0 + 4, DEV_RT0 + 8, DEV_RT0 + 12, DEV_DS}; // what the device draws to
+
+// ---- object lifetime (T-059) ---------------------------------------------------------------------------------
+// Reference counting follows Direct3D 9:
+//  * a texture's level objects (surfaces, volumes) have no count of their own: AddRef / Release on them count
+//    on the texture, and they live exactly as long as it does;
+//  * the device holds what is bound to it (textures, stream sources, indices, shaders, vertex declaration,
+//    render targets, depth-stencil): an object whose last reference the game drops while it is still bound
+//    stays alive until it is unbound;
+//  * the back buffer, the automatic depth-stencil surface and the swap chain belong to the device.
+// When an object dies, its guest memory (the object, its lock memory, a texture's level table and level
+// objects) goes back to the guest heap and the destroy hook tells the renderer: object ids are guest
+// addresses, and the heap hands them out again.
+struct ObjInfo {
+    uint8_t kind;  // K_*
+    bool implicit; // owned by the device: Release never destroys it
+};
+static std::recursive_mutex g_obj_mu;
+static std::unordered_map<uint32_t, ObjInfo> g_objs; // every live object
+static std::unordered_set<uint32_t> g_unreferenced;  // reference count 0, kept alive by a device binding
+static D3d9DestroyHook g_destroy_hook = nullptr;
+static uint32_t g_dev = 0; // the device whose bindings are tracked (the game has one at a time)
+static struct Bindings {
+    uint32_t tex[21]; // stages 0-15, D3DDMAPSAMPLER, D3DVERTEXTEXTURESAMPLER0-3
+    uint32_t stream[16], ib, vs, ps, decl;
+} g_bind;
+static struct {
+    uint64_t created, destroyed, lock_bytes;
+    uint64_t outlived; // objects that a binding kept alive past their last reference
+} g_stats;
+
+void d3d9_set_destroy_hook(D3d9DestroyHook fn) { g_destroy_hook = fn; }
+
+static uint32_t new_object(uint32_t vtable, uint32_t extra, uint32_t kind, bool implicit = false) {
+    uint32_t o = com_new(vtable, extra);
+    std::lock_guard<std::recursive_mutex> lk(g_obj_mu);
+    g_objs[o] = {(uint8_t)kind, implicit};
+    g_stats.created++;
+    return o;
+}
+static uint32_t kind_of(uint32_t o) { // 0: not a live object
+    auto it = g_objs.find(o);
+    return it == g_objs.end() ? 0 : it->second.kind;
+}
+static bool is_resource(uint32_t kind) { return kind >= K_SURFACE && kind <= K_IB; }
+// The object whose reference count `o` shares.
+static uint32_t counted(uint32_t o, uint32_t kind) {
+    if ((kind == K_SURFACE || kind == K_VOLUME) && rd32(o + R_PARENT)) return rd32(o + R_PARENT);
+    return o;
+}
+static void stale(const char *what, uint32_t o) { // the game used an object after its destruction
+    static int shown = 0;
+    if (shown < 20 && ++shown) log("d3d9(null): %s on %08x, which is not a live object (ignored)", what, o);
+}
+static void free_backing(uint32_t o) {
+    uint32_t m = rd32(o + R_MEM);
+    if (!m) return;
+    g_stats.lock_bytes -= heap_size(m);
+    heap_free(m);
+    wr32(o + R_MEM, 0);
+}
+static bool is_bound(uint32_t o) {
+    for (uint32_t t : g_bind.tex)
+        if (t == o) return true;
+    for (uint32_t b : g_bind.stream)
+        if (b == o) return true;
+    if (g_bind.ib == o || g_bind.vs == o || g_bind.ps == o || g_bind.decl == o) return true;
+    if (g_dev)
+        for (uint32_t off : kTargetSlots) {
+            uint32_t s = rd32(g_dev + off); // a bound level keeps its texture
+            if (s && (s == o || counted(s, kind_of(s)) == o)) return true;
+        }
+    return false;
+}
+// One object: tell the renderer, give back its memory.
+static void forget(uint32_t o, uint32_t kind) {
+    if (g_destroy_hook) g_destroy_hook(o, kind);
+    if (is_resource(kind)) free_backing(o);
+    g_objs.erase(o);
+    g_unreferenced.erase(o);
+    g_stats.destroyed++;
+    heap_free(o);
+}
+static void destroy_object(uint32_t o) {
+    uint32_t kind = kind_of(o);
+    if (kind == K_TEXTURE || kind == K_CUBE || kind == K_VOLUMETEX)
+        if (uint32_t arr = rd32(o + R_CHILDREN)) {
+            for (uint32_t i = 0, n = rd32(o + R_LEVELS) * 6; i < n; i++)
+                if (uint32_t c = rd32(arr + 4 * i)) forget(c, kind_of(c));
+            heap_free(arr);
+        }
+    forget(o, kind);
+}
+static void destroy_device(uint32_t dev);
+static uint32_t add_ref(uint32_t o) {
+    std::lock_guard<std::recursive_mutex> lk(g_obj_mu);
+    uint32_t kind = kind_of(o);
+    if (!kind) return stale("AddRef", o), 1;
+    uint32_t t = counted(o, kind), n = rd32(t + COM_REFS) + 1;
+    wr32(t + COM_REFS, n);
     return n;
 }
-static uint32_t m_release(Cpu *, const uint32_t *a) {
-    uint32_t n = rd32(a[0] + COM_REFS);
-    if (n) n--;
-    wr32(a[0] + COM_REFS, n);
-    return n; // objects are never freed in the null device (their memory is small; buffers stay valid)
+static uint32_t release(uint32_t o) {
+    std::lock_guard<std::recursive_mutex> lk(g_obj_mu);
+    uint32_t kind = kind_of(o);
+    if (!kind) return stale("Release", o), 0;
+    uint32_t t = counted(o, kind), n = rd32(t + COM_REFS);
+    if (!n) return 0; // nothing left to drop (device-owned, or only a binding keeps it)
+    wr32(t + COM_REFS, --n);
+    if (n) return n;
+    ObjInfo info = g_objs[t];
+    if (info.implicit) return 0;
+    if (info.kind == K_DEVICE) destroy_device(t);
+    else if (is_bound(t)) g_unreferenced.insert(t), g_stats.outlived++;
+    else destroy_object(t);
+    return 0;
 }
+// `o` left a binding slot: if only the binding kept it alive, it goes now.
+static void unbound(uint32_t o) {
+    if (!o || g_unreferenced.empty()) return;
+    uint32_t t = counted(o, kind_of(o));
+    auto it = g_unreferenced.find(t);
+    if (it == g_unreferenced.end()) return;
+    if (rd32(t + COM_REFS)) g_unreferenced.erase(it); // referenced again meanwhile (Get*)
+    else if (!is_bound(t)) destroy_object(t);
+}
+static void bind(uint32_t &slot, uint32_t o) {
+    std::lock_guard<std::recursive_mutex> lk(g_obj_mu);
+    uint32_t old = slot;
+    slot = o;
+    if (old != o) unbound(old);
+}
+static void bind_guest(uint32_t slot_addr, uint32_t o) { // render targets / depth-stencil: the slot is a device field
+    std::lock_guard<std::recursive_mutex> lk(g_obj_mu);
+    uint32_t old = rd32(slot_addr);
+    wr32(slot_addr, o);
+    if (old != o) unbound(old);
+}
+// Everything the device has bound is let go (Reset, destruction of the device).
+static void release_bindings(uint32_t dev) {
+    std::vector<uint32_t> was;
+    for (uint32_t t : g_bind.tex) was.push_back(t);
+    for (uint32_t b : g_bind.stream) was.push_back(b);
+    was.insert(was.end(), {g_bind.ib, g_bind.vs, g_bind.ps, g_bind.decl});
+    g_bind = {};
+    for (uint32_t off : kTargetSlots) {
+        was.push_back(rd32(dev + off));
+        wr32(dev + off, 0);
+    }
+    for (uint32_t o : was) unbound(o);
+}
+static void destroy_device(uint32_t dev) {
+    release_bindings(dev);
+    for (uint32_t off : {(uint32_t)DEV_BACKBUFFER, (uint32_t)DEV_DEPTH, (uint32_t)DEV_SWAPCHAIN})
+        if (uint32_t o = rd32(dev + off)) forget(o, kind_of(o));
+    uint32_t d3d = rd32(dev + DEV_D3D);
+    forget(dev, K_DEVICE);
+    if (g_dev == dev) g_dev = 0;
+    log("d3d9(null): device %08x destroyed; %zu objects still alive (%llu created, %llu destroyed)", dev, g_objs.size(),
+        (unsigned long long)g_stats.created, (unsigned long long)g_stats.destroyed);
+    if (d3d) release(d3d); // the device held its IDirect3D9
+}
+
+// ---- generic IUnknown + default method ---------------------------------------------------------------------
+static uint32_t m_ok(Cpu *, const uint32_t *) { return D3D_OK; }
+static uint32_t m_addref(Cpu *, const uint32_t *a) { return add_ref(a[0]); }
+static uint32_t m_release(Cpu *, const uint32_t *a) { return release(a[0]); }
 static uint32_t m_query_interface(Cpu *, const uint32_t *a) {
     if (!a[2]) return 0x80004003u; // E_POINTER
     wr32(a[2], a[0]);
-    wr32(a[0] + COM_REFS, rd32(a[0] + COM_REFS) + 1);
+    add_ref(a[0]);
     return D3D_OK;
 }
 
@@ -101,8 +263,8 @@ uint32_t d3d9_format_bytes(uint32_t fmt, uint32_t w, uint32_t h, uint32_t *pitch
 
 static uint32_t vt(const char *iface);
 static uint32_t new_resource(const char *iface, uint32_t kind, uint32_t fmt, uint32_t usage, uint32_t pool, uint32_t w, uint32_t h, uint32_t d,
-                             uint32_t levels) {
-    uint32_t o = com_new(vt(iface), R_SIZE);
+                             uint32_t levels, bool implicit = false) {
+    uint32_t o = new_object(vt(iface), R_SIZE, kind, implicit);
     wr32(o + R_KIND, kind);
     wr32(o + R_FORMAT, fmt);
     wr32(o + R_USAGE, usage);
@@ -118,6 +280,8 @@ static uint32_t backing(uint32_t o, uint32_t bytes) {
     if (!m) {
         m = heap_alloc(bytes ? bytes : 16, true);
         wr32(o + R_MEM, m);
+        std::lock_guard<std::recursive_mutex> lk(g_obj_mu);
+        g_stats.lock_bytes += bytes ? bytes : 16;
     }
     return m;
 }
@@ -164,7 +328,7 @@ static uint32_t surf_get_container(Cpu *, const uint32_t *a) {
     uint32_t p = rd32(a[0] + R_PARENT);
     if (!p) return E_NOINTERFACE;
     wr32(a[2], p);
-    wr32(p + COM_REFS, rd32(p + COM_REFS) + 1);
+    add_ref(p);
     return D3D_OK;
 }
 static uint32_t vol_get_desc(Cpu *, const uint32_t *a) {
@@ -193,6 +357,9 @@ static uint32_t vol_lock_box(Cpu *, const uint32_t *a) { return vol_lock(a[0], a
 uint32_t d3d9_tex_child(uint32_t tex, uint32_t face, uint32_t level) {
     uint32_t levels = rd32(tex + R_LEVELS), kind = rd32(tex + R_KIND);
     if (level >= levels) return 0;
+    if (uint32_t have = rd32(tex + R_CHILDREN)) // the usual case, without the lock: d3d9_live.cpp only asks for levels that exist
+        if (uint32_t c = rd32(have + 4 * (face * levels + level))) return c;
+    std::lock_guard<std::recursive_mutex> lk(g_obj_mu);
     uint32_t arr = rd32(tex + R_CHILDREN);
     if (!arr) {
         arr = heap_alloc(4 * levels * 6, true);
@@ -233,7 +400,7 @@ static uint32_t tex_get_level_desc(Cpu *cpu, const uint32_t *a) {
 static uint32_t tex_get_surface_level(Cpu *, const uint32_t *a) { // (this, Level, ppSurface)
     uint32_t c = d3d9_tex_child(a[0], 0, a[1]);
     if (!c) return D3DERR_INVALIDCALL;
-    wr32(c + COM_REFS, rd32(c + COM_REFS) + 1);
+    add_ref(c);
     wr32(a[2], c);
     return D3D_OK;
 }
@@ -244,7 +411,7 @@ static uint32_t tex_lock_rect(Cpu *, const uint32_t *a) { // (this, Level, pLock
 static uint32_t cube_get_surface(Cpu *, const uint32_t *a) { // (this, FaceType, Level, ppSurface)
     uint32_t c = a[1] < 6 ? d3d9_tex_child(a[0], a[1], a[2]) : 0;
     if (!c) return D3DERR_INVALIDCALL;
-    wr32(c + COM_REFS, rd32(c + COM_REFS) + 1);
+    add_ref(c);
     wr32(a[3], c);
     return D3D_OK;
 }
@@ -255,7 +422,7 @@ static uint32_t cube_lock_rect(Cpu *, const uint32_t *a) { // (this, FaceType, L
 static uint32_t voltex_get_volume(Cpu *, const uint32_t *a) { // (this, Level, ppVolume)
     uint32_t c = d3d9_tex_child(a[0], 0, a[1]);
     if (!c) return D3DERR_INVALIDCALL;
-    wr32(c + COM_REFS, rd32(c + COM_REFS) + 1);
+    add_ref(c);
     wr32(a[2], c);
     return D3D_OK;
 }
@@ -300,14 +467,8 @@ static uint32_t query_get_data(Cpu *, const uint32_t *a) { // (this, pData, dwSi
 }
 
 // ---- device -------------------------------------------------------------------------------------------------------------
-enum : uint32_t {
-    DEV_D3D = COM_DATA + 0, DEV_BACKBUFFER = COM_DATA + 4, DEV_DEPTH = COM_DATA + 8, DEV_SWAPCHAIN = COM_DATA + 12, DEV_RT0 = COM_DATA + 16, // RT0..RT3
-    DEV_DS = COM_DATA + 32, DEV_WIDTH = COM_DATA + 36, DEV_HEIGHT = COM_DATA + 40, DEV_FORMAT = COM_DATA + 44, DEV_HWND = COM_DATA + 48,
-    DEV_BEHAVIOR = COM_DATA + 52, DEV_FRAMES = COM_DATA + 56, DEV_SIZE = 64,
-};
-enum : uint32_t { SC_DEVICE = COM_DATA };
 static void out_obj(uint32_t pp, uint32_t o) {
-    if (o) wr32(o + COM_REFS, rd32(o + COM_REFS) + 1);
+    if (o) add_ref(o);
     wr32(pp, o);
 }
 
@@ -336,7 +497,13 @@ static uint32_t dev_get_back_buffer(Cpu *, const uint32_t *a) { // (this, iSwapC
 static uint32_t dev_present(Cpu *, const uint32_t *a) {
     uint32_t n = rd32(a[0] + DEV_FRAMES) + 1;
     wr32(a[0] + DEV_FRAMES, n);
-    if (g_verbose && (n <= 3 || n % 500 == 0)) log("d3d9(null): frame %u presented", n);
+    if (g_verbose && (n <= 3 || n % 500 == 0)) {
+        std::lock_guard<std::recursive_mutex> lk(g_obj_mu);
+        log("d3d9(null): frame %u presented; objects: %zu alive, %llu created, %llu destroyed (%llu while still bound, %zu of them waiting), "
+            "%.1f MiB lock memory",
+            n, g_objs.size(), (unsigned long long)g_stats.created, (unsigned long long)g_stats.destroyed, (unsigned long long)g_stats.outlived,
+            g_unreferenced.size(), g_stats.lock_bytes / 1048576.0);
+    }
     return D3D_OK;
 }
 static uint32_t dev_create_texture(Cpu *, const uint32_t *a) { // (this, Width, Height, Levels, Usage, Format, Pool, ppTexture, pSharedHandle)
@@ -375,17 +542,17 @@ static uint32_t dev_create_offscreen_surface(Cpu *, const uint32_t *a) { // (thi
     wr32(a[5], new_resource("IDirect3DSurface9", K_SURFACE, a[3], 0, a[4], a[1], a[2], 1, 1));
     return D3D_OK;
 }
-static uint32_t dev_create_opaque(const char *iface, uint32_t pp) {
-    wr32(pp, com_new(vt(iface), 8));
+static uint32_t dev_create_opaque(const char *iface, uint32_t kind, uint32_t pp) {
+    wr32(pp, new_object(vt(iface), 8, kind));
     return D3D_OK;
 }
-static uint32_t dev_create_vertex_declaration(Cpu *, const uint32_t *a) { return dev_create_opaque("IDirect3DVertexDeclaration9", a[2]); }
-static uint32_t dev_create_vertex_shader(Cpu *, const uint32_t *a) { return dev_create_opaque("IDirect3DVertexShader9", a[2]); }
-static uint32_t dev_create_pixel_shader(Cpu *, const uint32_t *a) { return dev_create_opaque("IDirect3DPixelShader9", a[2]); }
-static uint32_t dev_create_state_block(Cpu *, const uint32_t *a) { return dev_create_opaque("IDirect3DStateBlock9", a[2]); }
+static uint32_t dev_create_vertex_declaration(Cpu *, const uint32_t *a) { return dev_create_opaque("IDirect3DVertexDeclaration9", K_VDECL, a[2]); }
+static uint32_t dev_create_vertex_shader(Cpu *, const uint32_t *a) { return dev_create_opaque("IDirect3DVertexShader9", K_VSHADER, a[2]); }
+static uint32_t dev_create_pixel_shader(Cpu *, const uint32_t *a) { return dev_create_opaque("IDirect3DPixelShader9", K_PSHADER, a[2]); }
+static uint32_t dev_create_state_block(Cpu *, const uint32_t *a) { return dev_create_opaque("IDirect3DStateBlock9", K_STATEBLOCK, a[2]); }
 static uint32_t dev_create_query(Cpu *, const uint32_t *a) { // (this, Type, ppQuery) — ppQuery may be NULL (support check)
     if (!a[2]) return D3D_OK;
-    uint32_t q = com_new(vt("IDirect3DQuery9"), 8);
+    uint32_t q = new_object(vt("IDirect3DQuery9"), 8, K_QUERY);
     wr32(q + Q_TYPE, a[1]);
     wr32(a[2], q);
     return D3D_OK;
@@ -396,7 +563,7 @@ static uint32_t dev_get_render_target(Cpu *, const uint32_t *a) { // (this, Inde
     return out_obj(a[2], s), D3D_OK;
 }
 static uint32_t dev_set_render_target(Cpu *, const uint32_t *a) {
-    if (a[1] < 4) wr32(a[0] + DEV_RT0 + 4 * a[1], a[2]);
+    if (a[1] < 4) bind_guest(a[0] + DEV_RT0 + 4 * a[1], a[2]);
     return D3D_OK;
 }
 static uint32_t dev_get_depth_stencil(Cpu *, const uint32_t *a) {
@@ -405,7 +572,57 @@ static uint32_t dev_get_depth_stencil(Cpu *, const uint32_t *a) {
     return out_obj(a[1], s), D3D_OK;
 }
 static uint32_t dev_set_depth_stencil(Cpu *, const uint32_t *a) {
-    wr32(a[0] + DEV_DS, a[1]);
+    bind_guest(a[0] + DEV_DS, a[1]);
+    return D3D_OK;
+}
+// The other bindings exist only to keep bound objects alive (see "object lifetime").
+static uint32_t dev_set_texture(Cpu *, const uint32_t *a) { // (this, Stage, pTexture)
+    uint32_t s = a[1] < 16 ? a[1] : a[1] >= 256 && a[1] <= 260 ? a[1] - 240 : ~0u;
+    if (s < 21) bind(g_bind.tex[s], a[2]);
+    return D3D_OK;
+}
+static uint32_t dev_set_stream_source(Cpu *, const uint32_t *a) { // (this, StreamNumber, pStreamData, OffsetInBytes, Stride)
+    if (a[1] < 16) bind(g_bind.stream[a[1]], a[2]);
+    return D3D_OK;
+}
+static uint32_t dev_set_indices(Cpu *, const uint32_t *a) { return bind(g_bind.ib, a[1]), D3D_OK; }
+static uint32_t dev_set_vertex_declaration(Cpu *, const uint32_t *a) { return bind(g_bind.decl, a[1]), D3D_OK; }
+static uint32_t dev_set_vertex_shader(Cpu *, const uint32_t *a) { return bind(g_bind.vs, a[1]), D3D_OK; }
+static uint32_t dev_set_pixel_shader(Cpu *, const uint32_t *a) { return bind(g_bind.ps, a[1]), D3D_OK; }
+
+// Back buffer and automatic depth-stencil as D3DPRESENT_PARAMETERS ask for them (CreateDevice, Reset); they
+// become the current targets.
+// D3DPRESENT_PARAMETERS: BackBufferWidth, Height, Format, Count, MultiSampleType, Quality, SwapEffect, hDeviceWindow,
+//                        Windowed, EnableAutoDepthStencil, AutoDepthStencilFormat, Flags, RefreshRate, PresentationInterval
+static void apply_present_parameters(uint32_t dev, uint32_t pp) {
+    uint32_t w = rd32(pp), h = rd32(pp + 4), fmt = rd32(pp + 8);
+    if (!w || !h) w = 800, h = 600; // windowed default: client area (the headless windows are bookkeeping only)
+    if (!fmt) fmt = kProbeDisplayMode[3];
+    if (!rd32(pp + 12)) wr32(pp + 12, 1);
+    wr32(pp, w), wr32(pp + 4, h), wr32(pp + 8, fmt);
+    wr32(dev + DEV_WIDTH, w), wr32(dev + DEV_HEIGHT, h), wr32(dev + DEV_FORMAT, fmt);
+    auto implicit_surface = [&](uint32_t field, uint32_t format, uint32_t usage) {
+        uint32_t s = rd32(dev + field);
+        if (!s) {
+            s = new_resource("IDirect3DSurface9", K_SURFACE, format, usage, 0, w, h, 1, 1, true);
+            wr32(dev + field, s);
+        } else { // Reset: same object, new size
+            free_backing(s);
+            wr32(s + R_FORMAT, format), wr32(s + R_WIDTH, w), wr32(s + R_HEIGHT, h);
+        }
+        return s;
+    };
+    wr32(dev + DEV_RT0, implicit_surface(DEV_BACKBUFFER, fmt, 1 /* RENDERTARGET */));
+    wr32(dev + DEV_DS, rd32(pp + 36) ? implicit_surface(DEV_DEPTH, rd32(pp + 40), 2 /* DEPTHSTENCIL */) : 0);
+}
+// Reset: every binding is dropped, the implicit surfaces take the new size. (Direct3D refuses a Reset while
+// D3DPOOL_DEFAULT resources exist; the game has to release them first either way, so this one always succeeds.)
+static uint32_t dev_reset(Cpu *, const uint32_t *a) { // (this, pPresentationParameters)
+    std::lock_guard<std::recursive_mutex> lk(g_obj_mu);
+    release_bindings(a[0]);
+    apply_present_parameters(a[0], a[1]);
+    log("d3d9(null): Reset %ux%u format %u; objects: %zu alive, %.1f MiB lock memory", rd32(a[0] + DEV_WIDTH), rd32(a[0] + DEV_HEIGHT),
+        rd32(a[0] + DEV_FORMAT), g_objs.size(), g_stats.lock_bytes / 1048576.0);
     return D3D_OK;
 }
 static uint32_t sc_get_back_buffer(Cpu *, const uint32_t *a) { // (this, iBackBuffer, Type, ppBackBuffer)
@@ -468,32 +685,22 @@ static uint32_t d3d_check_format_conversion(Cpu *, const uint32_t *a) { return p
 
 static uint32_t d3d_create_device(Cpu *, const uint32_t *a) {
     // (this, Adapter, DeviceType, hFocusWindow, BehaviorFlags, pPresentationParameters, ppReturnedDeviceInterface)
-    // D3DPRESENT_PARAMETERS: BackBufferWidth, Height, Format, Count, MultiSampleType, Quality, SwapEffect, hDeviceWindow,
-    //                        Windowed, EnableAutoDepthStencil, AutoDepthStencilFormat, Flags, RefreshRate, PresentationInterval
-    uint32_t pp = a[5];
-    uint32_t w = rd32(pp), h = rd32(pp + 4), fmt = rd32(pp + 8);
-    if (!w || !h) w = 800, h = 600; // windowed default: client area (the headless windows are bookkeeping only)
-    if (!fmt) fmt = kProbeDisplayMode[3];
-    if (!rd32(pp + 12)) wr32(pp + 12, 1);
-    wr32(pp, w), wr32(pp + 4, h), wr32(pp + 8, fmt);
-    uint32_t dev = com_new(vt("IDirect3DDevice9"), DEV_SIZE);
+    std::lock_guard<std::recursive_mutex> lk(g_obj_mu);
+    if (g_dev) log("d3d9(null): CreateDevice while device %08x exists: bindings are tracked for the new one only", g_dev);
+    uint32_t dev = new_object(vt("IDirect3DDevice9"), DEV_SIZE, K_DEVICE);
     wr32(dev + DEV_D3D, a[0]);
-    wr32(dev + DEV_WIDTH, w), wr32(dev + DEV_HEIGHT, h), wr32(dev + DEV_FORMAT, fmt);
+    add_ref(a[0]); // the device holds its IDirect3D9
     wr32(dev + DEV_HWND, a[3]);
     wr32(dev + DEV_BEHAVIOR, a[4]);
-    uint32_t bb = new_resource("IDirect3DSurface9", K_SURFACE, fmt, 1, 0, w, h, 1, 1);
-    wr32(dev + DEV_BACKBUFFER, bb);
-    wr32(dev + DEV_RT0, bb);
-    if (rd32(pp + 36)) { // EnableAutoDepthStencil
-        uint32_t ds = new_resource("IDirect3DSurface9", K_SURFACE, rd32(pp + 40), 2, 0, w, h, 1, 1);
-        wr32(dev + DEV_DEPTH, ds);
-        wr32(dev + DEV_DS, ds);
-    }
-    uint32_t sc = com_new(vt("IDirect3DSwapChain9"), 8);
+    apply_present_parameters(dev, a[5]);
+    uint32_t sc = new_object(vt("IDirect3DSwapChain9"), 8, K_SWAPCHAIN, true);
     wr32(sc + SC_DEVICE, dev);
     wr32(dev + DEV_SWAPCHAIN, sc);
+    g_dev = dev;
+    g_bind = {};
     wr32(a[6], dev);
-    log("d3d9(null): CreateDevice %ux%u format %u behavior %#x -> %08x", w, h, fmt, a[4], dev);
+    log("d3d9(null): CreateDevice %ux%u format %u behavior %#x -> %08x", rd32(dev + DEV_WIDTH), rd32(dev + DEV_HEIGHT), rd32(dev + DEV_FORMAT), a[4],
+        dev);
     return D3D_OK;
 }
 
@@ -515,14 +722,17 @@ static uint32_t vt(const char *iface) {
          {{"GetDirect3D", dev_get_direct3d}, {"GetDeviceCaps", dev_get_caps}, {"GetDisplayMode", dev_get_display_mode},
           {"GetCreationParameters", dev_get_creation_parameters}, {"GetAvailableTextureMem", dev_get_available_texture_mem},
           {"GetSwapChain", dev_get_swap_chain}, {"GetNumberOfSwapChains", dev_get_number_of_swap_chains}, {"GetBackBuffer", dev_get_back_buffer},
-          {"Present", dev_present}, {"CreateTexture", dev_create_texture}, {"CreateVolumeTexture", dev_create_volume_texture},
+          {"Reset", dev_reset}, {"Present", dev_present}, {"CreateTexture", dev_create_texture}, {"CreateVolumeTexture", dev_create_volume_texture},
           {"CreateCubeTexture", dev_create_cube_texture}, {"CreateVertexBuffer", dev_create_vertex_buffer},
           {"CreateIndexBuffer", dev_create_index_buffer}, {"CreateRenderTarget", dev_create_render_target},
           {"CreateDepthStencilSurface", dev_create_depth_stencil}, {"CreateOffscreenPlainSurface", dev_create_offscreen_surface},
           {"CreateVertexDeclaration", dev_create_vertex_declaration}, {"CreateVertexShader", dev_create_vertex_shader},
           {"CreatePixelShader", dev_create_pixel_shader}, {"CreateStateBlock", dev_create_state_block}, {"CreateQuery", dev_create_query},
           {"GetRenderTarget", dev_get_render_target}, {"SetRenderTarget", dev_set_render_target},
-          {"GetDepthStencilSurface", dev_get_depth_stencil}, {"SetDepthStencilSurface", dev_set_depth_stencil}}},
+          {"GetDepthStencilSurface", dev_get_depth_stencil}, {"SetDepthStencilSurface", dev_set_depth_stencil},
+          {"SetTexture", dev_set_texture}, {"SetStreamSource", dev_set_stream_source}, {"SetIndices", dev_set_indices},
+          {"SetVertexDeclaration", dev_set_vertex_declaration}, {"SetVertexShader", dev_set_vertex_shader},
+          {"SetPixelShader", dev_set_pixel_shader}}},
         {"IDirect3DSwapChain9", {{"Present", sc_present}, {"GetBackBuffer", sc_get_back_buffer}, {"GetDevice", sc_get_device}}},
         {"IDirect3DSurface9", {{"GetDesc", surf_get_desc}, {"LockRect", surf_lock_rect}, {"GetContainer", surf_get_container}, {"GetType", tex_get_type}}},
         {"IDirect3DVolume9", {{"GetDesc", vol_get_desc}, {"LockBox", vol_lock_box}}},
@@ -546,7 +756,7 @@ static uint32_t vt(const char *iface) {
 }
 
 SHIM(d3d9, Direct3DCreate9, 1) {
-    uint32_t o = com_new(vt("IDirect3D9"), 8);
+    uint32_t o = new_object(vt("IDirect3D9"), 8, K_D3D);
     // build every interface table now, so that the renderer layer can watch them from the first call on
     for (const char *i : {"IDirect3DDevice9", "IDirect3DSwapChain9", "IDirect3DSurface9", "IDirect3DVolume9", "IDirect3DTexture9", "IDirect3DCubeTexture9",
                           "IDirect3DVolumeTexture9", "IDirect3DVertexBuffer9", "IDirect3DIndexBuffer9", "IDirect3DQuery9", "IDirect3DVertexDeclaration9",

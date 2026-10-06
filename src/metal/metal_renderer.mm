@@ -207,8 +207,8 @@ public:
                     surfaces_.erase(r.arg(0));
                 }
                 break;
-            case IFACE_VSHADER: case IFACE_PSHADER: if (r.slot == 2) released(r, shaders_); break;
-            case IFACE_VDECL: if (r.slot == 2) released(r, decls_); break;
+            case IFACE_VSHADER: case IFACE_PSHADER: if (r.slot == 2 && released(r, shaders_)) drop_pipelines(r.arg(0)); break;
+            case IFACE_VDECL: if (r.slot == 2 && released(r, decls_)) drop_pipelines(r.arg(0)); break;
             default: break;
             }
         }
@@ -256,8 +256,18 @@ private:
         problem(std::string("draw reads an unrecorded ") + kind);
         unrecorded_ids_[kind][id].insert(frame_);
     }
-    template <class M> void released(const Record &r, M &map) {
-        if (r.has_result() && r.result == 0) map.erase(r.arg(0));
+    // Release that destroyed the object: forget it. Its id (the object's address) may come back as a new object.
+    template <class M> bool released(const Record &r, M &map) {
+        if (!r.has_result() || r.result != 0) return false;
+        map.erase(r.arg(0));
+        return true;
+    }
+    // Pipelines are cached under the ids of their shaders and vertex declaration: they go with any of the three.
+    void drop_pipelines(uint32_t id) {
+        auto it = pipeline_users_.find(id);
+        if (it == pipeline_users_.end()) return;
+        for (const std::string &key : it->second) pipelines_.erase(key);
+        pipeline_users_.erase(it);
     }
     static uint32_t out_id(const Record &r) {
         const Blob *b = r.blob(kOut);
@@ -348,6 +358,15 @@ private:
     void device_call(const Record &r) {
         switch (r.slot) {
         case 2: break; // device Release
+        case 16: // Reset: back buffer of the new size, default state and no bindings
+            if (r.has_result() && (r.result & 0x80000000u)) break;
+            flush(true);
+            create_device(r);
+            reset_state();
+            bound_tex_.fill(0);
+            streams_.fill({});
+            cur_vs_ = cur_ps_ = cur_decl_ = cur_ib_ = 0;
+            break;
         case 18: out_surface(r, kBackBufferTex, 0, 0); break;
         case 23: create_texture(out_id(r), MTLTextureType2D, r.arg(1), r.arg(2), 1, r.arg(3), r.arg(4), r.arg(5)); break;
         case 24: create_texture(out_id(r), MTLTextureType3D, r.arg(1), r.arg(2), r.arg(3), r.arg(4), r.arg(5), r.arg(6)); break;
@@ -1011,6 +1030,7 @@ private:
         id<MTLRenderPipelineState> p = [dev_ newRenderPipelineStateWithDescriptor:d error:&err];
         ns_pipeline_ += since(t0);
         if (!p) problem(std::string("pipeline: ") + (err ? [[err.localizedDescription componentsSeparatedByString:@"\n"][0] UTF8String] : "?"));
+        for (uint32_t id : {cur_vs_, cur_ps_, cur_decl_}) pipeline_users_[id].push_back(key);
         return pipelines_[key] = p;
     }
 
@@ -1297,6 +1317,7 @@ private:
     std::unordered_map<uint32_t, Shader> shaders_;
     std::unordered_map<uint32_t, std::vector<Elem>> decls_;
     std::unordered_map<std::string, id<MTLRenderPipelineState>> pipelines_;
+    std::unordered_map<uint32_t, std::vector<std::string>> pipeline_users_; // shader / declaration id -> keys in pipelines_
     std::unordered_map<std::string, id<MTLDepthStencilState>> depth_states_;
     std::unordered_map<std::string, id<MTLSamplerState>> samplers_;
     std::map<int, id<MTLTexture>> fallback_;

@@ -3,7 +3,8 @@
 // into the same call record the trace replay feeds the renderer (src/rhi/d3d9_call.h,
 // docs/TRACE_FORMAT.md) and handed to the Metal renderer right after it returned. The records are built
 // the way the tracing proxy builds them (tools/d3d9_proxy/proxy.cpp), so the renderer sees a live game
-// exactly as it sees a recorded one.
+// exactly as it sees a recorded one. One difference, on purpose: an object's Release reaches the renderer
+// when the object is really destroyed (on_destroy), not when the game drops its last reference.
 //
 //   BO1_D3D=null      keep the null device only (nothing is rendered; the old headless boot)
 //   BO1_D3D_DUMP=dir  write the back buffer of every 20th frame as PNG into dir
@@ -135,6 +136,7 @@ void observe(uint32_t tag, Cpu *, const uint32_t *a, int words, uint32_t result)
         break;
     case IFACE_DEVICE:
         switch (slot) {
+        case 16: rec.add(kPP, g_mem + a[1], 56), send = true; break; // Reset: D3DPRESENT_PARAMETERS
         case 17: present = send = true; break;                       // Present
         case 18: out(a[4]); break;                                   // GetBackBuffer
         case 23: out(a[7]); break;                                   // CreateTexture
@@ -173,25 +175,21 @@ void observe(uint32_t tag, Cpu *, const uint32_t *a, int words, uint32_t result)
         else if (slot == 5) out(a[3]);                               // GetBackBuffer
         break;
     case IFACE_TEXTURE:
-        if (slot == 2) send = true;
-        else if (slot == 18) out(a[2]);                              // GetSurfaceLevel(Level, pp)
+        if (slot == 18) out(a[2]);                                   // GetSurfaceLevel(Level, pp)
         else if (slot == 19 && ok) note_surface_lock(a[0], a[1], d3d9_tex_child(a[0], 0, a[1]), a[2], a[3], a[4], false);
         else if (slot == 20) send = finish_lock(rec, a[0], a[1]);
         break;
     case IFACE_CUBE:
-        if (slot == 2) send = true;
-        else if (slot == 18) out(a[3]);                              // GetCubeMapSurface(Face, Level, pp)
+        if (slot == 18) out(a[3]);                                   // GetCubeMapSurface(Face, Level, pp)
         else if (slot == 19 && ok) note_surface_lock(a[0], a[2] | (a[1] << 8), d3d9_tex_child(a[0], a[1], a[2]), a[3], a[4], a[5], false);
         else if (slot == 20) send = finish_lock(rec, a[0], a[2] | (a[1] << 8));
         break;
     case IFACE_VOLUME:
-        if (slot == 2) send = true;
-        else if (slot == 19 && ok) note_surface_lock(a[0], a[1], d3d9_tex_child(a[0], 0, a[1]), a[2], 0, a[4], true);
+        if (slot == 19 && ok) note_surface_lock(a[0], a[1], d3d9_tex_child(a[0], 0, a[1]), a[2], 0, a[4], true);
         else if (slot == 20) send = finish_lock(rec, a[0], a[1]);
         break;
     case IFACE_VB: case IFACE_IB:
-        if (slot == 2) send = true;
-        else if (slot == 11 && ok) {                                 // Lock(Offset, Size, ppData, Flags)
+        if (slot == 11 && ok) {                                      // Lock(Offset, Size, ppData, Flags)
             LockDesc d{};
             d.width = rd32(a[0] + R_WIDTH);
             d.format = iface == IFACE_IB ? rd32(a[0] + R_FORMAT) : 0;
@@ -203,18 +201,43 @@ void observe(uint32_t tag, Cpu *, const uint32_t *a, int words, uint32_t result)
         } else if (slot == 12) send = finish_lock(rec, a[0], 0);
         break;
     case IFACE_SURFACE:
-        if (slot == 2) send = true;
-        else if (slot == 13 && ok) note_surface_lock(a[0], 0, a[0], a[1], a[2], a[3], false);
+        if (slot == 13 && ok) note_surface_lock(a[0], 0, a[0], a[1], a[2], a[3], false);
         else if (slot == 14) send = finish_lock(rec, a[0], 0);
         break;
-    case IFACE_VSHADER: case IFACE_PSHADER: case IFACE_VDECL:
-        if (slot == 2) send = true;
-        break;
-    default: break;
+    default: break; // Release is not forwarded: see on_destroy
     }
     if (!send) return;
     g_renderer->call(rec.r, g_frame);
     if (present) g_renderer->end_frame(++g_frame);
+}
+
+// An object is gone for good (d3d9_null.cpp, "object lifetime"). The renderer is told with the record the
+// trace replay shows it for the same event, a Release that returned 0 — and only now: the game's own Release
+// calls are not forwarded, because an object the device still has bound outlives its last reference. After
+// this the object's address, which is its id, may be handed out again.
+void on_destroy(uint32_t obj, uint32_t kind) {
+    std::lock_guard<std::mutex> lk(g_mu);
+    std::erase_if(g_locks, [obj](const auto &kv) { return (uint32_t)kv.first == obj; });
+    unsigned iface;
+    switch (kind) {
+    case K_SURFACE: iface = IFACE_SURFACE; break;
+    case K_TEXTURE: iface = IFACE_TEXTURE; break;
+    case K_CUBE: iface = IFACE_CUBE; break;
+    case K_VOLUMETEX: iface = IFACE_VOLUME; break;
+    case K_VB: iface = IFACE_VB; break;
+    case K_IB: iface = IFACE_IB; break;
+    case K_VDECL: iface = IFACE_VDECL; break;
+    case K_VSHADER: iface = IFACE_VSHADER; break;
+    case K_PSHADER: iface = IFACE_PSHADER; break;
+    case K_DEVICE: iface = IFACE_DEVICE; break;
+    default: return; // the renderer keeps nothing for the others
+    }
+    if (!g_renderer) return;
+    Rec rec;
+    rec.words[0] = obj;
+    rec.r.iface = (uint8_t)iface, rec.r.slot = 2, rec.r.flags = 1, rec.r.result = 0;
+    rec.r.nwords = 1, rec.r.words = rec.words;
+    g_renderer->call(rec.r, g_frame);
 }
 
 } // namespace
@@ -232,6 +255,7 @@ void d3d9_live_attach() {
         {"IDirect3DVertexShader9", IFACE_VSHADER}, {"IDirect3DPixelShader9", IFACE_PSHADER}, {"IDirect3DVertexDeclaration9", IFACE_VDECL},
     };
     for (const auto &i : kIfaces) com_observe(i.name, i.id << 16, observe);
+    d3d9_set_destroy_hook(on_destroy);
 }
 
 } // namespace bo1
