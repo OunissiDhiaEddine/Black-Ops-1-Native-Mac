@@ -40,6 +40,10 @@ T = {1: "uint8_t", 2: "uint16_t", 4: "uint32_t"}
 ST = {1: "int8_t", 2: "int16_t", 4: "int32_t"}
 
 
+# instructions on which the differential tests cannot trust the reference emulator (tests/diff/gen_vectors.py)
+SPECIAL = {"fyl2x", "fprem", "fprem1", "fsin", "fcos", "fsincos", "fptan", "f2xm1", "cpuid", "rdtsc"}
+
+
 class Unsupported(Exception):
     pass
 
@@ -85,6 +89,7 @@ class Lifter:
                         self.funcs[a] = "extra_" + r["kind"]
                         self.extra.add(a)
         self.tables = {}                      # insn addr -> [targets]
+        self.special = defaultdict(list)      # mnemonic -> addresses, for SPECIAL
         self.inferred_tables = {}             # insn addr -> entries (tables Ghidra missed, see infer_table)
         self.locked_plain = Counter()         # LOCKed instructions emitted without atomicity
         with (EXP / "jumptables.csv").open() as f:
@@ -474,6 +479,8 @@ class Lifter:
             lines.append(f"L_{s:08x}: ;")
             for i in got:
                 info["insns"] += 1
+                if i.mnemonic in SPECIAL:
+                    self.special[i.mnemonic].append(i.address)
                 for o in i.operands:
                     if o.type == X.X86_OP_MEM and o.mem.segment == X.X86_REG_FS:
                         info["fs"] = True
@@ -593,6 +600,8 @@ def main() -> int:
     for stale in out.glob("lifted_*.c"):
         if stale.name not in written:
             stale.unlink()
+    if not args.only:
+        (out / "special_sites.json").write_text(json.dumps({k: sorted(set(v)) for k, v in L.special.items()}))
     (out / "lifted_meta.json").write_text(json.dumps({f"0x{a:08x}": meta[a] for a in ok}))
     total = len(todo)
     print(f"functions {total}: lifted {len(ok)} ({100.0 * len(ok) / max(total, 1):.1f}%), "

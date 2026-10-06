@@ -122,6 +122,15 @@ void imports_report(); // call statistics (BO1_IMPORT_STATS=1)
     } reg_##dll_##_##name_;                                                                        \
     static uint32_t shim_##dll_##_##name_([[maybe_unused]] Cpu *cpu, [[maybe_unused]] const uint32_t *a)
 
+// Same for exported names that are not C identifiers (binkw32's "_BinkOpen@8")
+#define SHIM_NAMED(dll_, ident_, export_, nargs_)                                                  \
+    static uint32_t shim_##dll_##_##ident_(Cpu *cpu, const uint32_t *a);                           \
+    static ::bo1::ShimDef def_##dll_##_##ident_ = {#dll_ ".dll", export_, nargs_, shim_##dll_##_##ident_, nullptr}; \
+    static const struct Reg_##dll_##_##ident_ {                                                    \
+        Reg_##dll_##_##ident_() { ::bo1::shim_register(&def_##dll_##_##ident_); }                  \
+    } reg_##dll_##_##ident_;                                                                       \
+    static uint32_t shim_##dll_##_##ident_([[maybe_unused]] Cpu *cpu, [[maybe_unused]] const uint32_t *a)
+
 // ---- misc ------------------------------------------------------------------------------------------------------
 std::string gstr(uint32_t a);                 // NUL-terminated guest string ("" for 0)
 std::u16string gwstr(uint32_t a);

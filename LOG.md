@@ -1,8 +1,8 @@
 # LOG
 
 ## STATE  (OVERWRITE this block at every checkpoint — it is the resume point)
-- **Date/time:** 2026-10-06 ~05:55
-- **Phase / task:** P4. T-040..T-042 DONE. **T-043 (whole call trees) and T-045 (boot runtime) in progress; T-024 (Steam DLL interpreter) designed, runtime hooks added.**
+- **Date/time:** 2026-10-06 ~06:10
+- **Phase / task:** P4. T-040..T-043 DONE (diff tests: 0 unexplained failures). **NOW: T-045 boot runtime (+ T-024 Steam DLL interpreter, code written, first run pending).** Next exact step = item (2) below.
 - **Last completed:** T-043 second pass (before the last fixes): 26,301 vectors over 13,825 functions, 26,259 pass, 37 fail in ~34 functions, all since diagnosed:
   FCOMI clears no OF/SF/AF (fixed); EFLAGS ID/AC for PUSHFD/POPFD (fixed); FNSAVE/FRSTOR/FNSTENV/FLDENV (added); flags flowing callee -> caller -> next callee (audit made interprocedural); host crash on accesses straddling 4 GiB (arena slack); CRT dispatch tables at odd offsets + direct calls to non-function labels (now found by `find_entries.py`: 4,344 extra entries); reference deviations dropped at generation (FYL2X x<=0, FPREM big quotient, trig of infinity, CPUID/RDTSC) or listed (`tests/diff/reference_deviations.json`: 0/0 sets ZE in QEMU, IE on hardware).
   A rerun at 01:03 was lost: one generator shard hung (>40 min) and the job hit its time limit -> `gen_vectors.py` now has per-vector limits (256 lazy pages, 100k writes) and a 20 s wall-clock watchdog, plus progress lines in `artifacts/lifted/vectors_N.log`.
@@ -190,3 +190,12 @@ Entry template:
 - Learned: A1 (flags dead across calls) holds for all but 9 functions / 3 call sites; all 430 LOCK-prefixed instructions are xadd/cmpxchg/cmpxchg8b; `CreateDevice` without FPU_PRESERVE -> render thread runs x87 at 24-bit precision on Windows (modelled, runtime must set it); arm64 clang needs `-ffp-contract=off`; the 8 unlifted functions are CRT crash handlers, 2 SSSE3 routines, fnsave/fnstenv users.
 - Problems / limits: diff tests cover leaf functions only so far (T-043 next); indirect calls, imports, threads untested until the boot runtime exists; agreement is with Unicorn, whose own FP emulation is imperfect (see deviations) — a real-CPU cross-check is still open (T-046).
 - Next: T-043 run, then T-045.
+
+### 2026-10-06 06:10 — T-043 — whole-call-tree differential tests: 0 unexplained failures
+- Did: `scripts/difftest.sh 100000 2 5 all` until clean. New since the T-042 entry: `tools/lifter/find_entries.py` (address-taken code -> `re/extra_entries.csv`, 4,344 entries incl. unaligned CRT tables and non-function call targets), interprocedural `flag_audit.py`, FCOMI flag semantics, EFLAGS ID/AC, x87 ZE/IE on division, FNSAVE/FRSTOR/FNSTENV/FLDENV, arena slack above 4 GiB, generator watchdog + exact-site hooks for inputs the reference gets wrong, "fp-range" and unaligned NaN classification, `tests/diff/reference_deviations.json`.
+- Evidence: `re/difftest_report_all.json` — 26,304 entries known, 25,990 lifted (1,876,842 instructions; the 314 that do not lift are junk candidates from the entry scan + the 8 known), 24,385 tried, 13,840 with vectors (the rest need imports / live state), **26,294 vectors: 26,275 pass, 1 approx, 6 NaN-only, 5 fp-range, 7 fail — all 9 failing functions explained, 0 unexplained**; 426,308 distinct instructions executed (23% of the lifted image).
+- Bugs found in MY code by this pass (all fixed): FCOMI/FUCOMI cleared OF/SF/AF; PUSHFD/POPFD lost EFLAGS.ID (the game's CPUID-presence test would have said "no CPUID"); flags returned by a callee and consumed by the NEXT callee were lost; host crash for accesses straddling 4 GiB; indirect/direct transfers to code that was not a known entry (CRT dispatch tables at odd addresses, local `call label` subroutines).
+- Reference/input artefacts (documented, not lifter bugs): QEMU FYL2X/FPREM/F2XM1/trig-of-infinity/0-over-0 behaviour, CPUID/RDTSC, random 80-bit operands, random "function pointers" that are return addresses.
+- Problems / limits: 43% of functions never produce a vector under random state (imports, pointers into live structures) — they get exercised only by really running (T-045); coverage of executed instructions is 23%.
+- Lost time: one run hung in a generator shard for >40 min (no per-vector limit) and one was 5x slow (thousands of byte-pattern hooks); both fixed in `gen_vectors.py`.
+- Next: T-045 (boot), with T-024 inside it.

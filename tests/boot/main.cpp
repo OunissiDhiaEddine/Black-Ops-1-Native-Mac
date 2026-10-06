@@ -21,6 +21,10 @@
 
 using namespace bo1;
 
+namespace bo1 {
+bool emu_module_attach(Cpu *cpu, const std::string &guest_path, const std::string &dll_name); // x86_module.cpp
+}
+
 extern "C" {
 extern const struct LiftedEntry {
     uint32_t va;
@@ -126,7 +130,13 @@ int main(int argc, char **argv) {
     signal(SIGALRM, on_alarm);
     if (seconds > 0) alarm((unsigned)seconds);
 
-    int rc = thread_run_main(im.stack_reserve, [&](Cpu *cpu) { guest_call(cpu, im.entry, {}); });
+    int rc = thread_run_main(im.stack_reserve, [&](Cpu *cpu) {
+        // DLL initialisers run before the entry point, like under the Windows loader. steam_api.dll is the
+        // one module that is interpreted instead of lifted or shimmed (ADR-010); BO1_NO_STEAM_DLL=1 skips it.
+        if (!getenv("BO1_NO_STEAM_DLL") && !emu_module_attach(cpu, "C:\\bo1\\steam_api.dll", "steam_api.dll"))
+            fprintf(stderr, "[bo1] steam_api.dll did not initialise\n");
+        guest_call(cpu, im.entry, {});
+    });
     fprintf(stderr, "[bo1] entry point returned (%d)\n", rc);
     imports_report();
     return rc;

@@ -87,6 +87,32 @@ SHIM(ole32, CLSIDFromString, 2) {
     return 0;
 }
 
+// ---- shlwapi / winsock start-up (imports of the emulated steam_api.dll) -----------------------------------
+SHIM(shlwapi, PathFileExistsW, 1) {
+    std::string narrow;
+    for (char16_t c : gwstr(a[0])) narrow.push_back(c < 256 ? (char)c : '?');
+    struct stat st;
+    bool ok = stat(host_path(narrow).c_str(), &st) == 0;
+    if (g_verbose) log("PathFileExistsW(\"%s\") -> %d", narrow.c_str(), ok);
+    if (!ok) last_error(cpu) = ERROR_FILE_NOT_FOUND;
+    return ok;
+}
+static uint32_t wsa_startup(uint32_t version, uint32_t data) {
+    memset(g_mem + data, 0, 400); // WSADATA
+    wr16(data, (uint16_t)version);
+    wr16(data + 2, 0x0202);
+    put_str(data + 4, 257, "WinSock 2.0 (bo1 runtime)");
+    return 0;
+}
+SHIM(ws2_32, WSAStartup, 2) { return wsa_startup(a[0], a[1]); }
+SHIM(wsock32, WSAStartup, 2) { return wsa_startup(a[0], a[1]); }
+SHIM(psapi, EnumProcessModules, 4) {
+    // (hProcess, lphModule, cb, lpcbNeeded): the executable only
+    if (a[2] >= 4) wr32(a[1], 0x00400000);
+    if (a[3]) wr32(a[3], 4);
+    return 1;
+}
+
 // ---- psapi / xinput / dsound ------------------------------------------------------------------------------
 SHIM(psapi, GetProcessMemoryInfo, 3) {
     memset(g_mem + a[1], 0, a[2] < 40 ? a[2] : 40);
@@ -98,5 +124,48 @@ SHIM(xinput1_3, XInputSetState, 2) { return 1167; }
 SHIM(xinput1_3, XInputGetCapabilities, 3) { return 1167; }
 SHIM(dsound, DirectSoundCreate8, 3) { return 0x88780078u; }        // DSERR_NODRIVER
 SHIM(dsound, DirectSoundCaptureCreate, 3) { return 0x88780078u; }
+
+} // namespace bo1
+
+namespace bo1 {
+
+// ---- binkw32: no video in the headless runtime -----------------------------------------------------------
+// BinkOpen fails, so the game skips the movie (ADR-008 replaces this with an FFmpeg-backed decoder in P5).
+SHIM_NAMED(binkw32, BinkOpen, "_BinkOpen@8", 2) {
+    if (g_verbose) log("BinkOpen(\"%s\") -> no video support in the headless runtime", a[0] > 0x10000 ? gstr(a[0]).c_str() : "?");
+    return 0;
+}
+SHIM_NAMED(binkw32, BinkClose, "_BinkClose@4", 1) { return 0; }
+SHIM_NAMED(binkw32, BinkGetError, "_BinkGetError@0", 0) {
+    static uint32_t msg = 0;
+    if (!msg) msg = heap_strdup("Bink video is not available in this runtime");
+    return msg;
+}
+SHIM_NAMED(binkw32, BinkSetSoundSystem, "_BinkSetSoundSystem@8", 2) { return 1; }
+SHIM_NAMED(binkw32, BinkOpenDirectSound, "_BinkOpenDirectSound@4", 1) { return 0; }
+SHIM_NAMED(binkw32, BinkSetMemory, "_BinkSetMemory@8", 2) { return 0; }
+SHIM_NAMED(binkw32, BinkSetIOSize, "_BinkSetIOSize@4", 1) { return 0; }
+SHIM_NAMED(binkw32, BinkSetSoundTrack, "_BinkSetSoundTrack@8", 2) { return 0; }
+SHIM_NAMED(binkw32, BinkSetVolume, "_BinkSetVolume@12", 3) { return 0; }
+SHIM_NAMED(binkw32, BinkPause, "_BinkPause@8", 2) { return 0; }
+SHIM_NAMED(binkw32, BinkWait, "_BinkWait@4", 1) { return 0; }
+SHIM_NAMED(binkw32, BinkDoFrame, "_BinkDoFrame@4", 1) { return 0; }
+SHIM_NAMED(binkw32, BinkNextFrame, "_BinkNextFrame@4", 1) { return 0; }
+SHIM_NAMED(binkw32, BinkShouldSkip, "_BinkShouldSkip@4", 1) { return 0; }
+SHIM_NAMED(binkw32, BinkGetRealtime, "_BinkGetRealtime@12", 3) { return 0; }
+SHIM_NAMED(binkw32, BinkControlBackgroundIO, "_BinkControlBackgroundIO@8", 2) { return 0; }
+SHIM_NAMED(binkw32, BinkRegisterFrameBuffers, "_BinkRegisterFrameBuffers@8", 2) { return 0; }
+SHIM_NAMED(binkw32, BinkGetFrameBuffersInfo, "_BinkGetFrameBuffersInfo@8", 2) { return 0; }
+
+// ---- ole32: object creation ---------------------------------------------------------------------------------
+SHIM(ole32, CoCreateInstance, 5) {
+    // (rclsid, pUnkOuter, dwClsContext, riid, ppv). XAudio2 2.7 is the only class the game creates
+    // (re/com_steam_usage.json); the FAudio-backed implementation is P5 work (ADR-009).
+    const uint8_t *g = g_mem + a[0];
+    log("CoCreateInstance({%02x%02x%02x%02x-%02x%02x-%02x%02x-...}) -> REGDB_E_CLASSNOTREG (no audio in the headless runtime)", g[3], g[2], g[1], g[0],
+        g[5], g[4], g[7], g[6]);
+    if (a[4]) wr32(a[4], 0);
+    return 0x80040154u;
+}
 
 } // namespace bo1

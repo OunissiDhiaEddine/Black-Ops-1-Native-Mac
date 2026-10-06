@@ -175,18 +175,18 @@ def main() -> int:
         if se & 0x7FFF == 0x7FFF and (mant << 1) & 0xFFFFFFFFFFFFFFFF == 0:
             deviates[0] = "reference deviates from a real x87: FSIN/FCOS/FSINCOS/FPTAN of infinity"
 
+    def on_f2xm1(u, addr, size, _):
+        deviates[0] = "reference deviates from a real x87: F2XM1 (QEMU computes pow(2, x) - 1 in double; -0 gives +0)"
+
     def on_env(u, addr, size, _):
         deviates[0] = "environment-dependent instruction (CPUID / RDTSC)"
 
-    special_sites = []
-    for pattern, cb in ((b"\xd9\xf1", on_fyl2x), (b"\xd9\xf8", on_fprem), (b"\xd9\xf5", on_fprem), (b"\x0f\xa2", on_env),
-                        (b"\xd9\xfe", on_trig), (b"\xd9\xff", on_trig), (b"\xd9\xfb", on_trig), (b"\xd9\xf2", on_trig),
-                        (b"\x0f\x31", on_env)):
-        for lo_, hi_ in code:
-            k = image.find(pattern, lo_ - base, hi_ - base)
-            while k >= 0:
-                special_sites.append((base + k, cb))        # fires only when executed as an instruction start
-                k = image.find(pattern, k + 1, hi_ - base)
+    # exact instruction addresses, written by the lifter (a hook per byte-pattern match made every
+    # instruction pay for thousands of hooks)
+    sites = json.loads((Path(args.meta).parent / "special_sites.json").read_text())
+    handlers = {"fyl2x": on_fyl2x, "fprem": on_fprem, "fprem1": on_fprem, "fsin": on_trig, "fcos": on_trig, "fsincos": on_trig,
+                "fptan": on_trig, "f2xm1": on_f2xm1, "cpuid": on_env, "rdtsc": on_env}
+    special_sites = [(a, handlers[m]) for m, addrs in sites.items() for a in addrs]
 
     def make_uc():
         """Fresh emulator. Rebuilt after every failed run: a faulting run can leave Unicorn with

@@ -1,8 +1,13 @@
 {
+ "0x008fb470": "x87 0/0 leaves FSW.IE set on a real x87 (and in the lifted code); QEMU sets ZE instead. The function returns with FNSTSW's value still in eax (not its result).",
  "0x00906220": "x87 0/0 leaves FSW.IE set on a real x87 (and in the lifted code); QEMU sets ZE instead. The function returns with FNSTSW's value still in eax (not its result).",
  "0x00907480": "x87 0/0 leaves FSW.IE set on a real x87 (and in the lifted code); QEMU sets ZE instead. The function returns with FNSTSW's value still in eax (not its result).",
  "0x00907e00": "x87 0/0 leaves FSW.IE set on a real x87 (and in the lifted code); QEMU sets ZE instead. The function returns with FNSTSW's value still in eax (not its result).",
  "0x00908990": "x87 0/0 leaves FSW.IE set on a real x87 (and in the lifted code); QEMU sets ZE instead. The function returns with FNSTSW's value still in eax (not its result).",
  "0x00909940": "x87 0/0 leaves FSW.IE set on a real x87 (and in the lifted code); QEMU sets ZE instead. The function returns with FNSTSW's value still in eax (not its result).",
- "0x00909c10": "x87 0/0 leaves FSW.IE set on a real x87 (and in the lifted code); QEMU sets ZE instead. The function returns with FNSTSW's value still in eax (not its result)."
+ "0x00909c10": "x87 0/0 leaves FSW.IE set on a real x87 (and in the lifted code); QEMU sets ZE instead. The function returns with FNSTSW's value still in eax (not its result).",
+ "0x00926990": "Input artefact, not a lifter issue: the random stack makes the function load a RETURN ADDRESS as a function pointer and call it. The reference emulator can execute any address; lifted code can only enter known entry points (docs/LIFTER.md \u00a73).",
+ "0x0095ac80": "Input artefact, not a lifter issue: the random stack makes the function load a RETURN ADDRESS as a function pointer and call it. The reference emulator can execute any address; lifted code can only enter known entry points (docs/LIFTER.md \u00a73).",
+ "0x00976090": "Input artefact + model limit: the function takes 80-bit long doubles from the stack; random bytes are mostly invalid encodings (unnormals), which the double-based x87 model turns into NaN on load while QEMU computes with them (docs/LIFTER.md \u00a75).",
+ "0x00976896": "Input artefact + model limit: the function takes 80-bit long doubles from the stack; random bytes are mostly invalid encodings (unnormals), which the double-based x87 model turns into NaN on load while QEMU computes with them (docs/LIFTER.md \u00a75)."
 }

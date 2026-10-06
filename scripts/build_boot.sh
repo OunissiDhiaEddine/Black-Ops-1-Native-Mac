@@ -43,7 +43,9 @@ print(f'}};\nstatic const uint32_t kProbeDisplayMode[4] = {{{m["width"]}, {m["he
 print(f'static const uint32_t kProbeAdapterCount = {d["adapter_count"]};')
 PY
 
-CXXFLAGS="-std=c++20 -O1 -g -Wall -Wextra -Werror -Wno-unused-parameter -ffp-contract=off -Isrc/runtime -Isrc/platform/win32 -I$LIFT -I$OUT/gen"
+# libunicorn (x86 interpreter for the emulated steam_api.dll, ADR-010) comes with the Python package in the venv
+UNICORN="$(ls -d .venv/lib/python3*/site-packages/unicorn | head -1)"
+CXXFLAGS="-std=c++20 -O1 -g -Wall -Wextra -Werror -Wno-unused-parameter -ffp-contract=off -Isrc/runtime -Isrc/platform/win32 -I$LIFT -I$OUT/gen -I$UNICORN/include"
 CFLAGS="-std=c11 -O1 -g -Wall -Werror -ffp-contract=off -Isrc/runtime -I$LIFT"
 pids=()
 for c in src/runtime/guest_os.cpp src/platform/win32/*.cpp tests/boot/main.cpp; do
@@ -60,5 +62,5 @@ if [ ! -f "$o" ] || [ src/runtime/runtime.c -nt "$o" ] || [ src/runtime/lifted.h
   pids+=($!)
 fi
 for p in ${pids[@]+"${pids[@]}"}; do wait "$p"; done
-clang++ "$OUT"/obj/*.o "$LIFT"/obj/lifted_*.o -o "$OUT/bo1_boot"
+clang++ "$OUT"/obj/*.o "$LIFT"/obj/lifted_*.o "$UNICORN/lib/libunicorn.2.dylib" -Wl,-rpath,"$PWD/$UNICORN/lib" -o "$OUT/bo1_boot"
 echo "built $OUT/bo1_boot"

@@ -268,14 +268,17 @@ int main(int argc, char **argv) {
                 int real = 0;
                 for (uint32_t j = 0; j < len; j++) {
                     if (g_mem[addr + j] == q[j]) continue;
-                    // the 4-byte word (guest-aligned) around the differing byte, when the block covers it
-                    uint32_t w = (addr + j) & ~3u;
-                    uint32_t got, want;
-                    if (w >= addr && w + 4 <= addr + len) {
-                        memcpy(&got, g_mem + w, 4);
-                        memcpy(&want, q + (w - addr), 4);
-                        if (both_nan32(got, want)) continue;
+                    // any 4-byte window around the differing byte that holds a NaN on both sides (floats are not
+                    // necessarily stored at aligned addresses)
+                    int nan = 0;
+                    for (int back = 0; back < 4 && !nan; back++) {
+                        uint32_t got, want;
+                        if (j < (uint32_t)back || j - back + 4 > len) continue;
+                        memcpy(&got, g_mem + addr + j - back, 4);
+                        memcpy(&want, q + j - back, 4);
+                        nan = both_nan32(got, want);
                     }
+                    if (nan) continue;
                     if (!real) k = j;
                     real = 1;
                 }

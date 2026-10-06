@@ -22,7 +22,7 @@ const char *const kGuestHomeDir = "C:\\users\\player";
 // ---- modules ---------------------------------------------------------------------------------------
 // DLLs the runtime stands in for. Module "handles" are distinct addresses in an unmapped part of the
 // system area; nothing may read through them (LIKELY fine: the game only passes them to GetProcAddress).
-static const char *const kModules[] = {"kernel32.dll", "user32.dll",  "gdi32.dll",   "advapi32.dll", "shell32.dll",   "ole32.dll",
+static const char *const kModules[] = {"kernel32.dll", "user32.dll",  "gdi32.dll",   "advapi32.dll", "shell32.dll",   "ole32.dll", "shlwapi.dll",
                                        "winmm.dll",    "wsock32.dll", "ws2_32.dll",  "d3d9.dll",     "d3dx9_43.dll",  "dsound.dll",
                                        "xinput1_3.dll", "binkw32.dll", "steam_api.dll", "psapi.dll", "ntdll.dll"};
 static const uint32_t kModuleBase = 0x7FD00000u;
@@ -81,7 +81,12 @@ SHIM(kernel32, FreeLibrary, 1) { return 1; }
 SHIM(kernel32, GetProcAddress, 2) {
     const char *dll = module_name(a[0]);
     std::string name = a[1] > 0xFFFF ? gstr(a[1]) : "#" + std::to_string(a[1]);
-    uint32_t t = dll ? import_lookup(dll, name) : 0;
+    // The game probes for optional APIs and copes with NULL. An emulated module (its loader stub resolves
+    // its whole import table this way) must not get NULL: it gets a trampoline that names the function
+    // if it is ever called.
+    uint32_t caller = rd32(cpu->esp);
+    bool from_game = caller >= image_info().text_lo && caller < image_info().text_hi;
+    uint32_t t = !dll ? 0 : from_game ? import_lookup(dll, name) : import_lookup_or_stub(dll, name);
     if (!t) {
         last_error(cpu) = ERROR_PROC_NOT_FOUND;
         if (g_verbose) log("GetProcAddress(%s, \"%s\") -> not provided", dll ? dll : "?", name.c_str());
@@ -235,6 +240,30 @@ SHIM(kernel32, TlsSetValue, 2) {
     return 1;
 }
 
+// Fiber-local storage without fibers is thread-local storage (callbacks at thread exit are not run).
+SHIM(kernel32, FlsAlloc, 1) {
+    std::lock_guard<std::mutex> lk(g_tls_mu);
+    for (uint32_t i = 0; i < 64; i++)
+        if (!(g_tls_used >> i & 1)) {
+            g_tls_used |= 1ull << i;
+            return i;
+        }
+    return 0xFFFFFFFFu;
+}
+SHIM(kernel32, FlsFree, 1) { return 1; }
+SHIM(kernel32, FlsGetValue, 1) {
+    if (a[0] >= 64) return 0;
+    last_error(cpu) = 0;
+    return rd32(cpu->teb + TEB_TLS_SLOTS + 4 * a[0]);
+}
+SHIM(kernel32, FlsSetValue, 2) {
+    if (a[0] >= 64) return 0;
+    wr32(cpu->teb + TEB_TLS_SLOTS + 4 * a[0], a[1]);
+    return 1;
+}
+SHIM(kernel32, EncodePointer, 1) { return a[0]; }
+SHIM(kernel32, DecodePointer, 1) { return a[0]; }
+
 // ---- heaps: every heap handle is served by the one process allocator ---------------------------------
 static std::atomic<uint32_t> g_next_heap{0x00DE0000u};
 SHIM(kernel32, HeapCreate, 3) { return g_next_heap.fetch_add(0x10000); }
@@ -267,6 +296,12 @@ SHIM(kernel32, VirtualAlloc, 4) {
 SHIM(kernel32, VirtualFree, 3) {
     if (a[2] & 0x8000) return vm_free(a[0]) ? 1 : 0; // MEM_RELEASE
     if (a[2] & 0x4000) vm_zero(a[0], a[1]);           // MEM_DECOMMIT
+    return 1;
+}
+SHIM(kernel32, VirtualProtect, 4) {
+    // Page protections are not modelled (the arena is readable and writable everywhere); report the
+    // previous protection as PAGE_EXECUTE_READWRITE so callers that restore it are consistent.
+    if (a[3]) wr32(a[3], 0x40);
     return 1;
 }
 SHIM(kernel32, VirtualQuery, 3) {

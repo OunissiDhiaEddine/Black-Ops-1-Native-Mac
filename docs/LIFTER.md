@@ -58,6 +58,16 @@ it). Not covered: flags passed through an *indirect* call (none known).
   guest stack layout is identical to the original (stack arguments, `ret N`, code that reads its
   own return address). `ret`/`ret N` pop it and `return`.
 
+**Address-taken code** (`tools/lifter/find_entries.py` -> `re/extra_entries.csv`). `rt_dispatch` only knows
+entries, so every code address that is stored somewhere must become one: 32-bit immediates of all
+instructions, aligned dwords of the data sections, runs of code pointers at odd offsets (the CRT's
+math dispatch tables), dwords in the gaps of the code section, and direct `call`s to addresses that are
+not functions (local subroutines of hand-written routines, SEH funclets). 4,344 such entries today;
+most are functions Ghidra never created (reached only through vtables or callbacks). Each becomes a
+function of its own, decoded by recursive descent; code it shares with an enclosing function is
+duplicated. Candidates that are not really code simply fail to lift and stay trap stubs (226).
+Indirect *jumps* copy the flags to `Cpu.xfl` first, because such an entry can be a label that reads them.
+
 **Assumption A2 — every call returns to the instruction after it.** Code that pops the return
 address and jumps elsewhere, or `longjmp`-style unwinding, breaks this; such functions must be
 listed and handled individually (T-044; C++ EH/SEH policy is ADR-012).
@@ -140,7 +150,18 @@ Known limits of the method (do not read more into a green run than this):
 - memory the original only *reads* outside the supplied blocks is zero, which hides bugs that
   depend on real global state.
 
-Deviations of the REFERENCE found so far (the lifted code follows the Intel SDM in both cases):
+Three result classes besides pass/fail keep known limits visible without hiding bugs:
+"nan-only" (difference only in the sign/payload of NaNs), "fp-range" (a double overflowed or
+underflowed while the lifted code ran — the x87's wider exponent, §5) and "approx" (x87 value within
+1e-12). Inputs on which the reference itself is wrong are dropped when the vectors are generated
+(hooks on the exact instruction addresses, `artifacts/lifted/special_sites.json`, written by the lifter):
+`FYL2X` with ST(0) <= 0, `FPREM/FPREM1` with an exponent gap >= 53, `FSIN/FCOS/FSINCOS/FPTAN` of
+infinity, and anything executing `CPUID`/`RDTSC` (machine-dependent).
+
+Deviations of the REFERENCE found so far (the lifted code follows the Intel SDM in every case):
+- QEMU sets FSW.ZE for 0/0; a real x87 sets IE. Six functions return with that status word still in
+  eax (`tests/diff/reference_deviations.json`).
+- QEMU's `FCOMI` family, `FSIN`… of infinity, partial `FPREM`: see above.
 - QEMU/Unicorn chooses between two NaN operands with the x87 rule (larger significand) for SSE as
   well; real SSE returns the first operand. Such vectors are reported as "nan-only", not as passes.
 - QEMU's `FYL2X` leaves the stack alone when ST(0) <= 0; a real x87 stores NaN/infinity and pops.
