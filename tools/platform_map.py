@@ -49,7 +49,7 @@ RULES = [
     (r"winmm\.dll!time(GetTime|BeginPeriod|EndPeriod)", "time", "shim", "mach_absolute_time based millisecond clock; periods are no-ops"),
     (r"winmm\.dll!(mixer|waveIn)", "audio", "stub", "no mixer / capture devices: MMSYSERR_NODRIVER, 0 devices"),
     (r"xinput1_3\.dll!", "input", "shim", "XInputGetState/SetState/GetCapabilities over SDL3 gamepad (GameController.framework underneath)"),
-    (r"steam_api\.dll!", "steam", "shim", "bridge to the real Steam client through the Steamworks macOS library — no emulation of ownership/login (ADR-010)"),
+    (r"steam_api\.dll!", "steam", "shim", "see docs/DECISIONS.md ADR-010 (the real-Steam bridge, ADR-014, was withdrawn by the user 2026-10-06); Steam work is handed off"),
     # --- COM ----------------------------------------------------------------------------------
     (r"ole32\.dll!CoCreateInstance", "com", "shim", "CLSID dispatch: XAudio2 2.7 -> FAudio-backed guest COM object (ADR-009); anything else REGDB_E_CLASSNOTREG"),
     (r"ole32\.dll!Co(Initialize|Uninitialize)", "com", "stub", "S_OK"),

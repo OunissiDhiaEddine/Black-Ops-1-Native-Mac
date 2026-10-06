@@ -337,7 +337,7 @@ Single source: **`re/platform_map.csv`** (one row per import: subsystem, disposi
 | input | 10 | 10 / 0 / 0 | 6 | 1,261,045 | keyboard state table + cursor in window coordinates (SDL events -> Win32 semantics) |
 | window | 40 | 35 / 5 / 0 | 18 | 425,813 | one emulated HWND + Win32 message queue fed by SDL events; the game's WndProc is called back as guest code |
 | mem | 14 | 14 / 0 / 0 | 9 | 171,114 | allocator over the 4 GiB guest arena (reserve/commit semantics; must satisfy one 300 MiB commit) |
-| steam | 19 | 18 / 0 / 1 | 11 | 153,155 | bridge to the real Steam client through the Steamworks macOS library — no emulation of ownership/login (ADR-010) |
+| steam | 19 | 18 / 0 / 1 | 11 | 153,155 | see docs/DECISIONS.md ADR-010 (the real-Steam bridge, ADR-014, was withdrawn by the user 2026-10-06); Steam work is handed off |
 | net | 21 | 21 / 0 / 0 | 17 | 64,899 | thin Winsock -> BSD sockets layer (error-code translation); policy switch to run fully offline |
 | video | 18 | 18 / 0 / 0 | 17 | 42,351 | Bink API re-implemented over FFmpeg's bink decoder (ADR-008) |
 | gfx | 10 | 7 / 3 / 0 | 3 | 29,631 | small bytecode parsers (CTAB / dcl tokens) — needed if the census shows calls |
@@ -445,7 +445,7 @@ CONFIRMED by running (`artifacts/boot/last_run.log`; `BO1_VERBOSE=2` lists every
 - 87 distinct imports and ~4,900 import calls up to that point; no trap, no host fault.
 - `wndproc` of the main window class: 0x00554AA0 (LIKELY `MainWndProc`).
 
-## Steamworks interface versions of the game's SDK (ADR-014)
+## Steamworks interface versions of the game's SDK (recorded for ADR-014, which was WITHDRAWN 2026-10-06; facts kept)
 - CONFIRMED (strings of Valve's original 2010 `steam_api.dll`, shipped renamed as `steam_api.cdx`): `SteamClient009`, `SteamUser014`, `SteamFriends007`, `SteamUtils005`, `STEAMAPPS_INTERFACE_VERSION003`, `STEAMUSERSTATS_INTERFACE_VERSION007`, `SteamNetworking004`, `SteamMatchMaking008`, `SteamMatchMakingServers002`, `STEAMREMOTESTORAGE_INTERFACE_VERSION002`, `SteamGameServer010`, `SteamGameServerStats001`, `SteamMasterServerUpdater001`, `SteamContentServer002`.
 - Slots the game calls (static, `re/com_steam_usage.json`): SteamUser 2,3,4,19,20; SteamFriends 3,4,5,6,20 (+3 unresolved sites); SteamUtils 9,10; SteamApps 7; SteamUserStats 7,10; SteamNetworking 0,1,2,3; SteamGameServer 1,3,5,7,18; SteamMasterServerUpdater 0.
 - GUESS (from memory of the public SDK headers, to be confirmed against the real `isteamuser.h` of that SDK before any bridge code): ISteamUser014 slot 2 = GetSteamID, 3 = InitiateGameConnection, 4 = TerminateGameConnection, 19 = AdvertiseGame, 20 = RequestEncryptedAppTicket.

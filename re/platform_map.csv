@@ -314,22 +314,22 @@ ole32.dll,CLSIDFromString,com,shim,shim,1,54,3,pure string <-> GUID conversion
 ole32.dll,CoTaskMemAlloc,mem,shim,shim,2,1089,3,guest heap
 ole32.dll,CoTaskMemFree,mem,shim,shim,2,0,0,guest heap
 ole32.dll,CoCreateInstance,com,shim,shim,2,6,3,CLSID dispatch: XAudio2 2.7 -> FAudio-backed guest COM object (ADR-009); anything else REGDB_E_CLASSNOTREG
-steam_api.dll,SteamAPI_RegisterCallResult,steam,shim,shim,1,12,3,bridge to the real Steam client through the Steamworks macOS library — no emulation of ownership/login (ADR-010)
-steam_api.dll,SteamAPI_Shutdown,steam,shim,shim,1,0,0,bridge to the real Steam client through the Steamworks macOS library — no emulation of ownership/login (ADR-010)
-steam_api.dll,SteamAPI_UnregisterCallback,steam,shim,shim,16,0,0,bridge to the real Steam client through the Steamworks macOS library — no emulation of ownership/login (ADR-010)
-steam_api.dll,SteamAPI_UnregisterCallResult,steam,shim,shim,2,0,0,bridge to the real Steam client through the Steamworks macOS library — no emulation of ownership/login (ADR-010)
-steam_api.dll,SteamAPI_RunCallbacks,steam,shim,shim,2,17176,3,bridge to the real Steam client through the Steamworks macOS library — no emulation of ownership/login (ADR-010)
-steam_api.dll,SteamAPI_RestartAppIfNecessary,steam,shim,shim,1,3,3,bridge to the real Steam client through the Steamworks macOS library — no emulation of ownership/login (ADR-010)
-steam_api.dll,SteamAPI_Init,steam,shim,shim,1,3,3,bridge to the real Steam client through the Steamworks macOS library — no emulation of ownership/login (ADR-010)
-steam_api.dll,SteamApps,steam,shim,shim,1,15,3,bridge to the real Steam client through the Steamworks macOS library — no emulation of ownership/login (ADR-010)
-steam_api.dll,SteamGameServer,steam,shim,shim,7,0,0,bridge to the real Steam client through the Steamworks macOS library — no emulation of ownership/login (ADR-010)
-steam_api.dll,SteamGameServer_RunCallbacks,steam,not needed,shim,0,0,0,bridge to the real Steam client through the Steamworks macOS library — no emulation of ownership/login (ADR-010)
-steam_api.dll,SteamMasterServerUpdater,steam,shim,shim,2,0,0,bridge to the real Steam client through the Steamworks macOS library — no emulation of ownership/login (ADR-010)
-steam_api.dll,SteamGameServer_Init,steam,shim,shim,1,0,0,bridge to the real Steam client through the Steamworks macOS library — no emulation of ownership/login (ADR-010)
-steam_api.dll,SteamGameServer_Shutdown,steam,shim,shim,1,0,0,bridge to the real Steam client through the Steamworks macOS library — no emulation of ownership/login (ADR-010)
-steam_api.dll,SteamNetworking,steam,shim,shim,4,17164,3,bridge to the real Steam client through the Steamworks macOS library — no emulation of ownership/login (ADR-010)
-steam_api.dll,SteamUserStats,steam,shim,shim,4,432,3,bridge to the real Steam client through the Steamworks macOS library — no emulation of ownership/login (ADR-010)
-steam_api.dll,SteamAPI_RegisterCallback,steam,shim,shim,12,18,3,bridge to the real Steam client through the Steamworks macOS library — no emulation of ownership/login (ADR-010)
-steam_api.dll,SteamUtils,steam,shim,shim,3,6,3,bridge to the real Steam client through the Steamworks macOS library — no emulation of ownership/login (ADR-010)
-steam_api.dll,SteamUser,steam,shim,shim,10,118302,3,bridge to the real Steam client through the Steamworks macOS library — no emulation of ownership/login (ADR-010)
-steam_api.dll,SteamFriends,steam,shim,shim,18,24,3,bridge to the real Steam client through the Steamworks macOS library — no emulation of ownership/login (ADR-010)
+steam_api.dll,SteamAPI_RegisterCallResult,steam,shim,shim,1,12,3,see docs/DECISIONS.md ADR-010 (the real-Steam bridge, ADR-014, was withdrawn by the user 2026-10-06); Steam work is handed off
+steam_api.dll,SteamAPI_Shutdown,steam,shim,shim,1,0,0,see docs/DECISIONS.md ADR-010 (the real-Steam bridge, ADR-014, was withdrawn by the user 2026-10-06); Steam work is handed off
+steam_api.dll,SteamAPI_UnregisterCallback,steam,shim,shim,16,0,0,see docs/DECISIONS.md ADR-010 (the real-Steam bridge, ADR-014, was withdrawn by the user 2026-10-06); Steam work is handed off
+steam_api.dll,SteamAPI_UnregisterCallResult,steam,shim,shim,2,0,0,see docs/DECISIONS.md ADR-010 (the real-Steam bridge, ADR-014, was withdrawn by the user 2026-10-06); Steam work is handed off
+steam_api.dll,SteamAPI_RunCallbacks,steam,shim,shim,2,17176,3,see docs/DECISIONS.md ADR-010 (the real-Steam bridge, ADR-014, was withdrawn by the user 2026-10-06); Steam work is handed off
+steam_api.dll,SteamAPI_RestartAppIfNecessary,steam,shim,shim,1,3,3,see docs/DECISIONS.md ADR-010 (the real-Steam bridge, ADR-014, was withdrawn by the user 2026-10-06); Steam work is handed off
+steam_api.dll,SteamAPI_Init,steam,shim,shim,1,3,3,see docs/DECISIONS.md ADR-010 (the real-Steam bridge, ADR-014, was withdrawn by the user 2026-10-06); Steam work is handed off
+steam_api.dll,SteamApps,steam,shim,shim,1,15,3,see docs/DECISIONS.md ADR-010 (the real-Steam bridge, ADR-014, was withdrawn by the user 2026-10-06); Steam work is handed off
+steam_api.dll,SteamGameServer,steam,shim,shim,7,0,0,see docs/DECISIONS.md ADR-010 (the real-Steam bridge, ADR-014, was withdrawn by the user 2026-10-06); Steam work is handed off
+steam_api.dll,SteamGameServer_RunCallbacks,steam,not needed,shim,0,0,0,see docs/DECISIONS.md ADR-010 (the real-Steam bridge, ADR-014, was withdrawn by the user 2026-10-06); Steam work is handed off
+steam_api.dll,SteamMasterServerUpdater,steam,shim,shim,2,0,0,see docs/DECISIONS.md ADR-010 (the real-Steam bridge, ADR-014, was withdrawn by the user 2026-10-06); Steam work is handed off
+steam_api.dll,SteamGameServer_Init,steam,shim,shim,1,0,0,see docs/DECISIONS.md ADR-010 (the real-Steam bridge, ADR-014, was withdrawn by the user 2026-10-06); Steam work is handed off
+steam_api.dll,SteamGameServer_Shutdown,steam,shim,shim,1,0,0,see docs/DECISIONS.md ADR-010 (the real-Steam bridge, ADR-014, was withdrawn by the user 2026-10-06); Steam work is handed off
+steam_api.dll,SteamNetworking,steam,shim,shim,4,17164,3,see docs/DECISIONS.md ADR-010 (the real-Steam bridge, ADR-014, was withdrawn by the user 2026-10-06); Steam work is handed off
+steam_api.dll,SteamUserStats,steam,shim,shim,4,432,3,see docs/DECISIONS.md ADR-010 (the real-Steam bridge, ADR-014, was withdrawn by the user 2026-10-06); Steam work is handed off
+steam_api.dll,SteamAPI_RegisterCallback,steam,shim,shim,12,18,3,see docs/DECISIONS.md ADR-010 (the real-Steam bridge, ADR-014, was withdrawn by the user 2026-10-06); Steam work is handed off
+steam_api.dll,SteamUtils,steam,shim,shim,3,6,3,see docs/DECISIONS.md ADR-010 (the real-Steam bridge, ADR-014, was withdrawn by the user 2026-10-06); Steam work is handed off
+steam_api.dll,SteamUser,steam,shim,shim,10,118302,3,see docs/DECISIONS.md ADR-010 (the real-Steam bridge, ADR-014, was withdrawn by the user 2026-10-06); Steam work is handed off
+steam_api.dll,SteamFriends,steam,shim,shim,18,24,3,see docs/DECISIONS.md ADR-010 (the real-Steam bridge, ADR-014, was withdrawn by the user 2026-10-06); Steam work is handed off
