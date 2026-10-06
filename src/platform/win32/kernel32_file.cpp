@@ -33,6 +33,9 @@ std::string guest_full_path(const std::string &in) {
     for (char &c : p)
         if (c == '/') c = '\\';
     if (!(p.size() >= 2 && p[1] == ':')) p = (p.size() && p[0] == '\\') ? "C:" + p : std::string(kGuestGameDir) + "\\" + p;
+    // Drive-relative ("C:." / "C:main"): relative to the current directory on that drive, which for C: is the
+    // game directory. The game's FS_Startup asks for "C:." (CONFIRMED, call from 0x0096CCD6).
+    else if ((p.size() == 2 || p[2] != '\\') && tolower((unsigned char)p[0]) == 'c') p = std::string(kGuestGameDir) + "\\" + p.substr(2);
     std::vector<std::string> parts;
     size_t i = 3;
     while (i <= p.size()) {
@@ -309,6 +312,7 @@ SHIM(kernel32, GetCurrentDirectoryA, 2) {
 SHIM(kernel32, GetFullPathNameA, 4) {
     // (lpFileName, nBufferLength, lpBuffer, lpFilePart)
     std::string full = guest_full_path(gstr(a[0]));
+    log("GetFullPathNameA(\"%s\") -> %s", gstr(a[0]).c_str(), full.c_str());
     if (a[1] <= full.size()) return (uint32_t)full.size() + 1;
     put_str(a[2], a[1], full);
     if (a[3]) {

@@ -3,7 +3,7 @@ Status: TODO · NOW · DONE · BLOCKED. Only ONE task is NOW at a time. Mark DON
 Update this file at every checkpoint (see AGENTS.md rule 2).
 
 ## NOW
-- **T-045** (P4 remainder, now unblocked) Headless boot to the main loop. Current stop: FS_Startup uses `C:\` as base path (find which shim answers it: current directory / module file name), then whatever comes next; `Com_Error`'s non-local jump (0x004069D5) needs ADR-012 work if errors must be survivable.
+- **T-045** (P4 remainder, now unblocked) Headless boot to the main loop. Done 2026-10-06: drive-relative path fix -> the boot mounts the IWDs, creates window + null D3D9 device, presents frames and loads the `frontend` fastfile. Current stop: `Com_ERROR: BG_IndexForString: unknown token 'm203': (mp/playeranim.script, line 34)` (suspects in LOG STATE); after it, `Com_Error`'s non-local jump (0x00406A91) is unknown to the lifter (ADR-012).
 - Queue after it: T-055 live D3D9 shim + T-052 part 3 (window) as soon as the boot reaches device / window creation · T-054 Bink on FFmpeg · T-053 XAudio2 on FAudio (needs the user's OK for `brew install faudio`) · T-044 leftovers.
 
 ## DONE
