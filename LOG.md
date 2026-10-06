@@ -2,7 +2,7 @@
 
 ## STATE  (OVERWRITE this block at every checkpoint — it is the resume point)
 - **Date/time:** 2026-10-06 ~06:45
-- **Phase / task:** **P5 started 2026-10-06** (user approval; SDL3 3.4.18 installed). T-050, T-051 DONE. **NOW: T-052** (SDL3 user32), then T-036. P4 exit was only partly met (diff tests green; the native boot stops at the game's Steam check — see docs/DECISIONS.md).
+- **Phase / task:** **P5 started 2026-10-06** (user approval; SDL3 3.4.18 installed). T-050, T-051 DONE, T-036 closed by measurement. **NOW: T-052** (SDL3 user32). P4 exit was only partly met (diff tests green; the native boot stops at the game's Steam check — see docs/DECISIONS.md).
 - **Last completed:** boot runtime runs the lifted game from the entry point through CRT start-up, static initialisers, WinMain, CPU detection, D3D9 probe, window-class registration and the build banner up to `SteamAPI_Init` (87 imports, ~4,900 calls, no trap). The shipped steam_api.dll runs unmodified under the interpreter but stops itself: "Internal error 0x0A: Protection initialization failed!".
 - **Next exact step:** depends on the user's answer (options A/B/C in the ADR note). Work that does NOT depend on it: T-036 (shader/pipeline disk cache for the replay renderer), T-038 (video textures in a trace), T-046 (x86_64 cross-build of the lifted code), T-044 leftovers (MXCSR FTZ/DAZ: the game only reaches LDMXCSR through the CRT's `_controlfp` — log what it sets once the game runs further; A2 audit).
 - **Standard commands:** `scripts/boot_try.sh [seconds] [lines]` (builds + runs `artifacts/boot/bo1_boot`, log in `artifacts/boot/last_run.log`; `BO1_NO_STEAM_DLL=1` = truthful "no Steam" shims instead of loading the shipped DLL; `BO1_VERBOSE=2` = every import call; `BO1_IMPORT_STATS=1`); `scripts/difftest.sh [max_funcs] [per_func] [seed] [leaf|all]` (`all` ≈ 6 min; `SKIP_VECTORS=1` ≈ 1-3 min); `tests/diff/debug_vector.sh <func> [nth]`; lifter inputs: `tools/lifter/find_entries.py` -> `tools/lifter/flag_audit.py` -> `tools/lifter/lift.py --stats re/lift_coverage.json`; `tools/import_abi.py`; `tools/com_abi.py`; `tools/adapter_probe.py`. P3: `scripts/build.sh`, `scripts/replay_check.sh`. Baseline: `scripts/run_baseline.sh --wine cx --net --trace …`.
@@ -229,4 +229,10 @@ Entry template:
 ### 2026-10-06 06:58 — T-051 — renderer is a library
 - Did: `src/rhi/d3d9_call.h` (the call record), `src/rhi/renderer.h` (`bo1::rhi::Renderer`, `make_metal_renderer`), `src/metal/metal_renderer.mm` (moved from tests/replay), CMake target `bo1_metal`; `tests/replay/backend.h` now aliases the shared types.
 - Evidence: `scripts/replay_check.sh 0.95` — `re/replay_check.json` identical to the pre-split file (cuba 0.999, vorkuta 0.998, menu 0.983, khe_sanh 0.973 mean SSIM; 0 skipped draws). User ran `scripts/replay_window.sh menu 1500`: 762 frames shown, 1,183,336 draws, 0 skipped.
+- Next: T-052.
+
+### 2026-10-06 07:05 — T-036 — shader/pipeline start-up cost measured; no project cache needed yet
+- Did: timing of SM3->MSL translation, MSL compile and pipeline creation in the renderer's report line.
+- Evidence: menu window (182 functions, 171 pipelines): 7.6 + 29.3 + 15.9 ms; khe_sanh (209, 131): 8.4 + 31.9 + 21.9 ms — warm runs, i.e. served by Metal's system shader cache.
+- Learned: only the first-ever run pays the ~10 functions/s compile cost seen in P3; an explicit MTLBinaryArchive is a first-run optimisation -> P7.
 - Next: T-052.

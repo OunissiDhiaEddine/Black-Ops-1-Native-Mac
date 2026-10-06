@@ -13,6 +13,7 @@
 #include <SDL3/SDL_metal.h>
 
 #include <algorithm>
+#include <chrono>
 #include <array>
 #include <cstdarg>
 #include <cstring>
@@ -197,6 +198,8 @@ public:
     int report() override {
         flush(true);
         if (opts_.window) printf("window: %d frames shown\n", frames_shown_);
+        printf("shader work: translate %.1f ms, MSL compile %.1f ms, pipeline creation %.1f ms\n", ns_translate_ / 1e6, ns_library_ / 1e6,
+               ns_pipeline_ / 1e6);
         printf("metal backend: %d frames rendered, %llu draws executed, %llu skipped; %zu pipelines, %zu shader functions compiled\n",
                frames_rendered_, (unsigned long long)draws_, (unsigned long long)draws_skipped_, pipelines_.size(), functions_compiled_);
         for (auto &[k, n] : problems_) printf("  %8d  %s\n", n, k.c_str());
@@ -684,15 +687,19 @@ private:
         if (it != s.fn.end()) return it->second;
         sm3::Options o;
         o.shadow_samplers = shadow_mask;
+        auto t0 = std::chrono::steady_clock::now();
         sm3::Result res = sm3::translate(s.code, o);
+        ns_translate_ += since(t0);
         if (!res.ok) {
             s.failed = true;
             problem("shader translation: " + res.error);
             return nil;
         }
         NSError *err = nil;
+        t0 = std::chrono::steady_clock::now();
         id<MTLLibrary> lib = [dev_ newLibraryWithSource:@(res.msl.c_str()) options:nil error:&err];
         id<MTLFunction> f = lib ? [lib newFunctionWithName:@"main0"] : nil;
+        ns_library_ += since(t0);
         if (!f) {
             s.failed = true;
             problem(std::string("shader compile: ") + (err ? [[err.localizedDescription componentsSeparatedByString:@"\n"][0] UTF8String] : "?"));
@@ -812,7 +819,9 @@ private:
             d.stencilAttachmentPixelFormat = pass_depth_;
         }
         NSError *err = nil;
+        auto t0 = std::chrono::steady_clock::now();
         id<MTLRenderPipelineState> p = [dev_ newRenderPipelineStateWithDescriptor:d error:&err];
+        ns_pipeline_ += since(t0);
         if (!p) problem(std::string("pipeline: ") + (err ? [[err.localizedDescription componentsSeparatedByString:@"\n"][0] UTF8String] : "?"));
         return pipelines_[key] = p;
     }
@@ -1069,6 +1078,10 @@ private:
     int frame_ = 0, frames_rendered_ = 0;
     uint64_t draws_ = 0, draws_skipped_ = 0;
     size_t functions_compiled_ = 0;
+    uint64_t ns_translate_ = 0, ns_library_ = 0, ns_pipeline_ = 0; // where shader start-up time goes (T-036)
+    static uint64_t since(std::chrono::steady_clock::time_point t0) {
+        return (uint64_t)std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - t0).count();
+    }
 
     std::unordered_map<uint32_t, Tex> textures_;
     std::unordered_map<uint32_t, Surface> surfaces_;

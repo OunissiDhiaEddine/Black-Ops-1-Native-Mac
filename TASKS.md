@@ -3,7 +3,7 @@ Status: TODO · NOW · DONE · BLOCKED. Only ONE task is NOW at a time. Mark DON
 Update this file at every checkpoint (see AGENTS.md rule 2).
 
 ## NOW
-- **T-052** (P5) SDL3-backed user32 (window, messages, keyboard/mouse, gamepad) replacing `user32_headless.cpp`; then T-036 (shader/pipeline disk cache).
+- **T-052** (P5) SDL3-backed user32 (window, messages, keyboard/mouse, gamepad) replacing `user32_headless.cpp`.
 
 ## DONE
 - **T-001** (P0) DONE 2026-10-05 — game install present in `reference/`, `scripts/doctor.sh` run, tool availability recorded.
@@ -67,7 +67,7 @@ Update this file at every checkpoint (see AGENTS.md rule 2).
 - [ ] **T-055** Native `d3d9` shim that turns the game's live calls into `d3d9_call.h` records for the renderer (replaces `d3d9_null.cpp`). Can only be exercised once the game gets past its start-up checks.
 - [ ] **T-052** SDL3-backed user32 (window, messages, keyboard/mouse, gamepad) replacing `user32_headless.cpp`.
 - [ ] **T-053** XAudio2 2.7 on FAudio (ADR-009; `brew install faudio` needs the user's OK). **T-054** Bink on FFmpeg (ADR-008).
-- [ ] **T-036** (carried) shader/pipeline disk cache.
+- [x] **T-036** CLOSED 2026-10-06 by measurement (evidence: `build/replay … --backend metal` now prints "shader work": menu window 182 functions / 171 pipelines = translate 7.6 ms + MSL compile 29.3 ms + pipeline creation 15.9 ms; khe_sanh 209 / 131 = 8.4 + 31.9 + 21.9 ms). On every run after the first, Metal's own on-disk shader cache already makes this ~60 ms in total, so a project-side cache would only help the very first run (measured in P3 at ~10 shader functions/s); an explicit `MTLBinaryArchive` moves to P7 (start-up polish).
 
 ## P5+ (later)
 Integration -> strangler fig -> Metal optimisation -> QA. See docs/PLAN.md.
