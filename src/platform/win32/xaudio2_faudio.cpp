@@ -471,6 +471,7 @@ std::unordered_map<uint32_t, VoiceRec> g_voices; // guest voice object -> record
 std::unordered_map<uint32_t, FAudio *> g_engines; // guest IXAudio2 object -> engine
 std::unordered_map<uint32_t, EngineCb *> g_engine_cbs;
 std::atomic<uint32_t> g_wma_voices{0}, g_wma_buffers{0};
+std::atomic<FAudio *> g_live_engine{nullptr}; // the engine that currently has a mastering voice (host streams play on it)
 
 FAudioVoice *fv(uint32_t guest) {
     if (!guest) return nullptr;
@@ -690,6 +691,7 @@ uint32_t x_create_mastering_voice(Cpu *, const uint32_t *a) {
     if (hr == 0 && v) FAudioVoice_GetVoiceDetails(v, &d);
     log("IXAudio2::CreateMasteringVoice(%u ch, %u Hz, device %u) -> %#x (%u ch, %u Hz)", a[2], a[3], a[5], hr, d.InputChannels, d.InputSampleRate);
     wr32(a[1], hr == 0 && v ? voice_new(v, KIND_MASTER, nullptr) : 0);
+    if (hr == 0 && v) g_live_engine = engine(a[0]);
     return hr;
 }
 uint32_t x_start_engine(Cpu *, const uint32_t *a) { return FAudio_StartEngine(engine(a[0])); }
@@ -784,6 +786,7 @@ uint32_t v_destroy_voice(Cpu *, const uint32_t *a) {
         g_voices.erase(it);
     }
     if (g_verbose) log("IXAudio2Voice::DestroyVoice(%08x, %s)", a[0], r.kind == KIND_SOURCE ? "source" : r.kind == KIND_SUBMIX ? "submix" : "mastering");
+    if (r.kind == KIND_MASTER) g_live_engine = nullptr;
     FAudioVoice_DestroyVoice(r.fv);
     if (r.cb)
         for (WmaBuffer *b : r.cb->live) delete b; // buffers the engine dropped without a callback
@@ -895,6 +898,83 @@ uint32_t voice_vtable(int kind) {
 }
 
 } // namespace
+
+// ---- host-side stream voices (the movies' sound tracks, bink_ffmpeg.cpp) ---------------------------------------
+// A 16-bit PCM source voice on the game's engine, sent straight to the mastering voice. Queued blocks are
+// copied and freed when the engine has played them.
+struct HostStream {
+    FAudioVoiceCallback cb; // first member
+    FAudioSourceVoice *voice = nullptr;
+    std::atomic<int> queued{0};
+    bool playing = false;
+    std::vector<int16_t> pending; // samples waiting for a free slot in the engine's queue (64 buffers)
+};
+static void FAUDIOCALL hs_buffer_end(FAudioVoiceCallback *c, void *ctx) {
+    free(ctx);
+    reinterpret_cast<HostStream *>(c)->queued--;
+}
+static void FAUDIOCALL hs_nop_ctx(FAudioVoiceCallback *, void *) {}
+static void FAUDIOCALL hs_nop(FAudioVoiceCallback *) {}
+static void FAUDIOCALL hs_nop_err(FAudioVoiceCallback *, void *, uint32_t) {}
+static void FAUDIOCALL hs_nop_bytes(FAudioVoiceCallback *, uint32_t) {}
+
+HostStream *xaudio2_stream_open(uint32_t channels, uint32_t rate) {
+    FAudio *e = g_live_engine.load();
+    if (!e) return nullptr; // no sound engine (yet): the caller plays silently
+    auto *h = new HostStream;
+    h->cb = {hs_buffer_end, hs_nop_ctx, hs_nop_ctx, hs_nop, hs_nop_err, hs_nop, hs_nop_bytes};
+    FAudioWaveFormatEx f{};
+    f.wFormatTag = FAUDIO_FORMAT_PCM;
+    f.nChannels = (uint16_t)channels;
+    f.nSamplesPerSec = rate;
+    f.wBitsPerSample = 16;
+    f.nBlockAlign = (uint16_t)(channels * 2);
+    f.nAvgBytesPerSec = rate * f.nBlockAlign;
+    if (FAudio_CreateSourceVoice(e, &h->voice, &f, 0, 2.0f, &h->cb, nullptr, nullptr) != 0 || !h->voice) {
+        delete h;
+        return nullptr;
+    }
+    return h;
+}
+// Queues interleaved samples (copied). When the engine's queue is full (the decoder delivers in bursts while the
+// game catches up after a stall) the samples wait here and go out with the next block; only if more than ten
+// seconds pile up is anything dropped (returns false).
+bool xaudio2_stream_queue(HostStream *h, const int16_t *pcm, size_t samples) {
+    if (!h || !samples) return false;
+    constexpr size_t kMaxPending = 48000 * 2 * 10;
+    if (h->pending.size() + samples > kMaxPending) return false;
+    h->pending.insert(h->pending.end(), pcm, pcm + samples);
+    if (h->queued >= FAUDIO_MAX_QUEUED_BUFFERS - 2) return true;
+    size_t bytes = h->pending.size() * 2;
+    void *copy = malloc(bytes);
+    memcpy(copy, h->pending.data(), bytes);
+    h->pending.clear();
+    FAudioBuffer b{};
+    b.AudioBytes = (uint32_t)bytes;
+    b.pAudioData = static_cast<const uint8_t *>(copy);
+    b.pContext = copy;
+    h->queued++;
+    if (FAudioSourceVoice_SubmitSourceBuffer(h->voice, &b, nullptr) != 0) {
+        h->queued--;
+        free(copy);
+        return false;
+    }
+    return true;
+}
+void xaudio2_stream_volume(HostStream *h, float volume) {
+    if (h) FAudioVoice_SetVolume(h->voice, volume, 0);
+}
+void xaudio2_stream_play(HostStream *h, bool play) {
+    if (!h || h->playing == play) return;
+    h->playing = play;
+    if (play) FAudioSourceVoice_Start(h->voice, 0, 0);
+    else FAudioSourceVoice_Stop(h->voice, 0, 0);
+}
+void xaudio2_stream_close(HostStream *h) {
+    if (!h) return;
+    FAudioVoice_DestroyVoice(h->voice);
+    delete h; // blocks still queued at this point are few and are left to the allocator
+}
 
 // Called by CoCreateInstance (misc_dlls.cpp). Returns an HRESULT and stores the new IXAudio2 in *ppv.
 uint32_t xaudio2_create(const uint8_t *clsid, uint32_t ppv) {

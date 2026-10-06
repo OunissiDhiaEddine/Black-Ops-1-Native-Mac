@@ -15,7 +15,7 @@ Evidence: `artifacts/boot/native_title_screen.png`, `native_main_menu.png`, `nat
 |---|---|
 | P0–P3 recon, baseline, shim design, renderer in isolation | done |
 | P4 static recompilation | done — exit criteria met 2026-10-06 |
-| P5 integration | in progress: boots, renders, plays its videos, has sound (movies still silent), loads a mission |
+| P5 integration | in progress: boots, renders, plays its videos, has sound, loads a mission |
 | P6–P8 | not started |
 
 ## Run it
@@ -66,8 +66,8 @@ tests/boot/main.cpp          entry point of bo1_boot; tests/boot/steam_selftest.
 
 ## What is missing, in the order I would do it
 1. ~~T-054 Bink video~~ — done 2026-10-06 (video only; the movies' sound tracks come with T-053).
-2. **T-053 sound** — XAudio2 2.7 on FAudio works since 2026-10-06 (`xaudio2_faudio.cpp`; RE_NOTES "XAudio2 as the game uses it"). Left:
-   the movies' sound tracks (Bink audio -> a source voice), and nobody has LISTENED yet — it was only measured.
+2. **T-053 sound** — XAudio2 2.7 on FAudio works since 2026-10-06 (`xaudio2_faudio.cpp`; RE_NOTES "XAudio2 as the game uses it"),
+   including the movies' sound tracks. Left: nobody has LISTENED yet — it was only measured (levels, spectra, no dropouts).
 3. **T-057 input with a human**: the window, keyboard and mouse position are wired, but only scripted
    keys were verified. Mouse look (relative mode), key repeat, focus changes, gamepad (the XInput shim is a stub).
 4. **T-058 performance**: nothing is measured on the live path. The renderer re-uploads constants per draw
