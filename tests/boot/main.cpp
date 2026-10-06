@@ -131,9 +131,10 @@ int main(int argc, char **argv) {
     if (seconds > 0) alarm((unsigned)seconds);
 
     int rc = thread_run_main(im.stack_reserve, [&](Cpu *cpu) {
-        // DLL initialisers run before the entry point, like under the Windows loader. steam_api.dll is the
-        // one module that is interpreted instead of lifted or shimmed (ADR-010); BO1_NO_STEAM_DLL=1 skips it.
-        if (!getenv("BO1_NO_STEAM_DLL") && !emu_module_attach(cpu, "C:\\bo1\\steam_api.dll", "steam_api.dll"))
+        // Steam is served by the local stand-in (src/platform/win32/steam_local.cpp, ADR-015). The ADR-010
+        // experiment — the shipped steam_api.dll, interpreted, its initialisers run before the entry point like
+        // under the Windows loader — stays reachable with BO1_EMULATED_STEAM_DLL=1 (it stops itself).
+        if (getenv("BO1_EMULATED_STEAM_DLL") && !emu_module_attach(cpu, "C:\\bo1\\steam_api.dll", "steam_api.dll"))
             fprintf(stderr, "[bo1] steam_api.dll did not initialise\n");
         guest_call(cpu, im.entry, {});
     });

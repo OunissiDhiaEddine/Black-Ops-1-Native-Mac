@@ -23,7 +23,7 @@ for r in csv.DictReader(open("re/d3d9_abi.csv")):
     print(f'    {{"{r["interface"]}", {r["slot"]}, "{r["method"]}", {r["words"]}}},')
 PY
 
-# Steam C++ interface vtables (re/steam_abi.csv; extracted from the Steamworks SDK headers the game links, see RE_NOTES)
+# Steam C++ interface methods the game calls (re/steam_abi.csv: slot + stack words read off the game's call sites)
 .venv/bin/python - > "$OUT/gen/steam_abi.inc" <<'PY'
 import csv
 for r in csv.DictReader(open("re/steam_abi.csv")):
