@@ -78,7 +78,7 @@ Components:
 ## P5 — Integration
 Lifted game + `src/platform` + Metal backend -> main menu -> mission 1. Triage crashes with address -> name via `re/symbols.csv`. Compare frames with golden.
 **Exit:** campaign mission 1 playable start to finish.
-**Status 2026-10-06:** the native build shows the title screen, the main menu and the opening of mission 1 (cuba) through Metal in a window; no sound, no video, input only verified with scripted keys.
+**Status 2026-10-06:** the native build shows the title screen, the main menu and the opening of mission 1 (cuba) through Metal in a window; video works since 2026-10-06 (Bink on FFmpeg: intro, menu screens, loading movies); no sound, input only verified with scripted keys.
 
 ## P6 — Strangler fig (only where it pays)
 Replace lifted modules with clean 64-bit C++ in `src/native/`, in priority order: (1) renderer front-end / draw submission (cut D3D9-shaped overhead, batch for Metal), (2) memory allocator, (3) file system + fastfile loading, (4) sound, (5) UI/menus, (6) whatever profiling shows is hot. Each replacement keeps diff-test + golden-frame suites green. Stop when perf and maintainability goals are met — full purity is optional.

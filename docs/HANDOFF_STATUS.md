@@ -15,7 +15,7 @@ Evidence: `artifacts/boot/native_title_screen.png`, `native_main_menu.png`, `nat
 |---|---|
 | P0–P3 recon, baseline, shim design, renderer in isolation | done |
 | P4 static recompilation | done — exit criteria met 2026-10-06 |
-| P5 integration | in progress: boots, renders, loads a mission; no sound, no video |
+| P5 integration | in progress: boots, renders, plays its videos, loads a mission; no sound |
 | P6–P8 | not started |
 
 ## Run it
@@ -25,7 +25,9 @@ scripts/boot_try.sh 60 40                # headless test run, tail of artifacts/
 BO1_KEYS="35000:0x20" BO1_CMDS="50000|devmap cuba" BO1_D3D_DUMP=artifacts/boot/frames \
     artifacts/boot/bo1_boot --seconds 170   # unattended: key at 35 s, mission at 50 s, PNG every 20th frame
 ```
-The first ~30 s are black (intro videos are skipped). `last_run.log` contains binary bytes: use `grep -a`.
+The first ~25 s are the intro movie (video works since 2026-10-06; `BO1_BINK=off` skips all movies). With it the scripted
+key is best sent at 45 s and the mission command at 60 s (`BO1_KEYS="45000:0x20" BO1_CMDS="60000|devmap cuba"`, verified).
+`last_run.log` contains binary bytes: use `grep -a`.
 
 ## Build
 - `scripts/build.sh` — CMake/Ninja: translator, Metal renderer library, window library, replay tool, unit tests.
@@ -39,7 +41,8 @@ BlackOps.exe --tools/lifter--> artifacts/lifted/*.c --clang--> arm64 objects
         |                                                         |
         +-- loaded as data into a 4 GiB guest arena --------------+--> artifacts/boot/bo1_boot
 src/runtime/guest_os.cpp     arena, heap, virtual memory, threads/TEB/TLS, import trampolines, COM objects
-src/platform/win32/*.cpp     kernel32, user32/gdi32, winsock, misc DLLs, Bink stubs
+src/platform/win32/*.cpp     kernel32, user32/gdi32, winsock, misc DLLs
+   bink_ffmpeg.cpp           Bink video on FFmpeg's decoder (ADR-008); contract in RE_NOTES "Bink as the game uses it"
    steam_local.cpp           Steam: local offline stand-in (ADR-015), table re/steam_abi.csv
    d3d9_null.cpp             guest-visible Direct3D objects, lock memory, capability answers
    d3d9_live.cpp             watches every Direct3D call and feeds it to the renderer as a call record
@@ -59,10 +62,9 @@ tests/boot/main.cpp          entry point of bo1_boot; tests/boot/steam_selftest.
 | `scripts/difftest.sh 100000 2 5 all` (~6 min; lifter untouched since 2026-10-06 06:10) | 0 unexplained failures |
 
 ## What is missing, in the order I would do it
-1. **T-054 Bink video** (ADR-008): intro movies, menu TV screens, loading screens. Stubs are in
-   `src/platform/win32/misc_dlls.cpp`; the game reads `BINK` / `BINKFRAMEBUFFERS` fields directly
-   (game functions at 0x006D9000–0x006DA290) — get those offsets first.
-2. **T-053 sound** (ADR-009: XAudio2 2.7 on FAudio). Needs `brew install faudio` — **ask the user first** (AGENTS.md rule 7).
+1. ~~T-054 Bink video~~ — done 2026-10-06 (video only; the movies' sound tracks come with T-053).
+2. **T-053 sound** (ADR-009: XAudio2 2.7 on FAudio). `brew install faudio` was approved by the user on 2026-10-06 but has to be
+   run by the user (the agent session's permission check refused the install) — check `brew list --versions faudio`.
 3. **T-057 input with a human**: the window, keyboard and mouse position are wired, but only scripted
    keys were verified. Mouse look (relative mode), key repeat, focus changes, gamepad (the XInput shim is a stub).
 4. **T-058 performance**: nothing is measured on the live path. The renderer re-uploads constants per draw

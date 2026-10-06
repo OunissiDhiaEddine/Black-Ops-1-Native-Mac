@@ -134,33 +134,7 @@ SHIM(dsound, DirectSoundCaptureCreate, 3) { return 0x88780078u; }
 
 namespace bo1 {
 
-// ---- binkw32: no video in the headless runtime -----------------------------------------------------------
-// BinkOpen fails, so the game skips the movie (ADR-008 replaces this with an FFmpeg-backed decoder in P5).
-SHIM_NAMED(binkw32, BinkOpen, "_BinkOpen@8", 2) {
-    if (g_verbose) log("BinkOpen(\"%s\") -> no video support in the headless runtime", a[0] > 0x10000 ? gstr(a[0]).c_str() : "?");
-    return 0;
-}
-SHIM_NAMED(binkw32, BinkClose, "_BinkClose@4", 1) { return 0; }
-SHIM_NAMED(binkw32, BinkGetError, "_BinkGetError@0", 0) {
-    static uint32_t msg = 0;
-    if (!msg) msg = heap_strdup("Bink video is not available in this runtime");
-    return msg;
-}
-SHIM_NAMED(binkw32, BinkSetSoundSystem, "_BinkSetSoundSystem@8", 2) { return 1; }
-SHIM_NAMED(binkw32, BinkOpenDirectSound, "_BinkOpenDirectSound@4", 1) { return 0; }
-SHIM_NAMED(binkw32, BinkSetMemory, "_BinkSetMemory@8", 2) { return 0; }
-SHIM_NAMED(binkw32, BinkSetIOSize, "_BinkSetIOSize@4", 1) { return 0; }
-SHIM_NAMED(binkw32, BinkSetSoundTrack, "_BinkSetSoundTrack@8", 2) { return 0; }
-SHIM_NAMED(binkw32, BinkSetVolume, "_BinkSetVolume@12", 3) { return 0; }
-SHIM_NAMED(binkw32, BinkPause, "_BinkPause@8", 2) { return 0; }
-SHIM_NAMED(binkw32, BinkWait, "_BinkWait@4", 1) { return 0; }
-SHIM_NAMED(binkw32, BinkDoFrame, "_BinkDoFrame@4", 1) { return 0; }
-SHIM_NAMED(binkw32, BinkNextFrame, "_BinkNextFrame@4", 1) { return 0; }
-SHIM_NAMED(binkw32, BinkShouldSkip, "_BinkShouldSkip@4", 1) { return 0; }
-SHIM_NAMED(binkw32, BinkGetRealtime, "_BinkGetRealtime@12", 3) { return 0; }
-SHIM_NAMED(binkw32, BinkControlBackgroundIO, "_BinkControlBackgroundIO@8", 2) { return 0; }
-SHIM_NAMED(binkw32, BinkRegisterFrameBuffers, "_BinkRegisterFrameBuffers@8", 2) { return 0; }
-SHIM_NAMED(binkw32, BinkGetFrameBuffersInfo, "_BinkGetFrameBuffersInfo@8", 2) { return 0; }
+// binkw32: see bink_ffmpeg.cpp (ADR-008).
 
 // ---- ole32: object creation ---------------------------------------------------------------------------------
 SHIM(ole32, CoCreateInstance, 5) {

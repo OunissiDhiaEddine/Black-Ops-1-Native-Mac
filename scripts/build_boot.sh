@@ -72,6 +72,7 @@ for p in ${pids[@]+"${pids[@]}"}; do wait "$p"; done
 # the Metal renderer (ADR-004) comes from the CMake build: the game's live Direct3D calls go to it (d3d9_live.cpp)
 bash scripts/build.sh bo1_metal bo1_shaders bo1_window >/dev/null
 clang++ "$OUT"/obj/*.o "$LIFT"/obj/lifted_*.o build/libbo1_metal.a build/libbo1_shaders.a build/libbo1_window.a "$UNICORN/lib/libunicorn.2.dylib" \
-  /opt/homebrew/lib/libSDL3.dylib -framework Metal -framework Foundation -framework CoreGraphics -framework ImageIO -framework QuartzCore \
+  /opt/homebrew/lib/libSDL3.dylib /opt/homebrew/lib/libavformat.dylib /opt/homebrew/lib/libavcodec.dylib /opt/homebrew/lib/libavutil.dylib \
+  -framework Metal -framework Foundation -framework CoreGraphics -framework ImageIO -framework QuartzCore \
   -Wl,-rpath,"$PWD/$UNICORN/lib" -o "$OUT/bo1_boot"
 echo "built $OUT/bo1_boot"

@@ -519,6 +519,13 @@ Width / Height (+0, +4) are never read from the handle: the picture size comes f
 - Per update (0x006D9000, called through a pointer): `BinkGetRealtime`; `BinkPause` on state change; `BinkWait` (non-zero = not time yet; up to 33 sleeps of 1 ms in one mode) or the game's own clock (0x006D8FA0); `BinkDoFrame`; then `while (BinkShouldSkip(bink) && FrameNum != Frames) { BinkNextFrame; BinkDoFrame; }`; upload; `BinkNextFrame` unless on the last frame; `BinkGetRealtime` again for the position.
 - `BinkClose(bink)` at 0x006D96A5; the device-reset path (0x006B8A6D) re-creates the textures while a movie is open.
 
+**Verified by running it natively (2026-10-06, `src/platform/win32/bink_ffmpeg.cpp`, logs `artifacts/boot/bink_run.log`, `bink_cuba_run.log`):**
+- `treyarch.bik` (file, flags 0x01104400): 1280x720, 587 frames at 30/1 — plays to its last frame, then `BinkClose` (586 shown).
+- The main-menu TV movie comes **from memory** (flags 0x04104400, a rawfile in the `frontend` fastfile): 1024x1024, 600 frames at 2997/100, looping — the game advances past the last frame with `BinkNextFrame` and expects frame 1 next (1,170 frames shown before the mission was started). The length taken from the file's own header (bytes 4..7 + 8) is enough to read it — CONFIRMED.
+- `cuba_load.bik`: 1280x720, 1,406 frames at 30/1, played during the load of mission 1 ("Intelligence Report — CUBA 61").
+- Plane assignment CONFIRMED by colour against the golden menu frame (`tests/golden/menu/frame_001720.png`): the game's `cR` plane takes FFmpeg's V (`data[2]`), `cB` takes U (`data[1]`). None of these three movies has an alpha plane.
+- Evidence frames: `artifacts/boot/native_intro_video.png`, `native_menu_tv_screens.png`, `native_loading_movie_cuba.png`.
+
 **What the FFmpeg-backed shim has to provide (derived from the above):** a guest-memory `BINK` block with `Frames`, `FrameNum` (1-based, advanced by `BinkNextFrame`), `FrameRate`, `FrameRateDiv` (non-zero); `BinkGetFrameBuffersInfo` filling sizes, `TotalFrames = 2` and the `Allocate` flags (A plane 0 for the shipped files — to be checked per file: `BINKALPHA` is requested); `BinkDoFrame` decoding into the planes found through the registered pointer and setting `fb.FrameNum`; `BinkGetRealtime` with non-zero `FrameRate` and `ReadBufferUsed == ReadBufferSize`; `BinkWait` / `BinkShouldSkip` from a wall clock; audio later through the XAudio2 shim (T-053).
 
 ## Native runtime — what the first full boot taught (2026-10-06)
