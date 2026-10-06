@@ -55,7 +55,7 @@ UNICORN="$(ls -d .venv/lib/python3*/site-packages/unicorn | head -1)"
 CXXFLAGS="-std=c++20 -O1 -g -Wall -Wextra -Werror -Wno-unused-parameter -ffp-contract=off -Isrc/runtime -Isrc/platform/win32 -I$LIFT -I$OUT/gen -I$UNICORN/include"
 CFLAGS="-std=c11 -O1 -g -Wall -Werror -ffp-contract=off -Isrc/runtime -I$LIFT"
 pids=()
-for c in src/runtime/guest_os.cpp src/platform/win32/*.cpp tests/boot/main.cpp; do
+for c in src/runtime/guest_os.cpp src/platform/win32/*.cpp tests/boot/main.cpp tests/boot/steam_selftest.cpp; do
   o="$OUT/obj/$(basename "$c" .cpp).o"
   if [ ! -f "$o" ] || [ "$c" -nt "$o" ] || [ -n "$(find src/runtime src/platform/win32 -name '*.h' -newer "$o" | head -1)" ] \
      || [ "$OUT/gen/import_abi.inc" -nt "$o" -a "$c" = src/runtime/guest_os.cpp ]; then

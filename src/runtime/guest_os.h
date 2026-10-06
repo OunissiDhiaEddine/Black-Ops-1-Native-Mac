@@ -100,6 +100,8 @@ const char *tramp_name(uint32_t target);
 // Makes a host function callable from the guest (stdcall with `nargs` stack slots, -1 = cdecl) and
 // returns its trampoline address. Used for COM methods and callbacks handed to the game.
 uint32_t tramp_register(const std::string &dll, const std::string &name, ShimFn fn, int nargs);
+// Same for an MSVC thiscall function: the shim sees `this` (ecx) as a[0]; `nargs` counts it.
+uint32_t tramp_register_thiscall(const std::string &dll, const std::string &name, ShimFn fn, int nargs);
 
 // ---- host-implemented COM objects (docs/HOST_ABI.md §4.3) --------------------------------------------------
 // The guest sees an ordinary COM object: [0] = vtable pointer, [4] = reference count, then `extra`

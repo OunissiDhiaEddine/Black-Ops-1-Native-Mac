@@ -95,6 +95,7 @@ The game holds pointers to objects whose methods live on the host: `IDirect3D9`,
 - **Two conventions**, both measured in the exe:
   - COM (`IDirect3D*`, `IXAudio2*`, `ID3DXBuffer`): **stdcall, `this` is the first stack word**.
   - Steam C++ interfaces (`ISteamUser`, `ISteamFriends`, …): **MSVC thiscall — `this` in `ecx`**,
+    Implemented by `com_vtable_thiscall()` (the shim sees `this` as `a[0]`); methods and stack words: `re/steam_abi.csv`. Struct results such as `CSteamID` use a hidden result pointer as first stack argument (CONFIRMED, RE_NOTES "Steam as the game uses it").
     remaining arguments on the stack, callee pops. Evidence: of the 37 accessor call sites
     (`call [SteamUser]` etc.), 18 do `mov ecx, eax` within five instructions before the vtable
     call and the sampled others load `ecx` later; none pushes `this` (LIKELY, static sample).

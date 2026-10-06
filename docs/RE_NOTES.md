@@ -360,7 +360,7 @@ Single source: **`re/platform_map.csv`** (one row per import: subsystem, disposi
 | input | 10 | 10 / 0 / 0 | 6 | 1,261,045 | keyboard state table + cursor in window coordinates (SDL events -> Win32 semantics) |
 | window | 40 | 35 / 5 / 0 | 18 | 425,813 | one emulated HWND + Win32 message queue fed by SDL events; the game's WndProc is called back as guest code |
 | mem | 14 | 14 / 0 / 0 | 9 | 171,114 | allocator over the 4 GiB guest arena (reserve/commit semantics; must satisfy one 300 MiB commit) |
-| steam | 19 | 18 / 0 / 1 | 11 | 153,155 | see docs/DECISIONS.md ADR-010 (the real-Steam bridge, ADR-014, was withdrawn by the user 2026-10-06); Steam work is handed off |
+| steam | 19 | 18 / 0 / 1 | 11 | 153,155 | local offline stand-in in the runtime, src/platform/win32/steam_local.cpp (ADR-015) |
 | net | 21 | 21 / 0 / 0 | 17 | 64,899 | thin Winsock -> BSD sockets layer (error-code translation); policy switch to run fully offline |
 | video | 18 | 18 / 0 / 0 | 17 | 42,351 | Bink API re-implemented over FFmpeg's bink decoder (ADR-008) |
 | gfx | 10 | 7 / 3 / 0 | 3 | 29,631 | small bytecode parsers (CTAB / dcl tokens) — needed if the census shows calls |
@@ -468,10 +468,20 @@ CONFIRMED by running (`artifacts/boot/last_run.log`; `BO1_VERBOSE=2` lists every
 - 87 distinct imports and ~4,900 import calls up to that point; no trap, no host fault.
 - `wndproc` of the main window class: 0x00554AA0 (LIKELY `MainWndProc`).
 
-## Steamworks interface versions of the game's SDK (recorded for ADR-014, which was WITHDRAWN 2026-10-06; facts kept)
+## Steamworks interface versions of the game's SDK (recorded for the withdrawn ADR-014; the slot table that is actually used is re/steam_abi.csv, see the next section)
 - CONFIRMED (strings of Valve's original 2010 `steam_api.dll`, shipped renamed as `steam_api.cdx`): `SteamClient009`, `SteamUser014`, `SteamFriends007`, `SteamUtils005`, `STEAMAPPS_INTERFACE_VERSION003`, `STEAMUSERSTATS_INTERFACE_VERSION007`, `SteamNetworking004`, `SteamMatchMaking008`, `SteamMatchMakingServers002`, `STEAMREMOTESTORAGE_INTERFACE_VERSION002`, `SteamGameServer010`, `SteamGameServerStats001`, `SteamMasterServerUpdater001`, `SteamContentServer002`.
 - Slots the game calls (static, `re/com_steam_usage.json`): SteamUser 2,3,4,19,20; SteamFriends 3,4,5,6,20 (+3 unresolved sites); SteamUtils 9,10; SteamApps 7; SteamUserStats 7,10; SteamNetworking 0,1,2,3; SteamGameServer 1,3,5,7,18; SteamMasterServerUpdater 0.
 - GUESS (from memory of the public SDK headers, to be confirmed against the real `isteamuser.h` of that SDK before any bridge code): ISteamUser014 slot 2 = GetSteamID, 3 = InitiateGameConnection, 4 = TerminateGameConnection, 19 = AdvertiseGame, 20 = RequestEncryptedAppTicket.
+
+## Steam as the game uses it (T-024 / ADR-015) — from the game's own code
+Source: `tools/steam_sites.py` (every call site of the 19 imports with context) and the baseline call counts in `re/platform_map.csv`. Table: `re/steam_abi.csv` (24 methods, each with the VA it was read from). All CONFIRMED by disassembly unless tagged.
+- **Start-up check** (in the function at 0x005A2680): `SteamAPI_RestartAppIfNecessary(42700)` must be false; `SteamAPI_Init()` must be true; then `SteamUser()` must be non-NULL and `SteamUser()->GetSteamID()` must pass the game's `CSteamID::IsValid` (0x00573570) — otherwise the "Steam must be running to play this game." box. Then `SteamUtils()->SetOverlayNotificationPosition(1)`.
+- **Calling convention:** MSVC thiscall (`this` in ecx, callee pops). `CSteamID` results (`GetSteamID`, `GetFriendByIndex`) come back through a **hidden result pointer** pushed as the first stack argument, and the pointer is returned in eax — not in edx:eax. `SteamAPICall_t` (64-bit) comes back in edx:eax.
+- **Stats object** (constructed at 0x004F1CA0, pointer at 0x0383B288): registers callbacks 1101/1102/1103 (handlers 0x0050C990 / 0x00590160 / 0x00670FD0); asks `RequestCurrentStats` only if `BLoggedOn()`; the stats-received handler requires `m_nGameID == 42700` and `m_eResult == 1`, sets byte +0x18 ("stats ready") and then queries each achievement; `SetAchievement` is skipped while that byte is 0. Byte +0 is a "store pending" flag: `StoreStats()` is called every frame until it returns true (0x00403AD0).
+- **Callback objects** (`CCallbackBase`): +0 vtable, +4 flags (bit 0 = registered, tested before unregistering at 0x0066D375), +8 callback id; call results keep the 64-bit call handle at +0x10. Vtable order is MSVC's: `[0] Run(param, ioFailure, call)` (`ret 0x10`), `[1] Run(param)`, `[2] GetCallbackSizeBytes` (0x18 for UserStatsReceived_t, 0x98 for UserAchievementStored_t).
+- **Online log-on:** `RequestEncryptedAppTicket` (0x0066B9D0); a zero call handle skips the call-result registration; the result handler is 0x004FB6D0.
+- **Per frame in single player** (baseline counts over three runs): `SteamAPI_RunCallbacks` 17,176, `SteamNetworking()->IsP2PPacketAvailable` 17,164, `SteamUser()` 118,302 (mostly `GetSteamID`), `SteamUserStats()` 432, `SteamApps()->BIsDlcInstalled` 15, `SteamFriends()` 24. `SteamGameServer*` and `SteamMasterServerUpdater` are never called; the game null-checks them.
+- **After the Steam check the native boot continues** (2026-10-06): "begin $init", two worker threads (start 0x0082FDE0), fastfiles `en_code_pre_gfx` / `code_pre_gfx` load from `C:\bo1\zone\…` on a worker thread, then `FS_Startup` builds its search path from `C:\` instead of `C:\bo1` -> "Couldn't load fileSysCheck.cfg" -> `Com_Error` -> stop at an indirect transfer the lifter does not know (0x004069D5; LIKELY the error path's non-local jump, cf. ADR-012). Next work item of T-045; not Steam-related.
 
 ## Gotchas / surprises
 - **Unclean-exit marker:** the game creates `%LOCALAPPDATA%\Activision\CoD\__BlackOps` while running; if it exists at startup a modal "Run In Safe Mode?" box appears (CONFIRMED: window title seen, file found). `run_baseline.sh` deletes it; the port's file shim will see the same create/delete pattern.

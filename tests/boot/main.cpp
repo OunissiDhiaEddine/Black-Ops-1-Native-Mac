@@ -60,6 +60,8 @@ static void dump_guest(Cpu *cpu) {
     }
 }
 
+namespace bo1 { int steam_selftest(Cpu *cpu); } // tests/boot/steam_selftest.cpp
+
 static const char *kTrapNames[] = {"?", "int3", "bad jump-table index", "divide error", "function not lifted", "indirect target is not a function",
                                    "timeout", "returned from a noreturn call", "host fault", "unimplemented import"};
 
@@ -90,9 +92,11 @@ static void on_alarm(int) {
 int main(int argc, char **argv) {
     const char *exe = "reference/Call of Duty Black Ops/BlackOps.exe";
     int seconds = 20;
+    bool steam_test = false; // run tests/boot/steam_selftest.cpp instead of the game
     for (int i = 1; i < argc; i++) {
         if (!strcmp(argv[i], "--exe") && i + 1 < argc) exe = argv[++i];
         else if (!strcmp(argv[i], "--seconds") && i + 1 < argc) seconds = atoi(argv[++i]);
+        else if (!strcmp(argv[i], "--steam-selftest")) steam_test = true;
     }
     if (const char *v = getenv("BO1_VERBOSE")) g_verbose = atoi(v);
 
@@ -136,6 +140,7 @@ int main(int argc, char **argv) {
         // under the Windows loader — stays reachable with BO1_EMULATED_STEAM_DLL=1 (it stops itself).
         if (getenv("BO1_EMULATED_STEAM_DLL") && !emu_module_attach(cpu, "C:\\bo1\\steam_api.dll", "steam_api.dll"))
             fprintf(stderr, "[bo1] steam_api.dll did not initialise\n");
+        if (steam_test) process_exit((uint32_t)steam_selftest(cpu));
         guest_call(cpu, im.entry, {});
     });
     fprintf(stderr, "[bo1] entry point returned (%d)\n", rc);

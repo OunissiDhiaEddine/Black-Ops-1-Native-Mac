@@ -1,5 +1,7 @@
 # Project status — BO1 native arm64 + Metal port
 
+> **Superseded 2026-10-06.** This was the hand-over note for the Steam problem. It is solved differently from what is described below: see docs/DECISIONS.md ADR-015 and `src/platform/win32/steam_local.cpp`. Current state: LOG.md.
+
 Written 2026-10-06 as a plain status report. It describes what exists and what was observed; it
 contains no task list. Detailed records: `LOG.md`, `TASKS.md`, `docs/DECISIONS.md`, `docs/RE_NOTES.md`.
 
