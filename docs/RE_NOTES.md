@@ -483,6 +483,44 @@ Source: `tools/steam_sites.py` (every call site of the 19 imports with context) 
 - **Per frame in single player** (baseline counts over three runs): `SteamAPI_RunCallbacks` 17,176, `SteamNetworking()->IsP2PPacketAvailable` 17,164, `SteamUser()` 118,302 (mostly `GetSteamID`), `SteamUserStats()` 432, `SteamApps()->BIsDlcInstalled` 15, `SteamFriends()` 24. `SteamGameServer*` and `SteamMasterServerUpdater` are never called; the game null-checks them.
 - **After the Steam check the native boot continues** (2026-10-06): "begin $init", two worker threads (start 0x0082FDE0), fastfiles `en_code_pre_gfx` / `code_pre_gfx` load from `C:\bo1\zone\…` on a worker thread, then `FS_Startup` builds its search path from `C:\` instead of `C:\bo1` -> "Couldn't load fileSysCheck.cfg" -> `Com_Error` -> stop at an indirect transfer the lifter does not know (0x004069D5; LIKELY the error path's non-local jump, cf. ADR-012). Next work item of T-045; not Steam-related.
 
+## Bink as the game uses it (T-054 / ADR-008) — from the game's own code
+Source: `tools/bink_sites.py` (listing of the game's cinematic code 0x006D8000–0x006DA2C0 with every `binkw32.dll` call named; `--sites` = the 30 import sites). Everything below was read from the game's instructions at the VAs given; the field NAMES are those of RAD's public `bink.h` and are LIKELY (the offsets and what the game does with them are CONFIRMED). No code of `binkw32.dll` was looked at.
+
+**`BINK` (the handle `BinkOpen` returns, kept at 0x03E4CA80) — the game reads only four fields:**
+| Offset | Field | Read at | Use |
+|---|---|---|---|
+| +0x08 | `Frames` | 0x006D9249, 0x006D9348, 0x006D9361, 0x006D9F52 | last frame when `FrameNum == Frames` -> movie finished (unless looping, flag 2) |
+| +0x0C | `FrameNum` (1-based) | 0x006D908F, 0x006D922E, 0x006D924E (`== 1` -> restart the game's own clock), 0x006D8FEF, 0x006D9F55 | current frame |
+| +0x14 | `FrameRate` | 0x006D98B2, 0x006D9F68 | fps = `FrameRate / FrameRateDiv` (float at 0x03E4CA68) |
+| +0x18 | `FrameRateDiv` | 0x006D98C2, 0x006D9F6D (**integer `div`** — must not be 0) | |
+Width / Height (+0, +4) are never read from the handle: the picture size comes from `BINKFRAMEBUFFERS`.
+
+**`BINKFRAMEBUFFERS` (global at 0x03E4CA84, 0x78 bytes; the game clears 0xD8 bytes there, the rest is its own texture table):**
+| Offset | Field | Who writes | Notes |
+|---|---|---|---|
+| +0x00 | `TotalFrames` | Bink (`BinkGetFrameBuffersInfo`) | loop bound at 0x006D9137; the game's own tables hold 2 sets |
+| +0x04 / +0x08 | `YABufferWidth` / `YABufferHeight` | Bink | Y and A texture size and plane size (`w*h` bytes, 0x006D89C9) |
+| +0x0C / +0x10 | `cRcBBufferWidth` / `cRcBBufferHeight` | Bink | chroma texture and plane size |
+| +0x14 | `FrameNum` | Bink (`BinkDoFrame`) | which frame set was just decoded; read at 0x006D9328 and by the upload (0x006D8D58) |
+| +0x18 + i*0x30 | `Frames[i]`: four `BINKPLANE {Allocate, Buffer, BufferPitch}` in the order Y, cR, cB, A | `Allocate` by Bink; `Buffer` / `BufferPitch` by the game | A plane exists iff `Frames[i].APlane.Allocate != 0` (0x006D88E6) |
+- Order of calls at start (0x006D9C2C–0x006D9C6D): `BinkGetFrameBuffersInfo(bink, fb)` -> the game creates L8 textures and allocates plane memory -> `BinkRegisterFrameBuffers(bink, fb)`.
+- **Before every `BinkDoFrame`** the game rewrites `Buffer` and `BufferPitch` of all planes of all sets in that same block (0x006D9150–0x006D91AD; pitch = buffer width). So the decoder must keep the POINTER given to `BinkRegisterFrameBuffers` and read the planes from it at decode time, not copy the struct — CONFIRMED on the game side, LIKELY for what the original DLL does.
+- After `BinkDoFrame` the game copies `Frames[fb.FrameNum]` planes row by row into the locked textures (0x006D8D50: `LockRect` with `D3DLOCK_DISCARD`, source pitch = buffer width) — on a worker command or directly, depending on the thread.
+- The trace shows what Bink reports for the shipped 1280x720 files: Y 1280x720, chroma 640x360 (RE_NOTES "D3D9 census": DYNAMIC L8 textures) — CONFIRMED for the texture sizes, so `YABuffer* = 1280x720`, `cRcBBuffer* = 640x360`.
+
+**`BINKREALTIME` (`BinkGetRealtime(bink, &rt, 0)`), fields read:** +0x00 `FrameNum`, +0x04 `FrameRate`, +0x08 `FrameRateDiv` -> position in ms = `FrameNum * FrameRateDiv * 1000 / FrameRate` (64-bit helpers, 0x006D93AB–0x006D93F1; **`FrameRate` must not be 0**, it is a divisor; the value is only computed when `FrameNum < 0x80000000`); +0x2C `ReadBufferSize`, +0x30 `ReadBufferUsed` -> buffer fill in percent (0x006D8CD0: 100 when `Used >= Size`).
+- The fill percentage drives behaviour: after `BinkOpen` the game waits until it is >= 10 (0x006D9829, while background I/O is on); during playback < 20 pauses the movie ("buffering", 0x006D9033), > 95 stops background I/O and < 50 restarts it (0x006D9410 / 0x006D9438). A decoder that reads whole frames itself should report `Used == Size` (100%).
+
+**Calls and arguments (all stdcall; `re/import_abi.csv`):**
+- `BinkSetMemory(0x006D9610, 0x006D9640)` — the game's own bump allocator; a host decoder does not need it.
+- `BinkSetSoundSystem(BinkOpenDirectSound, <IDirectSound* at 0x03B370CC>)` only if that pointer is non-NULL; `BinkSetSoundTrack(5, {0,1,2,3,4})`; after open `BinkSetVolume(bink, track, vol)` x5: tracks 0 and 1 at the cinematic volume (0..0x8000), tracks 2–4 at 0.
+- `BinkOpen(path, 0x01104400)` for files (`BinkSetIOSize(arena - 0x180000)` first) and `BinkOpen(memory, 0x04104400)` for a rawfile from the fastfile (`bik/<name>.bik`, flag 8). Flag names per the public header (LIKELY): `BINKIOSIZE | BINKALPHA | BINKSNDTRACK | BINKNOFRAMEBUFFERS`, and `BINKFROMMEMORY` instead of `BINKIOSIZE`. Paths: `<base>\main\video\<name>.bik`, then `<base>\raw\video\<name>.bik`; on failure the default movie is tried ("R_Cinematic_BinkOpen '%s' failed: %s; trying default.").
+- Right after a successful file open: `BinkPause(bink, 1)`, `BinkControlBackgroundIO(bink, 2)`, wait for the buffer, `BinkPause(bink, 0)`, then loop `while (BinkWait(bink)) Sleep(1)`.
+- Per update (0x006D9000, called through a pointer): `BinkGetRealtime`; `BinkPause` on state change; `BinkWait` (non-zero = not time yet; up to 33 sleeps of 1 ms in one mode) or the game's own clock (0x006D8FA0); `BinkDoFrame`; then `while (BinkShouldSkip(bink) && FrameNum != Frames) { BinkNextFrame; BinkDoFrame; }`; upload; `BinkNextFrame` unless on the last frame; `BinkGetRealtime` again for the position.
+- `BinkClose(bink)` at 0x006D96A5; the device-reset path (0x006B8A6D) re-creates the textures while a movie is open.
+
+**What the FFmpeg-backed shim has to provide (derived from the above):** a guest-memory `BINK` block with `Frames`, `FrameNum` (1-based, advanced by `BinkNextFrame`), `FrameRate`, `FrameRateDiv` (non-zero); `BinkGetFrameBuffersInfo` filling sizes, `TotalFrames = 2` and the `Allocate` flags (A plane 0 for the shipped files — to be checked per file: `BINKALPHA` is requested); `BinkDoFrame` decoding into the planes found through the registered pointer and setting `fb.FrameNum`; `BinkGetRealtime` with non-zero `FrameRate` and `ReadBufferUsed == ReadBufferSize`; `BinkWait` / `BinkShouldSkip` from a wall clock; audio later through the XAudio2 shim (T-053).
+
 ## Native runtime — what the first full boot taught (2026-10-06)
 - **Host pages are 16 KiB, guest pages 4 KiB.** The game decommits hunk memory right up to a page it keeps (`VirtualFree(MEM_DECOMMIT)` from 0x0047D114); anything that re-maps host pages must not touch a host page that is only partly inside the range. CONFIRMED (the lost animation-type names -> "BG_IndexForString: unknown token 'm203'").
 - **Message pump** (main thread): `PeekMessageA(PM_NOREMOVE)` then `GetMessageA`, `TranslateMessage`, `DispatchMessageA`; the render thread also calls `PeekMessageA`. CONFIRMED (import log).

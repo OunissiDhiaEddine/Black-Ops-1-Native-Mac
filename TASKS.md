@@ -4,7 +4,10 @@ Update this file at every checkpoint (see AGENTS.md rule 2).
 Layout: open work is listed once, in **OPEN** (in the order it is planned). The phase sections below are the record of finished work with its evidence. Summary for a newcomer: `docs/HANDOFF_STATUS.md`.
 
 ## NOW
-- **T-054** (P5) Bink on FFmpeg (ADR-008): intro videos, menu TV screens and loading screens are black without it. First: the `BINK` / `BINKFRAMEBUFFERS` field offsets the game reads (game functions at 0x006D9000–0x006DA290; stubs in `src/platform/win32/misc_dlls.cpp`), then decode with FFmpeg's libraries into the game's planes.
+- **T-054** (P5) Bink on FFmpeg (ADR-008): intro videos, menu TV screens and loading screens are black without it.
+  - [x] Step 1 DONE 2026-10-06 — what the game reads and expects (evidence: `tools/bink_sites.py`; RE_NOTES § "Bink as the game uses it": `BINK` +0x08/+0x0C/+0x14/+0x18, `BINKFRAMEBUFFERS` layout at 0x03E4CA84, `BINKREALTIME` +0/+4/+8/+0x2C/+0x30, call order and flags; 14 symbols added).
+  - [ ] Step 2 — the shim: `src/platform/win32/bink_ffmpeg.cpp` replacing the stubs in `misc_dlls.cpp` (libavformat / libavcodec from Homebrew's ffmpeg 9.0.2, already installed; link in `scripts/build_boot.sh`): guest `BINK` block, `BinkGetFrameBuffersInfo` / `BinkRegisterFrameBuffers` (keep the pointer), `BinkDoFrame` -> planes, `BinkNextFrame`, `BinkWait` / `BinkShouldSkip` on a wall clock, `BinkGetRealtime` (non-zero `FrameRate`, buffer 100%). Video only first; audio with T-053.
+  - [ ] Step 3 — evidence: unattended run with `BO1_D3D_DUMP` showing an intro frame and the menu TV screens (compare with `tests/golden/menu/`).
 
 ## OPEN (planned order)
 | ID | Phase | Status | What | Notes |

@@ -33,7 +33,7 @@ addr,name,kind,confidence,notes
 0x006D2100,R_PerfEventScope,func,GUESS,only D3DPERF_BeginEvent/EndEvent site
 0x006D9000,Bink_UpdateFrame,func,LIKELY,BinkDoFrame / BinkNextFrame / BinkWait / BinkShouldSkip site; no direct callers (called through a pointer)
 0x006D96E0,Bink_Open,func,LIKELY,BinkOpen / BinkSetIOSize / BinkGetError site
-0x006D99F0,Bink_InitPlayback,func,LIKELY,BinkSetSoundSystem / BinkOpenDirectSound / BinkRegisterFrameBuffers / BinkSetMemory site. Engine name unknown
+0x006D99F0,R_Cinematic_SetBinkVolumes,func,LIKELY,"five BinkSetVolume calls: tracks 0 and 1 at the cinematic volume (float at 0x03E4D108 * 23167, clamped to 0..0x8000), tracks 2-4 at 0. Engine name is a guess. The earlier note here (SetSoundSystem / RegisterFrameBuffers site) was wrong: that is 0x006D9A90"
 0x006EB1F0,R_PresentAndPumpMessages,func,LIKELY,"references ""Direct3DDevice9::Present failed: %s (%d)""; contains PeekMessageA/GetMessageA/DispatchMessageA. Frame-end anchor (R_EndFrame equivalent). Engine name unknown"
 0x006EBE00,R_InitThenPresent_caller,func,GUESS,calls R_Init and 0x006EB1F0; render-thread entry or CL_InitRenderer — resolve in P1
 0x006FE9F0,Material_LoadShaderText,func,GUESS,"references ""Couldn't read shader '%s'"""
@@ -91,3 +91,17 @@ addr,name,kind,confidence,notes
 0x00965C51,tolower,func,LIKELY,CRT; called by 0x00548D10
 0x00965480,memset,func,LIKELY,"CRT; (dst, value, size) pattern in 0x00758BB0"
 0x0096A5F2,operator_new,func,LIKELY,CRT allocation used for the Steam stats object and the 0x50-byte object after the Steam check
+0x006D8670,R_Cinematic_CreateTextures,func,LIKELY,"after BinkGetFrameBuffersInfo: creates the Y / cR / cB (/ A) textures for both frame sets from the buffer sizes at 0x03E4CA88..94 and allocates the plane memory (0x00696F70); alpha only if Frames[i].APlane.Allocate != 0. Engine name is a guess"
+0x006D8CD0,R_Cinematic_ReadBufferPercent,func,CONFIRMED,"ecx = BINKREALTIME*: 100 if ReadBufferUsed(+0x30) >= ReadBufferSize(+0x2C) or flag 8; else ReadBufferUsed / io size (0x03E4CA5C) * 100. Name is mine"
+0x006D8D50,R_Cinematic_UploadFrame,func,CONFIRMED,"eax = &g_binkFrameBuffers: LockRect(DISCARD) each plane texture and memcpy from the planes of Frames[FrameNum]; source pitch = buffer width. Name is mine"
+0x006D8FA0,R_Cinematic_WaitOwnClock,func,LIKELY,"replacement for BinkWait when the game times the movie itself: nonzero while (now+16-start) * fps * 0.001 + startFrame < bink->FrameNum"
+0x006D9610,R_Cinematic_BinkAlloc,func,CONFIRMED,"stdcall(size): bump allocator handed to BinkSetMemory; returns -1 when the arena (0x03E4CB98..9C) is full"
+0x006D9640,R_Cinematic_BinkFree,func,CONFIRMED,"stdcall(ptr): frees only the most recent allocation; handed to BinkSetMemory"
+0x006D9660,R_Cinematic_Close,func,LIKELY,"BinkControlBackgroundIO(1) if background I/O is on, BinkClose, handle = 0, allocator reset. Engine name is a guess"
+0x006D98F0,R_Cinematic_BinkOpen,func,LIKELY,"builds <base>\main\video\<name>.bik (or the rawfile bik/<name>.bik with flag 8) and <base>\raw\video\..., calls Bink_Open (0x006D96E0) for each; name from the error string R_Cinematic_BinkOpen ... failed printed by its caller"
+0x006D9A90,R_Cinematic_StartPlayback,func,LIKELY,"BinkSetMemory / BinkSetSoundSystem(BinkOpenDirectSound, dsound at 0x03B370CC) / BinkSetSoundTrack(5, {0..4}) / open (falls back to the default movie) / BinkGetFrameBuffersInfo / create textures / BinkRegisterFrameBuffers. Engine name is a guess"
+0x006D9F30,R_Cinematic_GetTimeRemaining,func,LIKELY,"returns (Frames - FrameNum) / (FrameRate / FrameRateDiv) as float seconds: integer division by FrameRateDiv. 0 if no movie"
+0x03E4CA80,g_bink,data,CONFIRMED,"HBINK of the playing movie (result of BinkOpen); 41 references, all in 0x006D8000-0x006DA2C0 except the device-reset path at 0x006B8A6D"
+0x03E4CA84,g_binkFrameBuffers,data,CONFIRMED,"BINKFRAMEBUFFERS (0x78 bytes, 2 frame sets) passed to BinkGetFrameBuffersInfo / BinkRegisterFrameBuffers; the game rewrites the plane pointers in it before every BinkDoFrame and reads FrameNum (+0x14 = 0x03E4CA98) after it"
+0x03E4CA68,g_binkFps,data,CONFIRMED,"float: bink->FrameRate / bink->FrameRateDiv, set at 0x006D98DD"
+0x03E4CA58,g_binkTimeMs,data,CONFIRMED,"playback position in ms = rt.FrameNum * rt.FrameRateDiv * 1000 / rt.FrameRate from BinkGetRealtime (0x006D93A5..F1)"
