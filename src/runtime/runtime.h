@@ -23,6 +23,9 @@ LiftedFn rt_lookup(uint32_t va);
 #define RT_TRAMP_BASE 0xFFF00000u
 extern void (*g_rt_host_call)(Cpu *cpu, uint32_t target);
 extern void (*g_rt_trap_handler)(Cpu *cpu, uint32_t addr, uint32_t code);
+//   g_rt_unknown_target — rt_dispatch() target that is neither lifted nor a trampoline; returns non-zero
+//                         when it executed the call (emulated x86 modules, docs/HOST_ABI.md §7a)
+extern int (*g_rt_unknown_target)(Cpu *cpu, uint32_t target);
 
 // rt_trap() longjmps here with the trap code; the embedder sets it up before entering guest code.
 extern jmp_buf g_trap_jmp;

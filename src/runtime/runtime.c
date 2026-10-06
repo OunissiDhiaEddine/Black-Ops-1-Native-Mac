@@ -10,12 +10,15 @@ extern const struct LiftedEntry { uint32_t va; LiftedFn fn; } g_lifted_table[];
 extern const unsigned g_lifted_count;
 
 #define ARENA_SIZE (1ull << 32)
+#define ARENA_SLACK 0x10000ull
 
 int rt_arena_reset(void) {
     // Anonymous, lazily zero-filled, fully accessible: any guest address reads as zero until
     // written. MAP_FIXED over the old mapping drops every page touched by the previous user.
     void *want = g_mem;
-    void *p = mmap(want, ARENA_SIZE, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON | MAP_NORESERVE | (want ? MAP_FIXED : 0), -1, 0);
+    // + ARENA_SLACK: an access that starts in the last bytes of the address space runs past 4 GiB in host
+    // terms (x86 would wrap to 0); the slack keeps that inside the mapping instead of faulting the host.
+    void *p = mmap(want, ARENA_SIZE + ARENA_SLACK, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON | MAP_NORESERVE | (want ? MAP_FIXED : 0), -1, 0);
     if (p == MAP_FAILED) return -1;
     g_mem = (uint8_t *)p;
     return 0;
@@ -56,6 +59,7 @@ LiftedFn rt_lookup(uint32_t va) {
 
 void (*g_rt_host_call)(Cpu *cpu, uint32_t target);
 void (*g_rt_trap_handler)(Cpu *cpu, uint32_t addr, uint32_t code);
+int (*g_rt_unknown_target)(Cpu *cpu, uint32_t target);
 
 void rt_dispatch(Cpu *cpu, uint32_t target) {
     if (target >= RT_TRAMP_BASE && g_rt_host_call) {
@@ -63,7 +67,10 @@ void rt_dispatch(Cpu *cpu, uint32_t target) {
         return;
     }
     LiftedFn fn = rt_lookup(target);
-    if (!fn) rt_trap(cpu, target, TRAP_NO_TARGET);
+    if (!fn) {
+        if (g_rt_unknown_target && g_rt_unknown_target(cpu, target)) return;
+        rt_trap(cpu, target, TRAP_NO_TARGET);
+    }
     fn(cpu);
 }
 

@@ -33,8 +33,11 @@ static void on_alarm(int sig) {
     (void)sig;
     longjmp(g_trap_jmp, 6);
 }
-static void on_fault(int sig) {
-    (void)sig;
+static uint32_t g_fault_guest; // guest address of the faulting access (0xFFFFFFFF: not inside the arena, e.g. host stack overflow)
+static void on_fault(int sig, siginfo_t *info, void *ctx) {
+    (void)sig, (void)ctx;
+    uintptr_t fa = (uintptr_t)info->si_addr, base = (uintptr_t)g_mem;
+    g_fault_guest = fa >= base && fa - base < (1ull << 32) ? (uint32_t)(fa - base) : 0xFFFFFFFFu;
     longjmp(g_trap_jmp, 8);
 }
 // Two float bit patterns that are both NaN: the reference (QEMU) picks between NaN operands with the
@@ -100,8 +103,8 @@ int main(int argc, char **argv) {
     sigaltstack(&ss, NULL);
     struct sigaction sa;
     memset(&sa, 0, sizeof(sa));
-    sa.sa_handler = on_fault;
-    sa.sa_flags = SA_ONSTACK | SA_NODEFER;
+    sa.sa_sigaction = on_fault;
+    sa.sa_flags = SA_ONSTACK | SA_NODEFER | SA_SIGINFO;
     sigaction(SIGSEGV, &sa, NULL);
     sigaction(SIGBUS, &sa, NULL);
     sigaction(SIGFPE, &sa, NULL);
@@ -209,7 +212,7 @@ int main(int argc, char **argv) {
             trapped++;
             fail++;
             if (fn != last_fail_fn) funcs_fail++, last_fail_fn = fn;
-            if (verbose) printf("FAIL %08x: trap %s at %08x\n", fn, kTrap[code < 7 ? code : 0], cpu.trap_addr);
+            if (verbose) printf("FAIL %08x: trap %s at %08x\n", fn, kTrap[code < 9 ? code : 0], code == 8 ? g_fault_guest : cpu.trap_addr);
             continue;
         }
         int bad = 0;

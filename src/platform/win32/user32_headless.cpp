@@ -29,7 +29,7 @@ static std::map<std::string, WndClass> g_classes;
 static std::map<uint32_t, Window> g_windows;
 static uint32_t g_next_hwnd = 0x00010100, g_focus = 0, g_next_atom = 0xC000;
 static const uint32_t kDesktop = 0x00010010;
-static const int32_t kScreenW = 1920, kScreenH = 1080; // headless "monitor" (design choice)
+static const int32_t kScreenW = 1440, kScreenH = 900; // headless "monitor": the desktop mode of the baseline (re/d3d9_adapter_probe.json)
 
 static std::string class_key(uint32_t name_va) {
     if (name_va < 0x10000) return "#" + std::to_string(name_va);

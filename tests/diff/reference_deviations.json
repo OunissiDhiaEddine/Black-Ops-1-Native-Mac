@@ -1,1 +1,8 @@
-{}
+{
+ "0x00906220": "x87 0/0 leaves FSW.IE set on a real x87 (and in the lifted code); QEMU sets ZE instead. The function returns with FNSTSW's value still in eax (not its result).",
+ "0x00907480": "x87 0/0 leaves FSW.IE set on a real x87 (and in the lifted code); QEMU sets ZE instead. The function returns with FNSTSW's value still in eax (not its result).",
+ "0x00907e00": "x87 0/0 leaves FSW.IE set on a real x87 (and in the lifted code); QEMU sets ZE instead. The function returns with FNSTSW's value still in eax (not its result).",
+ "0x00908990": "x87 0/0 leaves FSW.IE set on a real x87 (and in the lifted code); QEMU sets ZE instead. The function returns with FNSTSW's value still in eax (not its result).",
+ "0x00909940": "x87 0/0 leaves FSW.IE set on a real x87 (and in the lifted code); QEMU sets ZE instead. The function returns with FNSTSW's value still in eax (not its result).",
+ "0x00909c10": "x87 0/0 leaves FSW.IE set on a real x87 (and in the lifted code); QEMU sets ZE instead. The function returns with FNSTSW's value still in eax (not its result)."
+}

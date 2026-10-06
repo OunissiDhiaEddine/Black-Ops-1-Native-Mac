@@ -528,6 +528,47 @@ uint32_t import_lookup(const std::string &dll, const std::string &name) {
     return tramp_add(dll, name, d->fn, d->nargs);
 }
 
+uint32_t tramp_register(const std::string &dll, const std::string &name, ShimFn fn, int nargs) {
+    std::lock_guard<std::mutex> lk(g_tramp_mu);
+    return tramp_add(dll, name, fn, nargs);
+}
+
+static std::map<std::string, uint32_t> g_vtables;
+uint32_t com_vtable(const std::string &iface, const ComMethod *methods, size_t count) {
+    {
+        std::lock_guard<std::mutex> lk(g_tramp_mu);
+        auto it = g_vtables.find(iface);
+        if (it != g_vtables.end()) return it->second;
+    }
+    uint32_t vt = heap_alloc((uint32_t)count * 4);
+    for (size_t i = 0; i < count; i++) {
+        uint32_t t = tramp_register("com", iface + "::" + methods[i].name, methods[i].fn, methods[i].words);
+        memcpy(g_mem + vt + 4 * i, &t, 4);
+    }
+    std::lock_guard<std::mutex> lk(g_tramp_mu);
+    g_vtables[iface] = vt;
+    return vt;
+}
+uint32_t com_new(uint32_t vtable, uint32_t extra) {
+    uint32_t o = heap_alloc(COM_DATA + extra, true);
+    uint32_t one = 1;
+    memcpy(g_mem + o + COM_VTBL, &vtable, 4);
+    memcpy(g_mem + o + COM_REFS, &one, 4);
+    return o;
+}
+
+uint32_t import_lookup_or_stub(const std::string &dll, const std::string &name) {
+    if (uint32_t t = import_lookup(dll, name)) return t;
+    std::lock_guard<std::mutex> lk(g_tramp_mu);
+    return tramp_add(dll, name, nullptr, 0);
+}
+void imports_redirect(const std::string &dll, const std::function<uint32_t(const std::string &)> &resolve) {
+    for (const ImportAbi &im : kImportAbi) {
+        if (strcasecmp(im.dll, dll.c_str()) != 0) continue;
+        if (uint32_t va = resolve(im.name)) memcpy(g_mem + im.iat, &va, 4);
+    }
+}
+
 const char *tramp_name(uint32_t target) {
     static thread_local char buf[160];
     uint32_t idx = (target - kTrampBase) / kTrampStep;

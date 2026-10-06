@@ -24,6 +24,7 @@
 //   BO1_CAPTURE_EVERY   N > 0: dump the back buffer to a BMP every N presented frames (T-014)
 //   BO1_CAPTURE_DIR     directory for frame_NNNNNN.bmp (default: cwd)
 //   BO1_FRAMETIMES      CSV file: one line per presented frame, "frame,microseconds since load"
+//   BO1_ADAPTER_PROBE   text file: every IDirect3D9 capability query with its result and output bytes
 //   BO1_REAL_D3D9       full path of the D3D9 implementation to wrap (default: system d3d9.dll)
 //   BO1_KEYS            "ms:vk,ms:vk": post key presses to the game window (ms after device creation)
 //   BO1_CMDS            "ms|command;ms|command": queue engine console commands (ms after device
@@ -905,6 +906,45 @@ static ThreadState *thread_state(void) {
     return t;
 }
 
+// ---- adapter probe (BO1_ADAPTER_PROBE=file) -----------------------------------------------------
+// One text line per IDirect3D9 query the game makes before creating its device: method, HRESULT,
+// arguments and the bytes the implementation wrote. Input for the null / Metal D3D9 device, which
+// must give the game the same answers (tools/adapter_probe.py -> re/d3d9_adapter_probe.json).
+static HANDLE g_probe = INVALID_HANDLE_VALUE;
+static void probe_init(void) {
+    char path[MAX_PATH];
+    if (!GetEnvironmentVariableA("BO1_ADAPTER_PROBE", path, sizeof(path)) || !path[0]) return;
+    g_probe = CreateFileA(path, GENERIC_WRITE, FILE_SHARE_READ, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+}
+static void probe_write(unsigned slot, unsigned result, const DWORD *w, unsigned nwords) {
+    static const char *names[] = {0, 0, 0, 0, "GetAdapterCount", "GetAdapterIdentifier", "GetAdapterModeCount", "EnumAdapterModes",
+                                  "GetAdapterDisplayMode", "CheckDeviceType", "CheckDeviceFormat", "CheckDeviceMultiSampleType",
+                                  "CheckDepthStencilMatch", "CheckDeviceFormatConversion", "GetDeviceCaps"};
+    const BYTE *out = NULL;
+    unsigned n = 0;
+    switch (slot) {
+    case 5: out = (const BYTE *)w[3], n = sizeof(D3DADAPTER_IDENTIFIER9); break;
+    case 7: out = (const BYTE *)w[4], n = sizeof(D3DDISPLAYMODE); break;
+    case 8: out = (const BYTE *)w[2], n = sizeof(D3DDISPLAYMODE); break;
+    case 11: out = (const BYTE *)w[6], n = 4; break;
+    case 14: out = (const BYTE *)w[3], n = sizeof(D3DCAPS9); break;
+    }
+    static char line[8192];
+    static CRITICAL_SECTION cs;
+    static LONG once;
+    if (InterlockedExchange(&once, 1) == 0) InitializeCriticalSection(&cs);
+    EnterCriticalSection(&cs);
+    int len = wsprintfA(line, "%s hr=%08x args=", names[slot], result);
+    for (unsigned i = 1; i < nwords; i++) len += wsprintfA(line + len, i == 1 ? "%x" : ",%x", w[i]);
+    len += wsprintfA(line + len, " out=");
+    if (out && (int)result >= 0)
+        for (unsigned i = 0; i < n && len < (int)sizeof(line) - 4; i++) len += wsprintfA(line + len, "%02x", out[i]);
+    line[len++] = '\n';
+    DWORD wrote;
+    WriteFile(g_probe, line, (DWORD)len, &wrote, NULL);
+    LeaveCriticalSection(&cs);
+}
+
 // ---- hot path: called by every thunk before the original method runs ------------------------
 extern "C" void *__stdcall trace_pre(unsigned k, unsigned slot, void **frame) {
     if (g_tls != TLS_OUT_OF_INDEXES && thread_state()->in_proxy) return NULL; // our own D3D use
@@ -926,7 +966,8 @@ extern "C" void *__stdcall trace_pre(unsigned k, unsigned slot, void **frame) {
     }
     bool tracing = g_trace_on != 0;
     bool create_device = k == IFACE_D3D9 && slot == 16;
-    if (!tracing && !create_device) return NULL;
+    bool probe = g_probe != INVALID_HANDLE_VALUE && k == IFACE_D3D9 && slot >= 4 && slot <= 14;
+    if (!tracing && !create_device && !probe) return NULL;
     ThreadState *t = thread_state();
     // Shadow frames still in progress sit at HIGHER addresses than this call's frame. Anything
     // lower was unwound by an exception. An equal address is a tail call out of a hooked method
@@ -946,7 +987,7 @@ extern "C" void *__stdcall trace_pre(unsigned k, unsigned slot, void **frame) {
     // progress: depth > 0 then reliably means "made by the D3D9 implementation, not the game".
     // Calls whose result or out-parameters matter are recorded when they return; the rest are
     // recorded here, before they run (Unlock* must read the data before the real unlock).
-    bool emit_on_return = create_device || g_want_post[k][slot];
+    bool emit_on_return = create_device || g_want_post[k][slot] || probe;
     bool can_push = !tail && t->depth < 24;
     if (tracing && (!emit_on_return || !can_push)) {
         Emit e;
@@ -987,6 +1028,7 @@ extern "C" void *__stdcall trace_post(unsigned result) {
         LeaveCriticalSection(&g_tlock);
         t_emit(k, slot, 1, (BYTE)t->depth, result, fr.w, fr.nwords, e.b, e.nb);
     }
+    if (k == IFACE_D3D9 && slot >= 4 && slot <= 14 && g_probe != INVALID_HANDLE_VALUE) probe_write(slot, result, fr.w, fr.nwords);
     if (k == IFACE_D3D9 && slot == 16) { // CreateDevice(this, Adapter, Type, hFocus, Flags, pp, ppDevice)
         IDirect3DDevice9 **out = (IDirect3DDevice9 **)fr.w[6];
         event("CreateDevice -> hr=0x%08lx device=%p\n", (unsigned long)result, out ? (void *)*out : NULL);
@@ -1328,6 +1370,7 @@ extern "C" BOOL WINAPI DllMain(HINSTANCE inst, DWORD reason, LPVOID) {
         InitializeCriticalSection(&g_tlock);
         g_t0 = GetTickCount();
         init_tables();
+        probe_init();
         for (int i = 0; i < IDIRECT3DDEVICE9_COUNT; i++) g_first_frame_device[i] = -1;
         if (!GetEnvironmentVariableA("BO1_D3D9_LOG", g_log_path, sizeof(g_log_path)))
             strcpy(g_log_path, "d3d9_census.txt");

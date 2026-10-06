@@ -90,7 +90,28 @@ void shim_register(ShimDef *d);
 int imports_bind();
 // Trampoline for a function resolved by name at run time (GetProcAddress); 0 if we provide no such DLL.
 uint32_t import_lookup(const std::string &dll, const std::string &name);
+// Same, but a function without a shim gets a trampoline that stops the guest with its name when called
+// (used for the import tables of emulated modules, where NULL is not an option).
+uint32_t import_lookup_or_stub(const std::string &dll, const std::string &name);
+// Points the image's IAT slots of `dll` somewhere else (e.g. at the exports of an emulated module).
+// `resolve` returns the new address for a function name, or 0 to leave the slot alone.
+void imports_redirect(const std::string &dll, const std::function<uint32_t(const std::string &)> &resolve);
 const char *tramp_name(uint32_t target);
+// Makes a host function callable from the guest (stdcall with `nargs` stack slots, -1 = cdecl) and
+// returns its trampoline address. Used for COM methods and callbacks handed to the game.
+uint32_t tramp_register(const std::string &dll, const std::string &name, ShimFn fn, int nargs);
+
+// ---- host-implemented COM objects (docs/HOST_ABI.md §4.3) --------------------------------------------------
+// The guest sees an ordinary COM object: [0] = vtable pointer, [4] = reference count, then `extra`
+// bytes owned by the implementation. Methods are shims whose a[0] is `this`.
+struct ComMethod {
+    const char *name;
+    int words; // stack slots including `this`
+    ShimFn fn;
+};
+uint32_t com_vtable(const std::string &iface, const ComMethod *methods, size_t count); // built once per interface
+uint32_t com_new(uint32_t vtable, uint32_t extra);
+enum : uint32_t { COM_VTBL = 0, COM_REFS = 4, COM_DATA = 8 };
 void imports_report(); // call statistics (BO1_IMPORT_STATS=1)
 
 #define SHIM(dll_, name_, nargs_)                                                                  \

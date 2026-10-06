@@ -32,13 +32,18 @@ def main() -> int:
     L = lift.Lifter(extra_entries=False)
     insn_starts, block_starts = {}, set()
     imm_refs = {}                                   # value -> first referencing instruction
+    call_refs = {}                                  # direct call target that is not a function -> call site
     for fn, blocks in L.blocks.items():
         for s, e in set(blocks):
             block_starts.add(s)
             for i in L.md.disasm(L.image[s - L.base: e + 1 - L.base], s):
                 insn_starts[i.address] = fn
+                if i.mnemonic == "call" and i.operands[0].type == X.X86_OP_IMM:
+                    v = i.operands[0].imm & 0xFFFFFFFF
+                    if L.is_code(v) and v not in L.funcs:
+                        call_refs.setdefault(v, i.address)
                 if i.mnemonic in ("call", "jmp") or i.mnemonic[0] == "j":
-                    continue                        # direct branch targets are handled by the lifter itself
+                    continue                        # direct jump targets are handled by the lifter itself
                 for o in i.operands:
                     if o.type == X.X86_OP_IMM:
                         v = o.imm & 0xFFFFFFFF
@@ -53,6 +58,15 @@ def main() -> int:
         for off in range(0, len(data) - 3, 4):
             v = int.from_bytes(data[off: off + 4], "little")
             if L.is_code(v) and v not in L.funcs:
+                data_refs.setdefault(v, lo + off)
+        # Unaligned tables (the CRT's math dispatch tables sit at odd offsets): accepted only as runs of at
+        # least two consecutive code pointers, to keep coincidental byte patterns out.
+        word = lambda o: int.from_bytes(data[o: o + 4], "little") if 0 <= o <= len(data) - 4 else 0
+        for off in range(len(data) - 3):
+            if off % 4 == 0:
+                continue
+            v = word(off)
+            if L.is_code(v) and v not in L.funcs and (L.is_code(word(off + 4)) or L.is_code(word(off - 4))):
                 data_refs.setdefault(v, lo + off)
 
     # jump tables embedded in the code section (hand-written CRT routines): aligned dwords in the gaps
@@ -99,6 +113,56 @@ def main() -> int:
             continue
         kinds[kind + (" (imm)" if v in imm_refs else " (data)")] += 1
         rows.append({"addr": f"0x{v:08x}", "kind": kind, "inside_function": f"0x{owner:08x}" if owner else "", "first_reference": src})
+    # Direct calls to code that is not a function entry (local subroutines of hand-written CRT routines,
+    # SEH funclets): from the Ghidra bodies and, transitively, from the bodies of the entries found above.
+    known = set(L.funcs) | {int(r["addr"], 16) for r in rows}
+    # Ghidra functions: their bodies as the lifter sees them (Ghidra blocks + blocks added by extend())
+    for fn in sorted(L.funcs):
+        body = {}
+        for s_, e_ in set(L.blocks.get(fn, [])):
+            got = list(L.md.disasm(L.image[s_ - L.base: e_ + 1 - L.base], s_))
+            if got:
+                body[s_] = got
+        n_ghidra = set(body)
+        try:
+            L.extend(fn, body)
+        except lift.Unsupported:
+            continue
+        for s_, got in body.items():
+            if s_ in n_ghidra:
+                continue
+            for i in got:
+                if i.mnemonic == "call" and i.operands[0].type == X.X86_OP_IMM:
+                    v = i.operands[0].imm & 0xFFFFFFFF
+                    if L.is_code(v) and v not in L.funcs:
+                        call_refs.setdefault(v, i.address)
+    work = list(call_refs.items()) + [(int(r["addr"], 16), None) for r in rows]
+    scanned = set()
+    while work:
+        t, site = work.pop()
+        if site is not None:
+            if t in known:
+                continue
+            known.add(t)
+            kinds["call target"] += 1
+            rows.append({"addr": f"0x{t:08x}", "kind": "call_target", "inside_function": f"0x{insn_starts[t]:08x}" if t in insn_starts else "",
+                         "first_reference": f"call@0x{site:08x}"})
+        if t in scanned:
+            continue
+        scanned.add(t)
+        body = {}
+        L.extra.add(t)
+        try:
+            L.extend(t, body)
+        except lift.Unsupported:
+            continue
+        for got in body.values():
+            for i in got:
+                if i.mnemonic == "call" and i.operands[0].type == X.X86_OP_IMM:
+                    v = i.operands[0].imm & 0xFFFFFFFF
+                    if L.is_code(v) and v not in known:
+                        work.append((v, i.address))
+    rows.sort(key=lambda r: r["addr"])
     with open(args.out, "w", newline="") as f:
         w = csv.DictWriter(f, fieldnames=["addr", "kind", "inside_function", "first_reference"])
         w.writeheader()

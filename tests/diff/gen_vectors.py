@@ -14,6 +14,7 @@ is zero-fill), so wild pointers are deterministic rather than fatal.
 import argparse
 import json
 import random
+import signal
 import math
 import struct
 import sys
@@ -41,6 +42,9 @@ POISON = 0xFE000000       # unmapped: import slots point here
 ESP0 = STACK_TOP - 0x10000
 MAX_INSNS = 100000
 MAX_OUT = 1 << 16
+MAX_LAZY_PAGES = 256      # per vector: pages mapped on demand
+MAX_WRITES = 100000       # per vector: memory write events
+WATCHDOG_S = 20           # per vector: wall clock
 DEBUG = False
 FLAG_MMX = 1          # vector flag: the function uses MMX -> compare mm0-7 instead of the x87 stack
 
@@ -105,8 +109,14 @@ def main() -> int:
     lazy = set()
     written = []
 
+    budget = {"pages": 0, "abort": None}                      # per-vector limits (reset before each run)
+
     def on_unmapped(u, access, addr, size, value, _):
         if access == UC_MEM_FETCH_UNMAPPED:                   # jumped into nowhere: let it fail
+            return False
+        budget["pages"] += 1
+        if budget["pages"] > MAX_LAZY_PAGES or budget["abort"]:
+            budget["abort"] = budget["abort"] or "touched too many unmapped pages"
             return False
         try:
             for page in {addr & ~0xFFF, (addr + size - 1) & ~0xFFF}:
@@ -119,6 +129,9 @@ def main() -> int:
 
     def on_write(u, access, addr, size, value, _):
         written.append((addr, size))
+        if len(written) > MAX_WRITES and not budget["abort"]:
+            budget["abort"] = "wrote too much memory"
+            u.emu_stop()
 
     run_pcs, covered = set(), set()
 
@@ -127,6 +140,9 @@ def main() -> int:
     wild = [False]
 
     def on_block(u, addr, size, _):                           # per block, not per instruction: 50x cheaper
+        if budget["abort"]:
+            u.emu_stop()
+            return
         if not any(a <= addr < b for a, b in code) and addr != SENTINEL:
             wild[0] = True                                    # executing data / lazily mapped zero pages
             u.emu_stop()
@@ -136,6 +152,7 @@ def main() -> int:
     # Inputs for which the reference is not a usable expectation are dropped (and counted):
     #  - FYL2X (D9 F1) with ST(0) <= 0: QEMU only sets C2; a real x87 stores NaN / -infinity and pops.
     #  - FPREM / FPREM1 (D9 F8 / D9 F5) with an exponent gap >= 53: QEMU's partial reduction is approximate.
+    #  - FSIN / FCOS / FSINCOS / FPTAN of +-infinity: QEMU leaves ST(0) and sets C2; a real x87 returns NaN (#IA).
     #  - CPUID (0F A2) and RDTSC (0F 31): results describe the machine, not the code under test.
     deviates = [None]
 
@@ -153,11 +170,17 @@ def main() -> int:
         if (se0 & 0x7FFF) - (se1 & 0x7FFF) >= 53:
             deviates[0] = "reference deviates from a real x87: FPREM with a large quotient"
 
+    def on_trig(u, addr, size, _):
+        (mant, se), _st1 = st_regs(u)
+        if se & 0x7FFF == 0x7FFF and (mant << 1) & 0xFFFFFFFFFFFFFFFF == 0:
+            deviates[0] = "reference deviates from a real x87: FSIN/FCOS/FSINCOS/FPTAN of infinity"
+
     def on_env(u, addr, size, _):
         deviates[0] = "environment-dependent instruction (CPUID / RDTSC)"
 
     special_sites = []
     for pattern, cb in ((b"\xd9\xf1", on_fyl2x), (b"\xd9\xf8", on_fprem), (b"\xd9\xf5", on_fprem), (b"\x0f\xa2", on_env),
+                        (b"\xd9\xfe", on_trig), (b"\xd9\xff", on_trig), (b"\xd9\xfb", on_trig), (b"\xd9\xf2", on_trig),
                         (b"\x0f\x31", on_env)):
         for lo_, hi_ in code:
             k = image.find(pattern, lo_ - base, hi_ - base)
@@ -185,6 +208,17 @@ def main() -> int:
         return u, u.context_save()
 
     uc, ctx0 = make_uc()
+
+    # Wall-clock watchdog: Unicorn's own timeout is only checked between translated blocks; a vector that
+    # keeps the hooks busy (page-by-page mapping, huge REP string operations) can otherwise run for hours.
+    def on_alarm(signum, frame):
+        budget["abort"] = "watchdog: vector exceeded the wall-clock limit"
+        try:
+            uc.emu_stop()
+        except UcError:
+            pass
+
+    signal.signal(signal.SIGALRM, on_alarm)
 
     def rand_value():
         k = rng.random()
@@ -229,7 +263,7 @@ def main() -> int:
 
     out = bytearray(b"BO1DIFF3" + struct.pack("<III", 0, len(heaps), HEAP_SIZE) + b"".join(heaps))
     out += struct.pack("<I", len(patches)) + b"".join(struct.pack("<II", a, v) for a, v in patches)
-    count, skipped, funcs_ok = 0, Counter(), 0
+    count, skipped, funcs_ok, done = 0, Counter(), 0, 0
     for fn in cands:
         got = 0
         for _ in range(args.per_func):
@@ -253,6 +287,8 @@ def main() -> int:
             written.clear()
             run_pcs.clear()
             wild[0] = False
+            budget["pages"], budget["abort"] = 0, None
+            signal.alarm(WATCHDOG_S)
             deviates[0] = None
             try:
                 uc.emu_start(fn, SENTINEL, timeout=5_000_000, count=MAX_INSNS)
@@ -260,11 +296,18 @@ def main() -> int:
                 finished = True
             except UcError as e:
                 finished, ok = False, False
-                skipped[str(e)] += 1
+                skipped[budget["abort"] or str(e)] += 1
                 if DEBUG: print(f'{fn:08x} {e} eip={uc.reg_read(UC_X86_REG_EIP):08x} esp={uc.reg_read(UC_X86_REG_ESP):08x}')
+            signal.alarm(0)
             if finished:
                 # emu_start returns normally at the sentinel, at the instruction limit and after emu_stop()
-                if wild[0]:
+                if budget["abort"]:
+                    ok = False
+                    skipped[budget["abort"]] += 1
+                    if budget["abort"].startswith("watchdog"):
+                        print(f"  watchdog fired in {fn:08x}", flush=True)
+                        finished = False                      # rebuild the emulator: its state is suspect
+                elif wild[0]:
                     ok = False
                     skipped["executed outside the code sections"] += 1
                 elif deviates[0]:
@@ -322,6 +365,9 @@ def main() -> int:
             except UcError:                                   # write hook saw a page that never got mapped
                 uc, ctx0 = make_uc()
         funcs_ok += got > 0
+        done += 1
+        if done % 500 == 0:
+            print(f"  shard {args.shard}: {done}/{len(cands)} functions, {count} vectors", flush=True)
     struct.pack_into("<I", out, 8, count)
     Path(args.out).write_bytes(out)
     md = capstone.Cs(capstone.CS_ARCH_X86, capstone.CS_MODE_32)
