@@ -110,6 +110,9 @@ struct ComMethod {
     ShimFn fn;
 };
 uint32_t com_vtable(const std::string &iface, const ComMethod *methods, size_t count); // built once per interface
+// MSVC thiscall interfaces (Steam ISteamUser/ISteamFriends/…): `this` arrives in ecx, the rest on the
+// stack, callee pops (docs/HOST_ABI.md §4.3). `words` still counts `this` as one slot.
+uint32_t com_vtable_thiscall(const std::string &iface, const ComMethod *methods, size_t count);
 uint32_t com_new(uint32_t vtable, uint32_t extra);
 enum : uint32_t { COM_VTBL = 0, COM_REFS = 4, COM_DATA = 8 };
 void imports_report(); // call statistics (BO1_IMPORT_STATS=1)

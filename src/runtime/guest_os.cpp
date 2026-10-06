@@ -479,8 +479,9 @@ struct Tramp {
     std::string dll, name;
     ShimFn fn;
     int nargs;
+    bool thiscall = false; // MSVC thiscall: `this` in ecx, args on the stack (Steam interfaces)
     std::atomic<uint64_t> calls{0};
-    Tramp(std::string d, std::string n, ShimFn f, int a) : dll(std::move(d)), name(std::move(n)), fn(f), nargs(a) {}
+    Tramp(std::string d, std::string n, ShimFn f, int a, bool tc) : dll(std::move(d)), name(std::move(n)), fn(f), nargs(a), thiscall(tc) {}
 };
 static ShimDef *g_shims = nullptr;
 static std::vector<std::unique_ptr<Tramp>> g_tramps;
@@ -495,8 +496,8 @@ static ShimDef *shim_find(const std::string &dll, const std::string &name) {
         if (name == d->name && strcasecmp(dll.c_str(), d->dll) == 0) return d;
     return nullptr;
 }
-static uint32_t tramp_add(const std::string &dll, const std::string &name, ShimFn fn, int nargs) {
-    g_tramps.push_back(std::make_unique<Tramp>(dll, name, fn, nargs));
+static uint32_t tramp_add(const std::string &dll, const std::string &name, ShimFn fn, int nargs, bool thiscall = false) {
+    g_tramps.push_back(std::make_unique<Tramp>(dll, name, fn, nargs, thiscall));
     return kTrampBase + (uint32_t)(g_tramps.size() - 1) * kTrampStep;
 }
 
@@ -530,11 +531,15 @@ uint32_t import_lookup(const std::string &dll, const std::string &name) {
 
 uint32_t tramp_register(const std::string &dll, const std::string &name, ShimFn fn, int nargs) {
     std::lock_guard<std::mutex> lk(g_tramp_mu);
-    return tramp_add(dll, name, fn, nargs);
+    return tramp_add(dll, name, fn, nargs, false);
+}
+uint32_t tramp_register_thiscall(const std::string &dll, const std::string &name, ShimFn fn, int nargs) {
+    std::lock_guard<std::mutex> lk(g_tramp_mu);
+    return tramp_add(dll, name, fn, nargs, true);
 }
 
 static std::map<std::string, uint32_t> g_vtables;
-uint32_t com_vtable(const std::string &iface, const ComMethod *methods, size_t count) {
+static uint32_t com_vtable_impl(const std::string &iface, const ComMethod *methods, size_t count, bool thiscall) {
     {
         std::lock_guard<std::mutex> lk(g_tramp_mu);
         auto it = g_vtables.find(iface);
@@ -542,12 +547,19 @@ uint32_t com_vtable(const std::string &iface, const ComMethod *methods, size_t c
     }
     uint32_t vt = heap_alloc((uint32_t)count * 4);
     for (size_t i = 0; i < count; i++) {
-        uint32_t t = tramp_register("com", iface + "::" + methods[i].name, methods[i].fn, methods[i].words);
+        uint32_t t = thiscall ? tramp_register_thiscall("com", iface + "::" + methods[i].name, methods[i].fn, methods[i].words)
+                              : tramp_register("com", iface + "::" + methods[i].name, methods[i].fn, methods[i].words);
         memcpy(g_mem + vt + 4 * i, &t, 4);
     }
     std::lock_guard<std::mutex> lk(g_tramp_mu);
     g_vtables[iface] = vt;
     return vt;
+}
+uint32_t com_vtable(const std::string &iface, const ComMethod *methods, size_t count) {
+    return com_vtable_impl(iface, methods, count, false);
+}
+uint32_t com_vtable_thiscall(const std::string &iface, const ComMethod *methods, size_t count) {
+    return com_vtable_impl(iface, methods, count, true);
 }
 uint32_t com_new(uint32_t vtable, uint32_t extra) {
     uint32_t o = heap_alloc(COM_DATA + extra, true);
@@ -603,7 +615,17 @@ static void host_call(Cpu *cpu, uint32_t target) {
     if (idx >= g_tramps.size() || (target - kTrampBase) % kTrampStep) rt_trap(cpu, target, TRAP_NO_TARGET);
     Tramp &t = *g_tramps[idx];
     if (!t.fn) rt_trap(cpu, target, TRAP_UNIMPLEMENTED_IMPORT);
-    const uint32_t *a = reinterpret_cast<const uint32_t *>(g_mem + cpu->esp + 4);
+    uint32_t local[16];              // thiscall: this (from ecx) + stack args, rebuilt into one array
+    const uint32_t *a;
+    int pop_slots = t.nargs > 0 ? t.nargs : 0;
+    if (t.thiscall) {
+        local[0] = cpu->ecx;         // `this` travels in ecx (MSVC thiscall), not on the stack
+        for (int i = 1; i < pop_slots && i < 16; i++) memcpy(&local[i], g_mem + cpu->esp + 4 + 4 * (i - 1), 4);
+        a = local;
+        pop_slots = pop_slots > 1 ? pop_slots - 1 : 0; // this was not pushed
+    } else {
+        a = reinterpret_cast<const uint32_t *>(g_mem + cpu->esp + 4);
+    }
     t.calls.fetch_add(1, std::memory_order_relaxed);
     if (g_verbose >= 2) {
         uint32_t ret;
@@ -613,7 +635,7 @@ static void host_call(Cpu *cpu, uint32_t target) {
     }
     uint32_t r = t.fn(cpu, a);
     cpu->eax = r;
-    cpu->esp += 4 + (t.nargs > 0 ? 4u * (uint32_t)t.nargs : 0);
+    cpu->esp += 4 + 4u * (uint32_t)pop_slots;
     if (g_verbose >= 3) log("  -> %08x", r);
 }
 
