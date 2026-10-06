@@ -46,6 +46,20 @@ void WindowService::serve_requests() {
         SDL_SetWindowTitle(window_, new_title_.c_str());
         title_pending_ = false;
     }
+    if (window_) { // mouse look: follow what the game's SetCursorPos calls ask for
+        bool want = input_.relative && focused_ &&
+                    std::chrono::steady_clock::now() - last_warp_ < std::chrono::milliseconds(kRelativeHoldMs);
+        if (!want) input_.relative = false;
+        if (want != relative_on_) {
+            SDL_Window *w = window_;
+            float x = (float)input_.x, y = (float)input_.y;
+            lk.unlock();
+            SDL_SetWindowRelativeMouseMode(w, want);
+            if (!want) SDL_WarpMouseInWindow(w, x, y); // the pointer reappears where the game last put its cursor
+            lk.lock();
+            relative_on_ = want;
+        }
+    }
     if (!create_ || create_->done) return;
     CreateRequest *rq = create_;
     lk.unlock();
@@ -81,6 +95,14 @@ void WindowService::cursor(int32_t *x, int32_t *y) {
     std::lock_guard<std::mutex> lk(mu_);
     *x = input_.x;
     *y = input_.y;
+}
+
+void WindowService::warp(int32_t x, int32_t y) {
+    std::lock_guard<std::mutex> lk(mu_);
+    input_.x = x;
+    input_.y = y; // the fractions in fx / fy stay: the game calls this every frame and slow movement lives in them
+    last_warp_ = std::chrono::steady_clock::now();
+    if (focused_ || !window_) input_.relative = true; // without a window (tests, scripted runs) the cursor is always virtual
 }
 
 bool WindowService::peek(Msg *out, bool remove) {

@@ -4,6 +4,7 @@
 // window creation is a blocking request, input arrives as Win32 messages in a thread-safe queue.
 #pragma once
 #include <atomic>
+#include <chrono>
 #include <condition_variable>
 #include <deque>
 #include <mutex>
@@ -34,6 +35,12 @@ public:
     bool wants_window() const { return wants_window_; }
     bool focused() const { return focused_; }
     void cursor(int32_t *x, int32_t *y);
+    // SetCursorPos in client coordinates. The game does this every frame while it uses the mouse to look
+    // around, so it also switches the window to relative mouse mode (pointer hidden and held, movement
+    // reported as device deltas); the mode ends when the calls stop for kRelativeHoldMs.
+    void warp(int32_t x, int32_t y);
+    bool relative_mouse() const { return relative_on_; }
+    static constexpr int kRelativeHoldMs = 500;
     // PeekMessage semantics: copies the oldest message; removes it when `remove` is set.
     bool peek(Msg *out, bool remove);
     void post(const Msg &m);
@@ -57,6 +64,8 @@ private:
     void *layer_ = nullptr;
     uint32_t hwnd_ = 0;
     InputState input_;
+    std::chrono::steady_clock::time_point last_warp_{};
+    std::atomic<bool> relative_on_{false}; // what SDL was last told (main thread writes)
     std::atomic<bool> focused_{false}, running_{false}, enabled_{false}, wants_window_{false};
 };
 

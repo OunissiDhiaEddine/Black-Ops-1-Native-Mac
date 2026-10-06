@@ -67,9 +67,10 @@ tests/boot/main.cpp          entry point of bo1_boot; tests/boot/steam_selftest.
 ## What is missing, in the order I would do it
 1. ~~T-054 Bink video~~ — done 2026-10-06 (video only; the movies' sound tracks come with T-053).
 2. **T-053 sound** — XAudio2 2.7 on FAudio works since 2026-10-06 (`xaudio2_faudio.cpp`; RE_NOTES "XAudio2 as the game uses it"),
-   including the movies' sound tracks. Left: nobody has LISTENED yet — it was only measured (levels, spectra, no dropouts).
-3. **T-057 input with a human**: the window, keyboard and mouse position are wired, but only scripted
-   keys were verified. Mouse look (relative mode), key repeat, focus changes, gamepad (the XInput shim is a stub).
+   including the movies' sound tracks; the user listened on 2026-10-06: "sound is great". Done.
+3. **T-057 input with a human**: the user played it on 2026-10-06 — keyboard works; mouse look was broken (no-op `SetCursorPos`)
+   and is fixed in code (virtual cursor + SDL relative mode, RE_NOTES "Mouse as the game uses it") but not yet confirmed by hand.
+   Still open: a real mouse, key repeat, focus changes, gamepad (the XInput shim is a stub).
 4. **T-058 performance**: nothing is measured on the live path. The renderer re-uploads constants per draw
    and resolves hazards by flushing — it was written for correctness.
 5. ~~T-059 Direct3D object lifetime~~ — done 2026-10-06: objects and their guest memory are freed when Direct3D would destroy them;

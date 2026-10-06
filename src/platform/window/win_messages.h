@@ -33,8 +33,14 @@ KeyInfo key_info(SDL_Scancode sc);
 // Tracks button/modifier state between events (wParam of mouse messages carries it).
 struct InputState {
     uint32_t mouse_keys = 0; // MK_* bits
-    int32_t x = 0, y = 0;
+    int32_t x = 0, y = 0;    // cursor in client coordinates as the game sees it
     bool alt = false;
+    // Mouse look: the game re-centres the cursor with SetCursorPos every frame and reads how far it moved
+    // since. While `relative` is set the cursor above is a virtual one: SetCursorPos places it and mouse
+    // motion moves it by the device's relative movement (fx / fy keep the fractions), wherever the real
+    // pointer is.
+    bool relative = false;
+    float fx = 0, fy = 0;
 };
 
 // Appends the Win32 messages one SDL event produces for window `hwnd`. Returns how many were added.

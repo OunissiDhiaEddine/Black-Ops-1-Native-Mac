@@ -113,6 +113,55 @@ int main() {
     translate(f, hwnd, st, m);
     CHECK(m.size() == 7 && m[6].message == WM_CLOSE);
 
+    // mouse look (T-057): the game reads the cursor, takes the distance from where it last put it and puts it
+    // back in the centre of its window every frame (game code 0x00867840 / 0x005B7700). The cursor is then a
+    // virtual one that only relative motion moves. Model three frames of that loop.
+    {
+        InputState look;
+        std::vector<Msg> mm;
+        const int32_t cx = 400, cy = 300;
+        auto frame = [&](float xrel, float yrel, int32_t *dx, int32_t *dy) {
+            if (xrel != 0 || yrel != 0) {
+                SDL_Event e;
+                std::memset(&e, 0, sizeof(e));
+                e.type = SDL_EVENT_MOUSE_MOTION;
+                e.motion.x = 17, e.motion.y = 23; // where the parked system pointer happens to be: must not matter
+                e.motion.xrel = xrel, e.motion.yrel = yrel;
+                translate(e, hwnd, look, mm);
+            }
+            *dx = look.x - cx, *dy = look.y - cy; // GetCursorPos minus the previous position (= the centre)
+            look.x = cx, look.y = cy;             // SetCursorPos(centre), as WindowService::warp() does
+        };
+        look.x = cx, look.y = cy, look.relative = true; // first SetCursorPos of the game
+        int32_t dx, dy;
+        frame(10.0f, -4.0f, &dx, &dy);
+        CHECK(dx == 10 && dy == -4);
+        frame(0, 0, &dx, &dy); // the hand rests: no turning at all (the old no-op SetCursorPos kept reporting the offset)
+        CHECK(dx == 0 && dy == 0);
+        int32_t sum = 0;
+        for (int i = 0; i < 8; i++) { // slow movement: a quarter step per frame adds up to whole steps, nothing is lost
+            frame(0.25f, 0, &dx, &dy);
+            sum += dx;
+        }
+        CHECK(sum == 2);
+        // a click during mouse look does not move the game's cursor to the parked pointer
+        SDL_Event click;
+        std::memset(&click, 0, sizeof(click));
+        click.type = SDL_EVENT_MOUSE_BUTTON_DOWN;
+        click.button.button = SDL_BUTTON_LEFT;
+        click.button.x = 17, click.button.y = 23;
+        translate(click, hwnd, look, mm);
+        CHECK(look.x == cx && look.y == cy);
+        // outside mouse look the cursor follows the pointer again
+        look.relative = false;
+        SDL_Event abs;
+        std::memset(&abs, 0, sizeof(abs));
+        abs.type = SDL_EVENT_MOUSE_MOTION;
+        abs.motion.x = 120, abs.motion.y = 90, abs.motion.xrel = 55;
+        translate(abs, hwnd, look, mm);
+        CHECK(look.x == 120 && look.y == 90);
+    }
+
     // every mapped key has a unique (scan, extended) pair and a non-zero virtual key
     int mapped = 0;
     bool seen[2][256] = {};
