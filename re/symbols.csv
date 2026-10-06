@@ -66,3 +66,28 @@ addr,name,kind,confidence,notes
 0x0049B930,Cbuf_AddText,func,CONFIRMED,"(int localClientNum, const char *text) cdecl; enters critical section 0x35; references ""Cbuf_AddText: overflow""; called by the proxy to queue commands"
 0x005FEA60,Sys_EnterCriticalSection,func,LIKELY,called with the critical-section index (push 0x35) at the top of Cbuf_AddText
 0x0056D400,Sys_LeaveCriticalSection,func,LIKELY,"index*24 + 0x0276A560 -> LeaveCriticalSection; pairs with 0x005FEA60"
+
+0x00403AD0,SteamStats_StoreFrame,func,LIKELY,"per frame: if stats object byte +0 (store pending) is set, SteamUserStats()->StoreStats() (slot 10) and clear it on success; T-024"
+0x004F1CA0,SteamStats_Construct,func,LIKELY,"thiscall constructor of the 0x58-byte Steam stats object (pointer at 0x0383B288): registers callbacks 1101/1102/1103, GetAppID, BLoggedOn -> RequestCurrentStats; T-024"
+0x0050C990,SteamStats_OnUserStatsReceived,func,CONFIRMED,"callback 1101 handler: requires m_nGameID == app id and m_eResult == 1, logs ""STEAM: Received stats and achievements from Steam"", sets byte +0x18; T-024"
+0x00590160,SteamStats_OnUserStatsStored,func,CONFIRMED,"callback 1102 handler; logs ""STEAM: Stored stats for Steam""; T-024"
+0x00670FD0,SteamStats_OnAchievementStored,func,LIKELY,"callback 1103 handler (UserAchievementStored_t, 0x98 bytes); T-024"
+0x00573570,CSteamID_IsValid,func,LIKELY,thiscall on the CSteamID returned by GetSteamID in the start-up check (0x005A276B); accepts the stand-in's individual/public id (steam self-test); T-024
+0x0066B9D0,Steam_RequestAppTicket,func,LIKELY,"thiscall: SteamUser()->RequestEncryptedAppTicket (slot 19), registers the call result unless the handle is 0; result handler 0x004FB6D0; T-024"
+0x004FB6D0,Steam_OnAppTicketResponse,func,LIKELY,call-result handler stored at +0x1C of the CCallResult set up in 0x0066B9D0; T-024
+0x0383B288,g_steamStats,data,LIKELY,pointer to the Steam stats object (0x004F1CA0); NULL-checked by 0x00403AD0 / 0x0069AC40
+0x0383B214,g_steamInitialised,data,LIKELY,byte set to 1 after SteamAPI_Init succeeded (0x005A2734); guards several Steam call sites
+0x005D73D0,BG_IndexForString,func,CONFIRMED,"(const char *token, {name, hash}[] table, int allowFail) cdecl; error string ""BG_IndexForString: unknown token '%s'""; hash via 0x00548D10, compare via 0x00552BF0; T-045"
+0x00548D10,BG_StringHashValue_Lwr,func,LIKELY,sum of tolower(c) * (i + 119) over the string; -1 is mapped to 0; T-045
+0x00552BF0,I_stricmp,func,LIKELY,calls 0x0052F790 with n = 0x7FFFFFFF; T-045
+0x0052F790,I_strnicmp,func,LIKELY,called by 0x00552BF0; T-045
+0x00591DB0,BG_LoadPlayerAnimTypes,func,LIKELY,"parses a rawfile into up to 32 names: pointers at 0x00BE2D58, count at 0x00BE20C0, each name copied into memory from 0x004ECFD0 (hunk); T-045"
+0x005199B0,BG_CopyPlayerAnimTypes,func,LIKELY,"copies the names of 0x00BE2D58 into the {name, hash} table at 0x00BAA600 through 0x0046A520; called by the anim-script parser; T-045"
+0x00758BB0,BG_AnimParseAnimScript,func,LIKELY,"parser of mp/playeranim.script: clears the tables (0x00BAA600, 0x00BA9258 …), handles DEFINES / set …; T-045"
+0x007586B0,BG_ParseConditionBits,func,LIKELY,called per condition value; looks the token up in the defines table (allowFail 1) and then in the condition's own table; T-045
+0x00BAA600,bg_playerAnimTypeTable,data,LIKELY,{const char *name; int hash}[128] filled by 0x005199B0; the 'm203' lookup failed here when the name memory was wiped (16 KiB page bug)
+0x00BE2D58,bg_playerAnimTypeNames,data,LIKELY,"char *[32], count at 0x00BE20C0"
+0x004ECFD0,Hunk_AllocNamed32,func,GUESS,"wrapper: 0x0043EEB0(size, 0x20); returns hunk memory that survives the temp-memory decommits"
+0x00965C51,tolower,func,LIKELY,CRT; called by 0x00548D10
+0x00965480,memset,func,LIKELY,"CRT; (dst, value, size) pattern in 0x00758BB0"
+0x0096A5F2,operator_new,func,LIKELY,CRT allocation used for the Steam stats object and the 0x50-byte object after the Steam check

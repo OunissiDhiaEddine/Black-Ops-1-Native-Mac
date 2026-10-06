@@ -1,70 +1,96 @@
-# Project status — BO1 native arm64 + Metal port
+# Hand-over — BO1 native arm64 + Metal port
 
-> **Superseded 2026-10-06.** This was the hand-over note for the Steam problem. It is solved differently from what is described below: see docs/DECISIONS.md ADR-015 and `src/platform/win32/steam_local.cpp`. Current state: LOG.md.
+Written 2026-10-06 for the next agent. This is a summary; the authoritative files are `AGENTS.md`
+(rules, session protocol), `LOG.md` (STATE block = resume point, then the session log), `TASKS.md`,
+`docs/DECISIONS.md` and `docs/RE_NOTES.md`. If this file and those disagree, they win.
 
-Written 2026-10-06 as a plain status report. It describes what exists and what was observed; it
-contains no task list. Detailed records: `LOG.md`, `TASKS.md`, `docs/DECISIONS.md`, `docs/RE_NOTES.md`.
+## Where the project stands
+The game runs as a native arm64 process with a Metal renderer and no Wine:
+title screen -> main menu -> the first campaign mission (`cuba`) loads and its opening scene renders.
+Evidence: `artifacts/boot/native_title_screen.png`, `native_main_menu.png`, `native_mission_cuba.png`;
+10-minute soak `artifacts/boot/soak_run.log` (38,000 frames, no error).
 
-## What the project is
-Call of Duty: Black Ops (2010, Treyarch T5 engine, PE32 x86, Direct3D 9) being ported to a native arm64
-Mach-O process on Apple Silicon with a Metal renderer and no Wine at runtime. First target: the
-single-player campaign (`BlackOps.exe`). The owner states they own the game.
+| Phase | State |
+|---|---|
+| P0–P3 recon, baseline, shim design, renderer in isolation | done |
+| P4 static recompilation | done — exit criteria met 2026-10-06 |
+| P5 integration | in progress: boots, renders, loads a mission; no sound, no video |
+| P6–P8 | not started |
 
-## How it works
-- **Static recompilation** (`tools/lifter/`, `src/runtime/`): the x86 code is lifted function by function
-  to C (`artifacts/lifted/`, generated, gitignored) and compiled for arm64. The guest address space is a
-  4 GiB arena; flags are function-local; indirect calls go through a dispatch table.
-- **Renderer** (`src/rhi`, `src/metal`): Direct3D 9 calls in, Metal out; SM3 bytecode is translated to MSL.
-- **Platform shims** (`src/platform/win32`): kernel32/user32/winsock/etc. on macOS, a null D3D9 device,
-  an SDL3 window service (`src/platform/window`).
-- **Boot harness** (`tests/boot`, `scripts/boot_try.sh`): runs the lifted game headless and reports where it stops.
+## Run it
+```
+scripts/run_native.sh                    # window; Ctrl-C in the terminal to stop
+scripts/boot_try.sh 60 40                # headless test run, tail of artifacts/boot/last_run.log
+BO1_KEYS="35000:0x20" BO1_CMDS="50000|devmap cuba" BO1_D3D_DUMP=artifacts/boot/frames \
+    artifacts/boot/bo1_boot --seconds 170   # unattended: key at 35 s, mission at 50 s, PNG every 20th frame
+```
+The first ~30 s are black (intro videos are skipped). `last_run.log` contains binary bytes: use `grep -a`.
 
-## What has been achieved (with evidence files)
-- **Lifter:** 25,991 of 26,304 entry points lift (1,876,989 instructions): integer, x87, SSE/SSE2, MMX.
-  The remainder is junk candidates plus a handful of known unsupported functions (`re/lift_coverage.json`).
-- **Differential tests** against an x86 emulator (Unicorn), whole call trees: 26,294 vectors over
-  13,840 functions, 26,275 pass, 0 unexplained failures; the 7 failures are documented reference-emulator
-  or input artefacts (`re/difftest_report_all.json`, `tests/diff/reference_deviations.json`).
-  An x86_64 cross-build under Rosetta agrees apart from three 1-ulp libm differences (`docs/LIFTER.md`).
-- **Renderer vs the Wine/wined3d baseline** on four recorded scenes (menu, three missions), mean SSIM
-  0.973 to 0.999, 0 skipped draws (`re/replay_check.json`). Known open differences: Khe Sanh sky and far
-  field, small specks in the menu; which side is right is unknown without a native D3D9 reference.
-- **Live view:** `scripts/replay_window.sh menu 1500` plays a recorded session through Metal in an SDL3 window.
-- **Native boot:** the lifted game runs from the entry point through CRT start-up, static initialisers,
-  `WinMain`, CPU detection, the D3D9 probe and window-class registration (87 distinct imports, about
-  4,900 calls, no crash) and stops at the game's Steam check.
+## Build
+- `scripts/build.sh` — CMake/Ninja: translator, Metal renderer library, window library, replay tool, unit tests.
+- `scripts/build_boot.sh` — the runtime `artifacts/boot/bo1_boot` (not in CMake: it links the lifted
+  objects in `artifacts/lifted/obj`, which come from `scripts/difftest.sh` / the lifter).
+- The lifted C code is generated (`tools/lifter/`), lives in `artifacts/lifted/` and is never edited or committed.
 
-## The blocker
-The game calls `SteamAPI_Init` early in `WinMain`. With no Steam implementation present it fails and the
-game shows "Steam must be running to play this game." and exits (`BO1_NO_STEAM_DLL=1 scripts/boot_try.sh`;
-the "absent" stand-ins are `src/platform/win32/steam_absent.cpp`).
+## How it fits together
+```
+BlackOps.exe --tools/lifter--> artifacts/lifted/*.c --clang--> arm64 objects
+        |                                                         |
+        +-- loaded as data into a 4 GiB guest arena --------------+--> artifacts/boot/bo1_boot
+src/runtime/guest_os.cpp     arena, heap, virtual memory, threads/TEB/TLS, import trampolines, COM objects
+src/platform/win32/*.cpp     kernel32, user32/gdi32, winsock, misc DLLs, Bink stubs
+   steam_local.cpp           Steam: local offline stand-in (ADR-015), table re/steam_abi.csv
+   d3d9_null.cpp             guest-visible Direct3D objects, lock memory, capability answers
+   d3d9_live.cpp             watches every Direct3D call and feeds it to the renderer as a call record
+src/rhi + src/metal          renderer: Direct3D 9 call records in, Metal out (same code the trace replay uses)
+src/shaders/sm3_msl.cpp      SM3 bytecode -> MSL
+src/platform/window          SDL3 window on the process main thread, SDL events -> Win32 messages
+tests/boot/main.cpp          entry point of bo1_boot; tests/boot/steam_selftest.cpp
+```
 
-## What the shipped `steam_api.dll` did
-`artifacts/game/steam_api.dll` (255,776 bytes, PE32, link date 2016, three sections, one with entropy 7.93) is
-supplied by the owner together with the game. It was mapped unmodified into the arena and run by an x86
-interpreter host (`src/platform/win32/x86_module.cpp`; Unicorn, FS segment set to the thread block). Observed:
-- its start-up code runs and resolves about 200 Win32 functions;
-- it reads `C:\bo1\steam_emu.ini` and creates files under `C:\users\Public\Documents\Steam\CODEX\42700\`;
-- it enumerates the process's modules (EnumProcessModules, then GetModuleFileNameExA for each);
-- it then shows a message box "Internal error 0x0A: Protection initialization failed!" and calls ExitProcess(0);
-- the game's 19 Steam imports bind to its 88 exports without error;
-- a trace of its reads of the process/thread blocks showed one field of the thread block and two bytes of a
-  system-module handle, nothing else (`BO1_ENV_TRACE`, not kept in the tree).
-- a fidelity bug on our side (incomplete module list) was fixed on the way; the result did not change.
+## Regression set (all green on 2026-10-06)
+| Command | Expected |
+|---|---|
+| `artifacts/boot/bo1_boot --steam-selftest` | `steam selftest: 76 checks, 0 failed, 24 interface methods` |
+| `scripts/replay_check.sh` | worst SSIM cuba 0.9994, khe_sanh 0.9984, menu 0.9997, vorkuta 0.9985; no "unrecorded" lines |
+| `build/test_win_messages`, `build/test_window_service` | `all checks passed` |
+| `scripts/boot_try.sh 90` | `time limit reached (still running …)` |
+| `scripts/difftest.sh 100000 2 5 all` (~6 min; lifter untouched since 2026-10-06 06:10) | 0 unexplained failures |
 
-## What the earlier agent did not do
-It did not investigate why the DLL's protection rejects this environment, did not patch, unpack or replace
-the DLL, and did not write a Steam emulator. These were outside what it was willing to do. The project owner
-has said they own the game, consider the DLL part of it, and have changed the project's ground rule on this
-(see the latest commit message and `AGENTS.md`).
+## What is missing, in the order I would do it
+1. **T-054 Bink video** (ADR-008): intro movies, menu TV screens, loading screens. Stubs are in
+   `src/platform/win32/misc_dlls.cpp`; the game reads `BINK` / `BINKFRAMEBUFFERS` fields directly
+   (game functions at 0x006D9000–0x006DA290) — get those offsets first.
+2. **T-053 sound** (ADR-009: XAudio2 2.7 on FAudio). Needs `brew install faudio` — **ask the user first** (AGENTS.md rule 7).
+3. **T-057 input with a human**: the window, keyboard and mouse position are wired, but only scripted
+   keys were verified. Mouse look (relative mode), key repeat, focus changes, gamepad (the XInput shim is a stub).
+4. **T-058 performance**: nothing is measured on the live path. The renderer re-uploads constants per draw
+   and resolves hazards by flushing — it was written for correctness.
+5. **T-059 Direct3D object lifetime**: `d3d9_null.cpp` never frees objects; `Reset` is not forwarded.
+6. **`Com_Error` recovery** (ADR-012): the error path jumps to a point inside `Com_Init` (0x004069D5 / 0x00406A91)
+   that the lifter does not know as an entry — any dropped error ends the process today.
+7. Saves, display modes, the rest of the campaign: untested.
 
-## Other open items
-Sound (XAudio2 on FAudio needs `brew install faudio`), video (Bink via FFmpeg), wiring the game's live
-D3D9 and window calls to the renderer and window service (untestable until the game passes the check),
-gamepad. Real Steam via Valve's macOS library was considered and then withdrawn by the owner
-(`docs/DECISIONS.md`, ADR-014).
+## Decisions a newcomer must know (docs/DECISIONS.md)
+- **Steam = ADR-015**, user decision of 2026-10-06: a local, offline stand-in inside the runtime. It reports no
+  DLC on purpose. Unknown Steam methods trap with their slot number: add them only with evidence from the
+  game's call site (`tools/steam_sites.py`). The shipped `steam_api.dll` is not loaded, modified or analysed.
+- The reference copy in `reference/` is read-only and is never committed; neither are `artifacts/`.
+- The Wine baseline (ADR-007) exists only as an oracle: `scripts/run_baseline.sh`, golden frames in
+  `tests/golden/` (PNG files are git-ignored), traces in `artifacts/traces/`.
+- Ask the user before: system-wide installs, downloads > 500 MB, `git push`, changing an ADR.
 
-## Running things
-`scripts/boot_try.sh [seconds]` (native boot, log in `artifacts/boot/last_run.log`), `scripts/difftest.sh`,
-`scripts/replay_check.sh`, `scripts/replay_window.sh`, `build/test_win_messages`, `build/test_window_service`.
-Game files: `artifacts/game/` (working copy), originals in `reference/` (read-only, gitignored).
+## Things that cost time once (do not repeat)
+- **Apple Silicon host pages are 16 KiB**, the guest's are 4 KiB. Anything that maps or protects memory per
+  page must handle partial host pages (`vm_zero()` in `guest_os.cpp`).
+- **Do not edit a shell script while it is running** (bash reads scripts incrementally; a capture run was lost).
+- **Traces only contain what the proxy recorded.** The replay prints "draw reads an unrecorded …" when a
+  trace lacks data; trust that line before suspecting the renderer.
+- **Python text mode rewrites CRLF files** (`re/platform_map.csv`): edit such files in binary mode.
+- **Finding a runtime bug:** compare the game's own debug strings in `last_run.log` with a baseline
+  `artifacts/baseline/run-*.log` — they are identical up to the first fault. Then lldb on `bo1_boot`:
+  break on `f_<VA>`, `x0` is the `Cpu *`, the global `g_mem` is the arena base.
+
+## Repository state at hand-over
+One branch (`main`), no worktrees, no stashes, working tree clean, no remote configured.
+Open questions for the user are listed in the STATE block of `LOG.md`.

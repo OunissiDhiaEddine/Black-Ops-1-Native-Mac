@@ -1,8 +1,10 @@
-// user32 / gdi32 for the HEADLESS boot runtime (T-045): window classes and windows exist as
-// bookkeeping only, the window procedure receives the creation / activation messages a real window
-// would get, the message queue is always empty. The SDL3 backed implementation replaces this in P5
-// (ADR-006). Message sequences are a simplified version of what Windows sends (LIKELY sufficient;
-// to be compared with a message trace from the Wine baseline if the game misbehaves).
+// user32 / gdi32 for the native runtime (T-045, T-052). Window classes and windows are bookkeeping here;
+// the window procedure receives the creation / activation messages a real window would get. When the
+// window service runs (BO1_WINDOW=1, src/platform/window, ADR-006) the game's top-level window is a real
+// SDL3 window and PeekMessageA / GetMessageA / GetCursorPos are served from it; without it the run is
+// headless and the queue only carries scripted input (BO1_KEYS). The file name is historical.
+// Message sequences are a simplified version of what Windows sends (LIKELY sufficient; to be compared
+// with a message trace from the Wine baseline if the game misbehaves).
 #include <unistd.h>
 
 #include <chrono>

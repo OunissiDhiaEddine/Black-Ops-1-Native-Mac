@@ -44,9 +44,10 @@ src/native/               hand-written 64-bit replacements for lifted modules (s
 tests/golden/             reference frames + metrics from the Wine/DXVK baseline (gitignored if large)
 tests/diff/               per-function differential tests (original x86 vs lifted)
 tests/replay/             D3D9 trace replay harness for renderer development
+tests/boot/               the native runtime's entry point (bo1_boot) + Steam self-test; built by scripts/build_boot.sh
 reference/                USER'S ORIGINAL GAME FILES (gitignored, read-only)
 artifacts/                build outputs, traces, captures (gitignored)
-scripts/                  bootstrap.sh, build.sh, run_baseline.sh, ...
+scripts/                  bootstrap.sh, build.sh, run_baseline.sh, ...; run_native.sh = play the native build in a window
 ```
 
 ## Conventions

@@ -4,7 +4,7 @@ Update this file at every checkpoint (see AGENTS.md rule 2).
 
 ## NOW
 - **T-054** (P5) Bink on FFmpeg (ADR-008): intro videos, menu TV screens and loading screens are black without it. First: the `BINK` / `BINKFRAMEBUFFERS` field offsets the game reads (game functions at 0x006D9000–0x006DA290), then decode into the game's planes.
-- Queue after it: T-053 XAudio2 on FAudio (needs the user's OK for `brew install faudio`) · T-057 input with a human at the keyboard (focus, mouse look, gamepad through SDL) · T-058 frame-rate measurement of the live path · T-059 free Direct3D objects on final Release · ADR-012 work for `Com_Error` recovery · T-044 leftovers.
+- Queue after it: T-053 XAudio2 on FAudio (needs the user's OK for `brew install faudio`) · T-057 input with a human at the keyboard · T-058 frame-rate measurement · T-059 Direct3D object lifetime · T-060 `Com_Error` recovery · T-061 play-through checks · T-044 leftovers. Summary for a newcomer: `docs/HANDOFF_STATUS.md`.
 
 ## DONE
 - **T-001** (P0) DONE 2026-10-05 — game install present in `reference/`, `scripts/doctor.sh` run, tool availability recorded.
@@ -71,6 +71,8 @@ Update this file at every checkpoint (see AGENTS.md rule 2).
 - [ ] **T-057** Input with a human at the keyboard: focus, key repeat, mouse look (relative mode), gamepad through SDL for the XInput shim.
 - [ ] **T-058** Frame-rate / frame-time measurement of the live path (menu, cuba) and first profile.
 - [ ] **T-059** Free Direct3D objects and their guest memory on the final Release; forward `Reset`.
+- [ ] **T-060** `Com_Error` recovery (ADR-012): the error path jumps back into `Com_Init` (0x004069D5 at start-up, 0x00406A91 later) — a setjmp-style non-local jump the lifter has no entry for; today any dropped error ends the process.
+- [ ] **T-061** Play-through checks: saves / checkpoints, display modes and window resize, the rest of cuba and the next missions (use `BO1_CMDS` with `devmap <map>`).
 
 ## P5+ (later)
 Integration -> strangler fig -> Metal optimisation -> QA. See docs/PLAN.md.

@@ -1,9 +1,10 @@
-// d3d9.dll for the headless boot runtime (T-045): a NULL Direct3D 9 implementation.
+// d3d9.dll for the native runtime: the guest-visible half of Direct3D 9 (T-045).
 // Every interface the game uses exists as a guest-visible COM object (vtable layout and stack sizes
-// from re/d3d9_abi.csv); resources hand out real guest memory from Lock*, state setters succeed and
-// do nothing, nothing is drawn. Capability answers come from the Wine baseline
-// (re/d3d9_adapter_probe.json) so that the game takes the same start-up decisions.
-// The Metal implementation replaces this file in P5 (ADR-004).
+// from re/d3d9_abi.csv); resources hand out real guest memory from Lock*, reference counts are kept,
+// state setters succeed. Nothing is drawn HERE: d3d9_live.cpp watches every call on these objects and
+// forwards it to the Metal renderer (T-055, ADR-004); with BO1_D3D=null this file alone is the old
+// "null device". Capability answers come from the Wine baseline (re/d3d9_adapter_probe.json) so that
+// the game takes the same start-up decisions. Objects are never freed yet (T-059).
 #include <cstdlib>
 #include <map>
 #include <mutex>

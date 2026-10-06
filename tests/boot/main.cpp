@@ -1,8 +1,13 @@
-// Headless boot harness (T-045, milestone M4b): loads BlackOps.exe into the guest arena, binds the
-// imports to the Win32 shims and runs the lifted entry point until it exits, traps or times out.
+// The native runtime's entry point (started as the headless boot harness of T-045; it is now what runs
+// the game): loads BlackOps.exe into the guest arena, binds the imports to the Win32 shims and runs the
+// lifted entry point until it exits, traps or times out. Built by scripts/build_boot.sh (not by CMake:
+// it links the lifted objects from artifacts/lifted/obj).
 //
-//   artifacts/boot/bo1_boot [--exe PATH] [--seconds N]
-//   env: BO1_VERBOSE=0..3, BO1_IMPORT_STATS=1, BO1_GAME_DIR=artifacts/game
+//   artifacts/boot/bo1_boot [--exe PATH] [--seconds N] [--steam-selftest]      (--seconds 0 = no limit)
+//   env: BO1_VERBOSE=0..3, BO1_IMPORT_STATS=1, BO1_GAME_DIR=artifacts/game,
+//        BO1_WINDOW=1 (real window), BO1_KEYS="ms:vk,…", BO1_CMDS="ms|command;…" (user32_headless.cpp),
+//        BO1_D3D=null, BO1_D3D_DUMP=dir (d3d9_live.cpp), BO1_STEAM_ABSENT=1, BO1_EMULATED_STEAM_DLL=1
+//   scripts/run_native.sh = windowed run, scripts/boot_try.sh = headless test run.
 //
 // Every stop prints why (unimplemented import, bad indirect target, host fault) together with the
 // guest registers and a stack scan, which is the work list for the next iteration.

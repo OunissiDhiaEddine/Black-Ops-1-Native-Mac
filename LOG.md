@@ -1,7 +1,7 @@
 # LOG
 
 ## STATE  (OVERWRITE this block at every checkpoint — it is the resume point)
-- **Date/time:** 2026-10-06 ~14:30
+- **Date/time:** 2026-10-06 ~15:00 — **hand-over point** (the user passes the project to another agent). Newcomer: read `AGENTS.md`, this block, then `docs/HANDOFF_STATUS.md`.
 - **Phase / task:** P5 (integration). **The native arm64 build boots through Metal to the title screen, the main menu and into the first mission (cuba) — no Wine.** P4 exit criteria now met (diff tests green; boot to the main loop; 10-minute soak clean). NOW: T-054 (Bink video) — the most visible gap (black intro, dark menu TVs, no loading screens).
 - **How to run it:** `scripts/run_native.sh` (window; Ctrl-C to stop) · unattended: `BO1_KEYS="35000:0x20" BO1_CMDS="50000|devmap cuba" BO1_D3D_DUMP=artifacts/boot/frames artifacts/boot/bo1_boot --seconds 170` (headless, PNG every 20th frame) · `scripts/boot_try.sh [seconds] [lines]` (headless, log `artifacts/boot/last_run.log` — it contains binary bytes, read with `grep -a`).
 - **Switches:** `BO1_WINDOW=1` real window (SDL3 on the process main thread) · `BO1_D3D=null` no rendering · `BO1_D3D_DUMP=dir` · `BO1_KEYS="ms:vk,…"` · `BO1_CMDS="ms|command;…"` · `BO1_STEAM_ABSENT=1` · `BO1_EMULATED_STEAM_DLL=1` · `BO1_VERBOSE=0..3` · `BO1_IMPORT_STATS=1`.
@@ -10,7 +10,7 @@
 - **Next exact step:** T-054 — the `BINK` / `BINKFRAMEBUFFERS` field offsets the game reads (game functions at 0x006D9000–0x006DA290; the Bink stubs are in `src/platform/win32/misc_dlls.cpp`), then decode with FFmpeg's libraries into the game's planes. Before that, if the user reports on the window: fix what they see first.
 - **Regression set (all green at this checkpoint):** `artifacts/boot/bo1_boot --steam-selftest` (76 checks) · `scripts/replay_check.sh` (0.9994 / 0.9984 / 0.9997 / 0.9985) · `build/test_win_messages` · `build/test_window_service` · `scripts/difftest.sh` (not re-run today; lifter untouched).
 - **Debugging aids that paid off today:** compare the game's own debug strings with the baseline run log (`artifacts/baseline/run-*.log`, `OutputDebugStringA` lines) — the first divergence is the bug; lldb on `bo1_boot` with a Python breakpoint script on `f_<VA>` (x0 = Cpu*, `g_mem` = arena base); `BO1_DEBUG_FRAME` / `tools/pass_dump.py` for the renderer; `tools/steam_sites.py`.
-- **Files in flight:** none. Work is on `main` in the top-level checkout (no worktrees, no other branches).
+- **Files in flight:** none. One branch (`main`), no worktrees, no stashes, working tree clean, no git remote. Scratch output of this session was deleted (`artifacts/debug/`, dumped frames); kept as evidence: `artifacts/boot/native_*.png`, `artifacts/boot/soak_run.log`. Not mine and left alone: `artifacts/wip/` (two files of the first agent), `artifacts/boot/last_run_v2.log`, `stats_run.log`.
 - **Open questions for the user:** OK for `brew install faudio` (sound)? Does keyboard / mouse work for them in the window?
 - **Machine:** Apple M1 (arm64, 16 KiB pages!), 8 GB RAM, macOS 27.0.1, Xcode 27.0. brew: cmake, ninja, ffmpeg, sevenzip, ghidra, openjdk@21, mingw-w64, sdl3 3.4.18. venv: pefile, capstone, lief, unicorn, numpy, pillow. Wine baseline: `artifacts/wine/cx` (WineCX 24.0.7), prefix `artifacts/wineprefix-cx`.
 - **Reference copy / decisions:** user owns BO1 (stated 2026-10-05); `reference/` read-only; working copy `artifacts/game`. ADR-004/005/006/008/009/011/012/013/015 in force; ADR-010 superseded as default by ADR-015; ADR-014 withdrawn. Windows PC: last resort only (user).
@@ -332,3 +332,12 @@ Entry template:
 - Not verified: real keyboard / mouse focus in the window (only scripted input), frame rate under load (nothing measured), anything past the first ~40 s of cuba.
 - Learned: nothing in the lifted code needed a fix today — every stop was in the hand-written runtime (Steam answers, a path rule, 16 KiB pages, the message pump).
 - Next: T-054 (Bink) / T-053 (sound, needs the user's OK for faudio).
+
+### 2026-10-06 ~15:00 — housekeeping and hand-over
+- User: "do housekeeping and make sure everything is logged, I'm handing over the project to another powerful agent".
+- Did: `docs/HANDOFF_STATUS.md` rewritten as the current hand-over summary (state, how to run / build, architecture, regression set, what is missing in order, decisions, pitfalls); `re/symbols.csv` +24 entries for the functions and data identified today (Steam stats object and handlers, start-up check helpers, `BG_IndexForString` and the anim-type tables, CRT helpers); header comments of `tests/boot/main.cpp`, `user32_headless.cpp`, `d3d9_null.cpp` brought in line with what the files do now; ADR-010 / ADR-014 headings point at ADR-015; AGENTS.md repo map: `tests/boot/`, `scripts/run_native.sh`; T-060 / T-061 added; scratch output removed (`artifacts/debug/`, dumped frames, the soak copy of the binary).
+- Note: `artifacts/debug/menu_specks_zoom.png` named in an earlier entry is gone with that clean-up; it is reproducible (`BO1_DEBUG_FRAME`, `tools/pass_dump.py`).
+- Evidence (final regression run): `scripts/build.sh` and `scripts/build_boot.sh` build; `bo1_boot --steam-selftest` 76/76; `build/test_win_messages`, `build/test_window_service` pass; `scripts/replay_check.sh` 0.9994 / 0.9984 / 0.9997 / 0.9985, no "unrecorded" lines; `scripts/boot_try.sh 60` -> "time limit reached (still running)"; `scripts/doctor.sh`: toolchain present (frida and CrossOver.app missing — neither is used).
+- Not re-run: `scripts/difftest.sh … all` (~6 min; the lifter and the lifted code were not touched today).
+- Open for the user: OK for `brew install faudio`? Result of trying keyboard / mouse in the window.
+- Next: T-054.
