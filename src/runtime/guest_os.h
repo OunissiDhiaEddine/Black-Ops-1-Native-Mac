@@ -116,6 +116,10 @@ uint32_t com_vtable(const std::string &iface, const ComMethod *methods, size_t c
 // stack, callee pops (docs/HOST_ABI.md §4.3). `words` still counts `this` as one slot.
 uint32_t com_vtable_thiscall(const std::string &iface, const ComMethod *methods, size_t count);
 uint32_t com_new(uint32_t vtable, uint32_t extra);
+// Watches every method of an interface built with com_vtable(): `fn(tag_base + slot, cpu, args, words, result)`
+// runs after each call. Used to hand the game's Direct3D calls to the renderer (d3d9_live.cpp).
+using ComObserver = void (*)(uint32_t tag, Cpu *cpu, const uint32_t *a, int words, uint32_t result);
+void com_observe(const std::string &iface, uint32_t tag_base, ComObserver fn);
 enum : uint32_t { COM_VTBL = 0, COM_REFS = 4, COM_DATA = 8 };
 void imports_report(); // call statistics (BO1_IMPORT_STATS=1)
 

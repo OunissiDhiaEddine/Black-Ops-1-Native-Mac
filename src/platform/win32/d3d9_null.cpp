@@ -10,6 +10,7 @@
 #include <string>
 #include <vector>
 
+#include "d3d9_objects.h"
 #include "win32_util.h"
 
 namespace bo1 {
@@ -78,26 +79,7 @@ static uint32_t make_vtable(const char *iface, const Overrides &ov) {
     return com_vtable(iface, methods.data(), methods.size());
 }
 
-// ---- object layouts (after COM_DATA) --------------------------------------------------------------------
-// Resources share one layout so that GetDesc / Lock code can be common.
-enum : uint32_t {
-    R_KIND = COM_DATA + 0,   // one of K_*
-    R_FORMAT = COM_DATA + 4,
-    R_USAGE = COM_DATA + 8,
-    R_POOL = COM_DATA + 12,
-    R_WIDTH = COM_DATA + 16, // buffers: length in bytes
-    R_HEIGHT = COM_DATA + 20,
-    R_DEPTH = COM_DATA + 24,
-    R_LEVELS = COM_DATA + 28,
-    R_FVF = COM_DATA + 32,
-    R_MEM = COM_DATA + 36,     // lazily allocated backing store (surface / buffer / volume level)
-    R_PARENT = COM_DATA + 40,  // surfaces: owning texture (0 for stand-alone)
-    R_CHILDREN = COM_DATA + 44, // textures: guest array of level objects (surfaces / volumes), faces*levels entries
-    R_SIZE = 48,
-};
-enum : uint32_t { K_SURFACE = 1, K_TEXTURE, K_CUBE, K_VOLUMETEX, K_VOLUME, K_VB, K_IB };
-
-static uint32_t format_bytes(uint32_t fmt, uint32_t w, uint32_t h, uint32_t *pitch) {
+uint32_t d3d9_format_bytes(uint32_t fmt, uint32_t w, uint32_t h, uint32_t *pitch) {
     uint32_t bw = (w + 3) / 4, bh = (h + 3) / 4;
     auto fourcc = [](char a, char b, char c, char d) { return (uint32_t)(uint8_t)a | (uint32_t)(uint8_t)b << 8 | (uint32_t)(uint8_t)c << 16 | (uint32_t)(uint8_t)d << 24; };
     if (fmt == fourcc('D', 'X', 'T', '1')) return *pitch = bw * 8, bw * 8 * bh;
@@ -162,12 +144,14 @@ static uint32_t surf_get_desc(Cpu *, const uint32_t *a) {
     return D3D_OK;
 }
 static uint32_t surf_lock(uint32_t o, uint32_t locked_rect, uint32_t rect) {
-    uint32_t pitch, bytes = format_bytes(rd32(o + R_FORMAT), rd32(o + R_WIDTH), rd32(o + R_HEIGHT), &pitch);
+    uint32_t pitch, bytes = d3d9_format_bytes(rd32(o + R_FORMAT), rd32(o + R_WIDTH), rd32(o + R_HEIGHT), &pitch);
     uint32_t mem = backing(o, bytes);
     uint32_t off = 0;
-    if (rect) { // RECT left, top, ... (block formats are locked on block boundaries by the game)
-        uint32_t bpp = rd32(o + R_WIDTH) ? pitch / rd32(o + R_WIDTH) : 0;
-        off = rd32(rect + 4) * pitch + rd32(rect) * bpp;
+    if (rect) { // RECT left, top, ...; block-compressed formats address whole 4x4 blocks
+        uint32_t fmt = rd32(o + R_FORMAT), w = rd32(o + R_WIDTH);
+        bool dxt = (fmt & 0x00FFFFFF) == 0x00545844; // 'DXT' + digit
+        if (dxt) off = (rd32(rect + 4) / 4) * pitch + (rd32(rect) / 4) * (pitch / ((w + 3) / 4 ? (w + 3) / 4 : 1));
+        else off = rd32(rect + 4) * pitch + rd32(rect) * (w ? pitch / w : 0);
         if (off >= bytes) off = 0;
     }
     wr32(locked_rect, pitch);
@@ -195,7 +179,7 @@ static uint32_t vol_get_desc(Cpu *, const uint32_t *a) {
     return D3D_OK;
 }
 static uint32_t vol_lock(uint32_t o, uint32_t locked_box) {
-    uint32_t pitch, slice = format_bytes(rd32(o + R_FORMAT), rd32(o + R_WIDTH), rd32(o + R_HEIGHT), &pitch);
+    uint32_t pitch, slice = d3d9_format_bytes(rd32(o + R_FORMAT), rd32(o + R_WIDTH), rd32(o + R_HEIGHT), &pitch);
     uint32_t mem = backing(o, slice * rd32(o + R_DEPTH));
     wr32(locked_box, pitch);
     wr32(locked_box + 4, slice);
@@ -205,7 +189,7 @@ static uint32_t vol_lock(uint32_t o, uint32_t locked_box) {
 static uint32_t vol_lock_box(Cpu *, const uint32_t *a) { return vol_lock(a[0], a[1]); }
 
 // ---- textures ----------------------------------------------------------------------------------------------------
-static uint32_t tex_child(uint32_t tex, uint32_t face, uint32_t level) {
+uint32_t d3d9_tex_child(uint32_t tex, uint32_t face, uint32_t level) {
     uint32_t levels = rd32(tex + R_LEVELS), kind = rd32(tex + R_KIND);
     if (level >= levels) return 0;
     uint32_t arr = rd32(tex + R_CHILDREN);
@@ -240,42 +224,42 @@ static uint32_t tex_get_type(Cpu *, const uint32_t *a) {
     }
 }
 static uint32_t tex_get_level_desc(Cpu *cpu, const uint32_t *a) {
-    uint32_t c = tex_child(a[0], 0, a[1]);
+    uint32_t c = d3d9_tex_child(a[0], 0, a[1]);
     if (!c) return D3DERR_INVALIDCALL;
     uint32_t args[2] = {c, a[2]};
     return rd32(a[0] + R_KIND) == K_VOLUMETEX ? vol_get_desc(cpu, args) : surf_get_desc(cpu, args);
 }
 static uint32_t tex_get_surface_level(Cpu *, const uint32_t *a) { // (this, Level, ppSurface)
-    uint32_t c = tex_child(a[0], 0, a[1]);
+    uint32_t c = d3d9_tex_child(a[0], 0, a[1]);
     if (!c) return D3DERR_INVALIDCALL;
     wr32(c + COM_REFS, rd32(c + COM_REFS) + 1);
     wr32(a[2], c);
     return D3D_OK;
 }
 static uint32_t tex_lock_rect(Cpu *, const uint32_t *a) { // (this, Level, pLockedRect, pRect, Flags)
-    uint32_t c = tex_child(a[0], 0, a[1]);
+    uint32_t c = d3d9_tex_child(a[0], 0, a[1]);
     return c ? surf_lock(c, a[2], a[3]) : D3DERR_INVALIDCALL;
 }
 static uint32_t cube_get_surface(Cpu *, const uint32_t *a) { // (this, FaceType, Level, ppSurface)
-    uint32_t c = a[1] < 6 ? tex_child(a[0], a[1], a[2]) : 0;
+    uint32_t c = a[1] < 6 ? d3d9_tex_child(a[0], a[1], a[2]) : 0;
     if (!c) return D3DERR_INVALIDCALL;
     wr32(c + COM_REFS, rd32(c + COM_REFS) + 1);
     wr32(a[3], c);
     return D3D_OK;
 }
 static uint32_t cube_lock_rect(Cpu *, const uint32_t *a) { // (this, FaceType, Level, pLockedRect, pRect, Flags)
-    uint32_t c = a[1] < 6 ? tex_child(a[0], a[1], a[2]) : 0;
+    uint32_t c = a[1] < 6 ? d3d9_tex_child(a[0], a[1], a[2]) : 0;
     return c ? surf_lock(c, a[3], a[4]) : D3DERR_INVALIDCALL;
 }
 static uint32_t voltex_get_volume(Cpu *, const uint32_t *a) { // (this, Level, ppVolume)
-    uint32_t c = tex_child(a[0], 0, a[1]);
+    uint32_t c = d3d9_tex_child(a[0], 0, a[1]);
     if (!c) return D3DERR_INVALIDCALL;
     wr32(c + COM_REFS, rd32(c + COM_REFS) + 1);
     wr32(a[2], c);
     return D3D_OK;
 }
 static uint32_t voltex_lock_box(Cpu *, const uint32_t *a) { // (this, Level, pLockedVolume, pBox, Flags)
-    uint32_t c = tex_child(a[0], 0, a[1]);
+    uint32_t c = d3d9_tex_child(a[0], 0, a[1]);
     return c ? vol_lock(c, a[2]) : D3DERR_INVALIDCALL;
 }
 
@@ -562,6 +546,12 @@ static uint32_t vt(const char *iface) {
 
 SHIM(d3d9, Direct3DCreate9, 1) {
     uint32_t o = com_new(vt("IDirect3D9"), 8);
+    // build every interface table now, so that the renderer layer can watch them from the first call on
+    for (const char *i : {"IDirect3DDevice9", "IDirect3DSwapChain9", "IDirect3DSurface9", "IDirect3DVolume9", "IDirect3DTexture9", "IDirect3DCubeTexture9",
+                          "IDirect3DVolumeTexture9", "IDirect3DVertexBuffer9", "IDirect3DIndexBuffer9", "IDirect3DQuery9", "IDirect3DVertexDeclaration9",
+                          "IDirect3DVertexShader9", "IDirect3DPixelShader9", "IDirect3DStateBlock9"})
+        vt(i);
+    d3d9_live_attach();
     log("d3d9(null): Direct3DCreate9(sdk %u) -> %08x", a[0], o);
     return o;
 }

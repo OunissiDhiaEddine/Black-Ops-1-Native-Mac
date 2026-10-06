@@ -492,6 +492,8 @@ struct Tramp {
     ShimFn fn;
     int nargs;
     bool thiscall = false; // MSVC thiscall: `this` in ecx, args on the stack (Steam interfaces)
+    ComObserver observer = nullptr; // called after the method returned (com_observe)
+    uint32_t tag = 0;
     std::atomic<uint64_t> calls{0};
     Tramp(std::string d, std::string n, ShimFn f, int a, bool tc) : dll(std::move(d)), name(std::move(n)), fn(f), nargs(a), thiscall(tc) {}
 };
@@ -551,6 +553,17 @@ uint32_t tramp_register_thiscall(const std::string &dll, const std::string &name
 }
 
 static std::map<std::string, uint32_t> g_vtables;
+static std::map<std::string, std::vector<uint32_t>> g_vtable_tramps; // interface -> trampoline index of each slot
+void com_observe(const std::string &iface, uint32_t tag_base, ComObserver fn) {
+    std::lock_guard<std::mutex> lk(g_tramp_mu);
+    auto it = g_vtable_tramps.find(iface);
+    if (it == g_vtable_tramps.end()) return;
+    for (uint32_t i = 0; i < it->second.size(); i++) {
+        Tramp &t = *g_tramps[it->second[i]];
+        t.observer = fn;
+        t.tag = tag_base + i;
+    }
+}
 static uint32_t com_vtable_impl(const std::string &iface, const ComMethod *methods, size_t count, bool thiscall) {
     {
         std::lock_guard<std::mutex> lk(g_tramp_mu);
@@ -558,13 +571,16 @@ static uint32_t com_vtable_impl(const std::string &iface, const ComMethod *metho
         if (it != g_vtables.end()) return it->second;
     }
     uint32_t vt = heap_alloc((uint32_t)count * 4);
+    std::vector<uint32_t> indices;
     for (size_t i = 0; i < count; i++) {
         uint32_t t = thiscall ? tramp_register_thiscall("com", iface + "::" + methods[i].name, methods[i].fn, methods[i].words)
                               : tramp_register("com", iface + "::" + methods[i].name, methods[i].fn, methods[i].words);
         memcpy(g_mem + vt + 4 * i, &t, 4);
+        indices.push_back((t - kTrampBase) / kTrampStep);
     }
     std::lock_guard<std::mutex> lk(g_tramp_mu);
     g_vtables[iface] = vt;
+    g_vtable_tramps[iface] = std::move(indices);
     return vt;
 }
 uint32_t com_vtable(const std::string &iface, const ComMethod *methods, size_t count) {
@@ -646,6 +662,7 @@ static void host_call(Cpu *cpu, uint32_t target) {
             t.nargs > 1 || t.nargs < 0 ? a[1] : 0, t.nargs > 2 || t.nargs < 0 ? a[2] : 0, t.nargs > 3 || t.nargs < 0 ? a[3] : 0, ret);
     }
     uint32_t r = t.fn(cpu, a);
+    if (t.observer) t.observer(t.tag, cpu, a, t.nargs, r);
     cpu->eax = r;
     cpu->esp += 4 + 4u * (uint32_t)pop_slots;
     if (g_verbose >= 3) log("  -> %08x", r);
