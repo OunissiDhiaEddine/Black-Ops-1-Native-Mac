@@ -137,14 +137,16 @@ namespace bo1 {
 // binkw32: see bink_ffmpeg.cpp (ADR-008).
 
 // ---- ole32: object creation ---------------------------------------------------------------------------------
+uint32_t xaudio2_create(const uint8_t *clsid, uint32_t ppv); // xaudio2_faudio.cpp
 SHIM(ole32, CoCreateInstance, 5) {
     // (rclsid, pUnkOuter, dwClsContext, riid, ppv). XAudio2 2.7 is the only class the game creates
-    // (re/com_steam_usage.json); the FAudio-backed implementation is P5 work (ADR-009).
+    // (re/com_steam_usage.json); it is implemented on FAudio (ADR-009).
     const uint8_t *g = g_mem + a[0];
-    log("CoCreateInstance({%02x%02x%02x%02x-%02x%02x-%02x%02x-...}) -> REGDB_E_CLASSNOTREG (no audio in the headless runtime)", g[3], g[2], g[1], g[0],
-        g[5], g[4], g[7], g[6]);
     if (a[4]) wr32(a[4], 0);
-    return 0x80040154u;
+    uint32_t hr = a[4] ? xaudio2_create(g, a[4]) : 0x80004003u;
+    if (hr == 0x80040154u && g_verbose)
+        log("CoCreateInstance({%02x%02x%02x%02x-%02x%02x-%02x%02x-...}) -> REGDB_E_CLASSNOTREG", g[3], g[2], g[1], g[0], g[5], g[4], g[7], g[6]);
+    return hr;
 }
 
 } // namespace bo1

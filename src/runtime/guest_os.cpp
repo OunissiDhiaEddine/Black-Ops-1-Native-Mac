@@ -447,6 +447,16 @@ int thread_run_main(uint32_t stack_size, const std::function<void(Cpu *)> &body,
     return (int)t->exit_code;
 }
 
+bool thread_spawn_host(uint32_t stack_size, const std::function<void(Cpu *)> &body) {
+    auto *t = new GuestThread();
+    if (!thread_setup(t, stack_size)) {
+        delete t;
+        return false;
+    }
+    t->body = body;
+    return thread_start(t, std::max<uint32_t>(t->stack_hi - t->stack_lo, 1u << 20));
+}
+
 void thread_exit_current(uint32_t code) {
     GuestThread *t = t_current;
     t->exit_code = code;
