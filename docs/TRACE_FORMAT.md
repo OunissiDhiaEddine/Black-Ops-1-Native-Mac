@@ -80,9 +80,15 @@ use (back-buffer capture, `GetDesc` queries) is never recorded.
   `result == 0`).
 - **Recording window** (`BO1_TRACE_FRAMES=A-B`): every call is always recorded, so device state can be
   rebuilt by replaying from the start. Outside the window, uploads that look per-frame dynamic carry
-  no data: buffer locks with DISCARD/NOOVERWRITE, and any sub-resource rewritten more than 4 times.
-  Static resources (written a few times) are complete. Limitation: a resource that was rewritten
-  more than 4 times before the window and is used but not rewritten inside it has no data.
+  no data (`dumped = 3`): any resource (buffer, texture level) written more than 4 times. The first
+  4 writes of every resource are always recorded, whatever the lock flags, and the count restarts
+  when the object is destroyed (its address is reused). Until 2026-10-06 (T-056) every
+  DISCARD/NOOVERWRITE buffer lock outside the window was dropped; the game fills some static buffers
+  exactly once at start-up with a DISCARD lock (the full-screen quad that initialises the float-Z
+  target), so traces made before that date draw those with zeros.
+  Limitation that remains: a resource that was rewritten more than 4 times before the window and is
+  used but not rewritten inside it has no data. The Metal replay reports every draw that reads
+  such data ("draw reads an unrecorded vertex buffer / index buffer / texture" with object ids).
 - **Validation:** `build/replay <trace> --frames A-B` (null backend) checks that every object used was created and is alive, locks pair with unlocks, and no upload is missing inside the window. The four golden traces pass with zero findings.
 - A trace may end mid-record (the game is usually killed); readers stop at the first incomplete record.
 - Not captured: calls made through interfaces of a second vtable for the same interface type (the

@@ -17,8 +17,11 @@
 //   BO1_TRACE_MAX_MB    stop tracing after this many MiB (default 4096)
 //   BO1_TRACE_FRAMES    "A-B": frames (1-based, counted at Present) whose resource uploads are
 //                       recorded in full. Outside the window every call is still recorded, but
-//                       dynamic uploads are not: DISCARD/NOOVERWRITE buffer locks and resources
-//                       rewritten more than CHURN_LIMIT times carry no data. Default: all frames.
+//                       dynamic uploads are not: resources (buffers or texture levels) written
+//                       more than CHURN_LIMIT times carry no data from then on. The first
+//                       CHURN_LIMIT writes of every resource are always recorded, whatever the
+//                       lock flags: the game fills some static buffers once with a DISCARD lock
+//                       (T-056: the full-screen quad). Default: all frames.
 //   BO1_TRACE_VIDEO     1: also dump DISCARD-locked (dynamic) textures, i.e. Bink video frames;
 //                       default 0 records the lock but not the pixels (~40 MiB/s during videos)
 //   BO1_CAPTURE_EVERY   N > 0: dump the back buffer to a BMP every N presented frames (T-014)
@@ -27,6 +30,7 @@
 //   BO1_ADAPTER_PROBE   text file: every IDirect3D9 capability query with its result and output bytes
 //   BO1_REAL_D3D9       full path of the D3D9 implementation to wrap (default: system d3d9.dll)
 //   BO1_KEYS            "ms:vk,ms:vk": post key presses to the game window (ms after device creation)
+//   BO1_CURSOR          "x,y": the game always reads the cursor at this client position of its window
 //   BO1_CMDS            "ms|command;ms|command": queue engine console commands (ms after device
 //                       creation) through the game's own Cbuf_AddText — e.g. "40000|devmap cuba"
 //   BO1_IMPORT_CENSUS   file: count every call the exe makes through its import table (all DLLs)
@@ -220,6 +224,29 @@ static BYTE churn_bump(void *obj, DWORD sub) {
         }
     }
     return 1; // table crowded: treat as a first upload (record it)
+}
+static BYTE churn_peek(void *obj, DWORD sub) { // count so far, without counting a new upload
+    DWORD key = ((DWORD)(DWORD_PTR)obj >> 3) * 2654435761u ^ (sub * 40503u) ^ 0x9E3779B9u;
+    if (!key) key = 1;
+    for (DWORD i = key % CHURN_SLOTS, n = 0; n < 64; n++, i = (i + 1) % CHURN_SLOTS) {
+        if (g_churn[i].key == key) return g_churn[i].count;
+        if (!g_churn[i].key) return 0;
+    }
+    return 0;
+}
+// The object is gone and its address will be reused: its successor starts counting from zero.
+// (Slots are kept, only the counts are cleared, so probe chains stay intact.)
+static void churn_forget(void *obj) {
+    for (DWORD face = 0; face < 6; face++)
+        for (DWORD level = 0; level < 16; level++) {
+            DWORD sub = level | (face << 8);
+            DWORD key = ((DWORD)(DWORD_PTR)obj >> 3) * 2654435761u ^ (sub * 40503u) ^ 0x9E3779B9u;
+            if (!key) key = 1;
+            for (DWORD i = key % CHURN_SLOTS, n = 0; n < 64; n++, i = (i + 1) % CHURN_SLOTS) {
+                if (g_churn[i].key == key) { g_churn[i].count = 0; break; }
+                if (!g_churn[i].key) break;
+            }
+        }
 }
 #define SENTINEL 0xCDCDCDCDu // written into DISCARD-locked buffers so Unlock can tell how much was filled
 static LONG g_trace_records;
@@ -484,6 +511,20 @@ static DWORD WINAPI input_thread(LPVOID) {
     return 0;
 }
 
+// ---- pinned cursor: BO1_CURSOR="x,y" (client coordinates of the game window) -----------------
+// The game polls GetCursorPos every frame; in the main menu the camera follows the cursor, so a
+// capture depends on where the user's mouse happens to be. With BO1_CURSOR the game always sees
+// the cursor at that point of its window (T-056).
+typedef BOOL(WINAPI *GetCursorPos_t)(POINT *);
+static GetCursorPos_t g_real_GetCursorPos;
+static POINT g_pinned_cursor;
+static BOOL WINAPI hooked_GetCursorPos(POINT *pt) {
+    if (!pt || !g_hwnd) return g_real_GetCursorPos(pt);
+    *pt = g_pinned_cursor;
+    ClientToScreen(g_hwnd, pt);
+    return TRUE;
+}
+
 // ---- scripted console commands: BO1_CMDS="ms|command;ms|command" ---------------------------
 // Calls the game's Cbuf_AddText(localClientNum, text) (VA 0x0049B930, re/symbols.csv), which takes
 // the engine's command-buffer critical section itself, so it is safe from this thread. The
@@ -733,12 +774,7 @@ static void collect_unlock(unsigned k, unsigned slot, const DWORD *w, Emit &e, i
     const BYTE *data = (const BYTE *)d.data_ptr;
     DWORD bytes = 0;
     bool trimmed = false, skip = false, outside = false;
-    if (!in_window()) {
-        if (k == IFACE_VB || k == IFACE_IB)
-            outside = (d.lock_flags & (D3DLOCK_DISCARD | D3DLOCK_NOOVERWRITE)) != 0 || churn_bump(obj, sub) > CHURN_LIMIT;
-        else
-            outside = churn_bump(obj, sub) > CHURN_LIMIT;
-    }
+    if (!in_window()) outside = churn_bump(obj, sub) > CHURN_LIMIT;
     if (k == IFACE_VB || k == IFACE_IB) {
         bytes = d.size;
         if (d.dumped == 2 && data) { // sentinel-filled at Lock: keep only what the game wrote
@@ -787,7 +823,10 @@ static void collect_outputs(unsigned k, unsigned slot, DWORD result, const DWORD
         Guard() { proxy_calls_begin(); }
         ~Guard() { proxy_calls_end(); }
     } guard;
-    if (slot == 2 && k >= IFACE_TEXTURE && k <= IFACE_SURFACE && result == 0) pending_forget(obj); // destroyed
+    if (slot == 2 && k >= IFACE_TEXTURE && k <= IFACE_SURFACE && result == 0) { // destroyed
+        pending_forget(obj);
+        churn_forget(obj);
+    }
     if (FAILED((HRESULT)result)) return;
     LockDesc d;
     memset(&d, 0, sizeof(d));
@@ -813,7 +852,8 @@ static void collect_outputs(unsigned k, unsigned slot, DWORD result, const DWORD
         // A whole-buffer DISCARD lock says nothing about how much will be written (the game locks
         // its 8 MiB dynamic buffer like this every frame). Contents are undefined after DISCARD,
         // so fill with a sentinel and let Unlock trim the dump to the bytes actually written.
-        if ((d.lock_flags & D3DLOCK_DISCARD) && d.data_ptr && d.size >= 4096 && depth == 0 && in_window()) {
+        if ((d.lock_flags & D3DLOCK_DISCARD) && d.data_ptr && d.size >= 4096 && depth == 0 &&
+            (in_window() || churn_peek(obj, 0) < CHURN_LIMIT)) {
             DWORD *q = (DWORD *)d.data_ptr;
             for (DWORD i = 0, nd = d.size / 4; i < nd; i++) q[i] = SENTINEL;
             d.dumped = 2;
@@ -1400,6 +1440,14 @@ extern "C" BOOL WINAPI DllMain(HINSTANCE inst, DWORD reason, LPVOID) {
             g_real_MessageBoxA = (MessageBoxA_t)patch_iat("USER32.dll", "MessageBoxA", (void *)hooked_MessageBoxA);
             g_real_D3DXCompileShader = (D3DXCompileShader_t)patch_iat("d3dx9_43.dll", "D3DXCompileShader",
                                                                       (void *)hooked_D3DXCompileShader);
+        }
+        char cur[64];
+        if (GetEnvironmentVariableA("BO1_CURSOR", cur, sizeof(cur)) && strchr(cur, ',')) {
+            g_pinned_cursor.x = atoi(cur);
+            g_pinned_cursor.y = atoi(strchr(cur, ',') + 1);
+            g_real_GetCursorPos = (GetCursorPos_t)patch_iat("USER32.dll", "GetCursorPos", (void *)hooked_GetCursorPos);
+            if (!g_real_GetCursorPos) g_real_GetCursorPos = GetCursorPos;
+            event("cursor pinned at client %ld,%ld\n", g_pinned_cursor.x, g_pinned_cursor.y);
         }
         if (GetEnvironmentVariableA("BO1_HOSTNAME", g_fake_hostname, sizeof(g_fake_hostname)) && g_fake_hostname[0])
             g_real_gethostname = (gethostname_t)patch_iat("WSOCK32.dll", "gethostname", (void *)hooked_gethostname, 57);

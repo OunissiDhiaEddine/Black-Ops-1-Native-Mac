@@ -14,6 +14,8 @@ NAME="$1"; MAP="$2"; FIRST="$3"; SECS="${4:-180}"
 LAST=$((FIRST + 60))
 CMDS=()
 [ "$MAP" != "-" ] && CMDS=(--cmds "42000|devmap $MAP")
+# The main-menu camera follows the mouse: pin the cursor to the window centre so the view is repeatable.
+[ "$MAP" = "-" ] && CMDS=(--cursor 400,300)
 WINEDEBUG="${WINEDEBUG:--all,warn+debugstr}" scripts/run_baseline.sh --wine cx --net --trace --record \
   --record-frames "$FIRST-$LAST" --record-max-mb 9000 --capture 20 --seconds "$SECS" \
   --keys "32000:0x20" ${CMDS[@]+"${CMDS[@]}"} >"artifacts/baseline/golden-$NAME.out" 2>&1 || true
