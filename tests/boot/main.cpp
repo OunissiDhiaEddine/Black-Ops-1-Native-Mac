@@ -7,7 +7,8 @@
 //   env: BO1_VERBOSE=0..3, BO1_IMPORT_STATS=1, BO1_GAME_DIR=artifacts/game,
 //        BO1_WINDOW=1 (real window), BO1_KEYS="ms:vk,…", BO1_CMDS="ms|command;…" (user32_headless.cpp),
 //        BO1_D3D=null, BO1_D3D_DUMP=dir (d3d9_live.cpp), BO1_STEAM_ABSENT=1, BO1_EMULATED_STEAM_DLL=1,
-//        BO1_BINK=off (no movies, bink_ffmpeg.cpp)
+//        BO1_BINK=off (no movies, bink_ffmpeg.cpp), BO1_AUDIO=off (no XAudio2, xaudio2_faudio.cpp);
+//        SDL_AUDIO_DRIVER=dummy keeps an unattended run silent, =disk writes the mix to SDL_AUDIO_DISK_OUTPUT_FILE
 //   scripts/run_native.sh = windowed run, scripts/boot_try.sh = headless test run.
 //
 // Every stop prints why (unimplemented import, bad indirect target, host fault) together with the

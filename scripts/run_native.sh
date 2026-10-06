@@ -6,6 +6,7 @@
 #   BO1_CMDS="60000|devmap cuba"    scripted console commands
 #   BO1_D3D_DUMP=dir                PNG of every 20th frame
 #   BO1_VERBOSE=1                   shim and game debug output in the log
+#   BO1_AUDIO=off                   no sound · BO1_BINK=off  no movies
 set -uo pipefail
 cd "$(dirname "$0")/.."
 scripts/build_boot.sh 2>&1 | grep -E "error|Undefined|ld:" && exit 1
