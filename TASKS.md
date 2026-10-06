@@ -1,16 +1,30 @@
 # TASKS
-Status: TODO · NOW · DONE · BLOCKED. Only ONE task is NOW at a time. Mark DONE only with an Evidence line.
+Status: TODO · NOW · WAITING (on the user) · PARKED · DONE · BLOCKED. Only ONE task is NOW at a time. Mark DONE only with an Evidence line.
 Update this file at every checkpoint (see AGENTS.md rule 2).
+Layout: open work is listed once, in **OPEN** (in the order it is planned). The phase sections below are the record of finished work with its evidence. Summary for a newcomer: `docs/HANDOFF_STATUS.md`.
 
 ## NOW
-- **T-054** (P5) Bink on FFmpeg (ADR-008): intro videos, menu TV screens and loading screens are black without it. First: the `BINK` / `BINKFRAMEBUFFERS` field offsets the game reads (game functions at 0x006D9000–0x006DA290), then decode into the game's planes.
-- Queue after it: T-053 XAudio2 on FAudio (needs the user's OK for `brew install faudio`) · T-057 input with a human at the keyboard · T-058 frame-rate measurement · T-059 Direct3D object lifetime · T-060 `Com_Error` recovery · T-061 play-through checks · T-044 leftovers. Summary for a newcomer: `docs/HANDOFF_STATUS.md`.
+- **T-054** (P5) Bink on FFmpeg (ADR-008): intro videos, menu TV screens and loading screens are black without it. First: the `BINK` / `BINKFRAMEBUFFERS` field offsets the game reads (game functions at 0x006D9000–0x006DA290; stubs in `src/platform/win32/misc_dlls.cpp`), then decode with FFmpeg's libraries into the game's planes.
 
-## DONE
-- **T-001** (P0) DONE 2026-10-05 — game install present in `reference/`, `scripts/doctor.sh` run, tool availability recorded.
-  - Evidence: doctor.sh output in LOG entry 2026-10-05 13:40. (chmod read-only on `reference/` deferred until the reference copy is settled.)
+## OPEN (planned order)
+| ID | Phase | Status | What | Notes |
+|---|---|---|---|---|
+| T-054 | P5 | NOW | Bink video on FFmpeg (ADR-008) | see NOW |
+| T-053 | P5 | WAITING | Sound: XAudio2 2.7 on FAudio (ADR-009) | needs the user's OK for `brew install faudio` (FAudio 26.10, zlib licence; checked 2026-10-06 22:35: not installed). Work that does not need the library: the `IXAudio2` / voice methods the game calls, read off its call sites like `re/steam_abi.csv` |
+| T-057 | P5 | TODO | Input with a human at the keyboard: focus, key repeat, mouse look (relative mode), gamepad through SDL for the XInput shim | needs the user in front of `scripts/run_native.sh`; only scripted keys are verified |
+| T-058 | P5 | TODO | Frame-rate / frame-time measurement of the live path (menu, cuba) and first profile | nothing measured yet; the renderer re-uploads constants per draw |
+| T-059 | P5 | TODO | Free Direct3D objects and their guest memory on the final Release; forward `Reset` | today the guest heap grows with every level |
+| T-060 | P5 | TODO | `Com_Error` recovery (ADR-012): the error path jumps back into `Com_Init` (0x004069D5 at start-up, 0x00406A91 later) — a setjmp-style non-local jump the lifter has no entry for | today any dropped error ends the process |
+| T-061 | P5 | TODO | Play-through checks: saves / checkpoints, display modes and window resize, the rest of cuba and the next missions (`BO1_CMDS` with `devmap <map>`) | P5 exit = mission 1 playable start to finish |
+| T-044 | P4 | TODO (leftovers) | FTZ/DAZ/MXCSR audit; A2 audit (non-returning calls / stack tricks) | the done part is recorded in the P4 section |
+| T-037 | P3 | PARKED | Native D3D9 reference frames from the user's Windows PC | last resort (user); not needed since T-056 explained both differences |
+| — | P6–P8 | not started | strangler fig, Metal optimisation (incl. `MTLBinaryArchive`, see T-036), QA | docs/PLAN.md; ask the user before starting a phase |
+
+# Record of finished work
 
 ## P0 — Recon & inventory
+- [x] **T-001** (P0) DONE 2026-10-05 — game install present in `reference/`, `scripts/doctor.sh` run, tool availability recorded.
+  - Evidence: doctor.sh output in LOG entry 2026-10-05 13:40. (chmod read-only on `reference/` deferred until the reference copy is settled.)
 - [x] **T-002** DONE 2026-10-05 (evidence: `re/inventory.json`, `re/inventory.md`, RE_NOTES § Binaries; commit b0be0c7). Script `tools/pe_inventory.py`: SHA-256, size, PE headers, sections, imports/exports, TLS, Rich header for every exe/dll in `reference/`. Output `re/inventory.json` + RE_NOTES § Binaries.
 - [x] **T-003** DONE 2026-10-05 (evidence: `re/imports.csv` 542 rows, RE_NOTES § Imports; commit b0be0c7). Import census -> `re/imports.csv` + RE_NOTES § Imports (group by DLL; flag d3d9/d3dx9, audio, input, net, steam, bink).
 - [x] **T-004** DONE 2026-10-05 — not packed/wrapped (evidence: RE_NOTES § Protection / packing check: entry in .text, max window entropy 6.79, clean linear decode). Open risk logged for P1. Packing/protection check on `BlackOps.exe`. If packed/wrapped -> BLOCKED + tell user.
@@ -65,14 +79,7 @@ Update this file at every checkpoint (see AGENTS.md rule 2).
 - [x] **T-055** DONE 2026-10-06 (evidence: `artifacts/boot/native_title_screen.png`, `native_main_menu.png`, `native_mission_cuba.png` — rendered by the native build; 0 skipped draws reported). `src/platform/win32/d3d9_live.cpp`: the game's live Direct3D calls become `d3d9_call.h` records for the Metal renderer (observer on the guest-visible objects of `d3d9_null.cpp`). Open: objects are never freed (T-059); `Reset` is not forwarded.
 - [x] **T-052** DONE 2026-10-06 except gamepad and a human input test (-> T-057). PART 3 (evidence: window listed as "Call of Duty: Black Ops (native)" 800x632; scripted Space through the message queue takes the game from the title screen to the menu): window service on the process main thread, `CreateWindowExA` / `PeekMessageA` / `GetMessageA` / `GetCursorPos` on it, renderer presents into its layer. SDL3-backed user32. PART 1 DONE 2026-10-06 (evidence: `build/test_win_messages` -> "99 keys mapped; all checks passed"): `src/platform/window/win_messages.{h,cpp}` translates SDL3 events into Win32 messages (keys with virtual key + set-1 scan code + extended/repeat/transition bits, WM_SYSKEY*, WM_CHAR, mouse buttons/move/wheel, focus, size, close). PART 2 DONE 2026-10-06 (evidence: `build/test_window_service` -> "all checks passed"): `src/platform/window/window_service.{h,cpp}` — the process main thread owns the SDL window, CAMetalLayer and event pump; other threads create the window through a blocking request and read input from a thread-safe Win32 message queue. PART 3 open: point the user32 shims (`CreateWindowExA`, `PeekMessageA`, cursor, focus) and the boot harness at the service, gamepad through SDL for the XInput shim — to be done when the game reaches window creation, so that it can be tested.
 - [x] **T-056** DONE 2026-10-06 (evidence: `re/replay_check.json` — cuba 0.9994, vorkuta 0.9985–0.9986, khe_sanh 0.9984–0.9989 (was 0.968–0.978), menu 0.975–0.976 with only the TV screens left; no unrecorded vertex/index buffers; `build/sm3c` on the 13 relative-addressing shaders: 13/13 compile, corpus 6,845/6,845 translate). Rendering differences vs golden frames. Two causes, neither in the Metal renderer proper: (1) khe_sanh sky/far field = the trace lacked a start-up vertex buffer (proxy fixed, all scenarios re-captured); (2) menu specks = SM3 translator ignored shader-defined constants in relative addressing (fixed). Tools added: per-pass debug dump (`BO1_DEBUG_FRAME` / `BO1_DEBUG_DIR`, `tools/pass_dump.py`), unrecorded-data report in the replay, `--cursor` for repeatable menu captures.
-- [ ] **T-053** XAudio2 2.7 on FAudio (ADR-009; `brew install faudio` needs the user's OK). **T-054** Bink on FFmpeg (ADR-008).
 - [x] **T-036** CLOSED 2026-10-06 by measurement (evidence: `build/replay … --backend metal` now prints "shader work": menu window 182 functions / 171 pipelines = translate 7.6 ms + MSL compile 29.3 ms + pipeline creation 15.9 ms; khe_sanh 209 / 131 = 8.4 + 31.9 + 21.9 ms). On every run after the first, Metal's own on-disk shader cache already makes this ~60 ms in total, so a project-side cache would only help the very first run (measured in P3 at ~10 shader functions/s); an explicit `MTLBinaryArchive` moves to P7 (start-up polish).
 
-- [ ] **T-057** Input with a human at the keyboard: focus, key repeat, mouse look (relative mode), gamepad through SDL for the XInput shim.
-- [ ] **T-058** Frame-rate / frame-time measurement of the live path (menu, cuba) and first profile.
-- [ ] **T-059** Free Direct3D objects and their guest memory on the final Release; forward `Reset`.
-- [ ] **T-060** `Com_Error` recovery (ADR-012): the error path jumps back into `Com_Init` (0x004069D5 at start-up, 0x00406A91 later) — a setjmp-style non-local jump the lifter has no entry for; today any dropped error ends the process.
-- [ ] **T-061** Play-through checks: saves / checkpoints, display modes and window resize, the rest of cuba and the next missions (use `BO1_CMDS` with `devmap <map>`).
-
-## P5+ (later)
+## P6–P8 (not started)
 Integration -> strangler fig -> Metal optimisation -> QA. See docs/PLAN.md.

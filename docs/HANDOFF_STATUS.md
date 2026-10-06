@@ -1,7 +1,8 @@
 # Hand-over — BO1 native arm64 + Metal port
 
 Written 2026-10-06 for the next agent. This is a summary; the authoritative files are `AGENTS.md`
-(rules, session protocol), `LOG.md` (STATE block = resume point, then the session log), `TASKS.md`,
+(rules, session protocol), `LOG.md` (STATE block = resume point, then the session log; entries of
+P0–P4 are in `docs/LOG_ARCHIVE.md`), `TASKS.md` (NOW + one OPEN table, then the record of finished work),
 `docs/DECISIONS.md` and `docs/RE_NOTES.md`. If this file and those disagree, they win.
 
 ## Where the project stands

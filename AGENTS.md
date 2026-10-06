@@ -28,6 +28,7 @@ Success = campaign boots to main menu, loads a mission, plays at >= 60 fps on an
 ```
 AGENTS.md / CLAUDE.md     this file
 LOG.md                    STATE block (overwritten) + append-only session log  <- resume point
+docs/LOG_ARCHIVE.md       older session-log entries (P0–P4), moved out of LOG.md unchanged
 TASKS.md                  backlog with IDs, status, evidence
 docs/PLAN.md              phases, approach, exit criteria, risks
 docs/DECISIONS.md         architecture decision records (ADR-xxx)
