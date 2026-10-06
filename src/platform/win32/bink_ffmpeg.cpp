@@ -1,5 +1,6 @@
-// binkw32.dll for the native runtime: the 18 Bink functions the game imports, on FFmpeg's Bink decoder
-// (ADR-008, T-054). Video only; the audio tracks wait for the XAudio2 shim (T-053).
+// binkw32.dll for the native runtime: the 18 Bink functions the game imports, on FFmpeg's Bink decoders
+// (ADR-008, T-054). Sound tracks are decoded as their packets come by and played on the game's own sound
+// engine through host-side stream voices of the XAudio2 shim (T-053) — not through DirectSound.
 //
 // The contract comes from the game's own code (docs/RE_NOTES.md "Bink as the game uses it",
 // tools/bink_sites.py), not from the original DLL:
@@ -16,6 +17,7 @@
 #include <cstdlib>
 #include <mutex>
 #include <unordered_map>
+#include <vector>
 
 extern "C" {
 #include <libavcodec/avcodec.h>
@@ -26,6 +28,15 @@ extern "C" {
 #include "win32_util.h"
 
 namespace bo1 {
+
+// host-side stream voices on the game's sound engine (xaudio2_faudio.cpp); null = no engine, play silently
+struct HostStream;
+HostStream *xaudio2_stream_open(uint32_t channels, uint32_t rate);
+bool xaudio2_stream_queue(HostStream *h, const int16_t *pcm, size_t samples);
+void xaudio2_stream_volume(HostStream *h, float volume);
+void xaudio2_stream_play(HostStream *h, bool play);
+void xaudio2_stream_close(HostStream *h);
+
 namespace {
 
 // guest structure offsets (RE_NOTES; names per RAD's public header)
@@ -42,6 +53,17 @@ enum : uint32_t {
 constexpr uint32_t kFrameSets = 2; // the game's own tables hold two (loop bound 0x03E4CB50 at 0x006D8A75)
 
 using Clock = std::chrono::steady_clock;
+
+// One sound track of a movie. The game addresses tracks by the id stored in the file (BinkSetVolume): the
+// shipped movies carry 0 = stereo, 1 = mono, 3 = stereo, and the game plays 0 and 1 and mutes 2..4.
+struct Track {
+    int stream = -1;
+    uint32_t id = 0;
+    AVCodecContext *dec = nullptr;
+    HostStream *out = nullptr;
+    float volume = 1.0f;
+    uint64_t samples = 0, dropped = 0;
+};
 
 struct Movie {
     std::string name;
@@ -64,6 +86,9 @@ struct Movie {
     bool paused = false;
     uint64_t advanced = 0;
     uint32_t shown = 0, skipped = 0;
+    std::vector<Track> tracks;
+    AVFrame *aframe = nullptr;
+    std::vector<int16_t> pcm;
 };
 
 std::mutex g_lock;
@@ -103,6 +128,11 @@ int64_t mem_seek(void *opaque, int64_t offset, int whence) {
 
 void movie_free(Movie *m) {
     if (!m) return;
+    for (Track &t : m->tracks) {
+        xaudio2_stream_close(t.out);
+        avcodec_free_context(&t.dec);
+    }
+    av_frame_free(&m->aframe);
     av_frame_free(&m->frame);
     av_packet_free(&m->pkt);
     avcodec_free_context(&m->dec);
@@ -158,8 +188,22 @@ Movie *movie_open(uint32_t source, uint32_t flags, std::string *why) {
         movie_free(m);
         return nullptr;
     }
-    for (unsigned i = 0; i < m->fmt->nb_streams; i++) // audio packets are not used yet (T-053)
-        if ((int)i != m->stream) m->fmt->streams[i]->discard = AVDISCARD_ALL;
+    for (unsigned i = 0; i < m->fmt->nb_streams; i++) {
+        AVStream *as = m->fmt->streams[i];
+        if ((int)i == m->stream) continue;
+        Track t;
+        const AVCodec *ac = as->codecpar->codec_type == AVMEDIA_TYPE_AUDIO ? avcodec_find_decoder(as->codecpar->codec_id) : nullptr;
+        if (ac && (t.dec = avcodec_alloc_context3(ac)) && avcodec_parameters_to_context(t.dec, as->codecpar) >= 0 && avcodec_open2(t.dec, ac, nullptr) >= 0) {
+            t.stream = (int)i;
+            t.id = (uint32_t)as->id;
+            t.out = xaudio2_stream_open((uint32_t)as->codecpar->ch_layout.nb_channels, (uint32_t)as->codecpar->sample_rate);
+            m->tracks.push_back(t);
+        } else {
+            avcodec_free_context(&t.dec);
+            as->discard = AVDISCARD_ALL;
+        }
+    }
+    m->aframe = av_frame_alloc();
     m->frame = av_frame_alloc();
     m->pkt = av_packet_alloc();
     m->width = (uint32_t)st->codecpar->width;
@@ -176,6 +220,35 @@ Movie *movie_open(uint32_t source, uint32_t flags, std::string *why) {
     return m;
 }
 
+// A sound-track packet: decode and queue it on the track's voice (interleaved 16-bit). Muted tracks are skipped.
+void movie_audio(Movie *m, Track &t) {
+    if (!t.out || t.volume <= 0.0f) return;
+    if (avcodec_send_packet(t.dec, m->pkt) < 0) return;
+    while (avcodec_receive_frame(t.dec, m->aframe) >= 0) {
+        const AVFrame *f = m->aframe;
+        int ch = f->ch_layout.nb_channels, n = f->nb_samples;
+        m->pcm.resize((size_t)n * (size_t)ch);
+        auto put = [&](int i, int c, float v) {
+            v *= 32767.0f;
+            m->pcm[(size_t)i * ch + c] = (int16_t)(v > 32767.0f ? 32767.0f : v < -32768.0f ? -32768.0f : v);
+        };
+        if (f->format == AV_SAMPLE_FMT_FLTP) {
+            for (int c = 0; c < ch; c++) {
+                const float *src = reinterpret_cast<const float *>(f->extended_data[c]);
+                for (int i = 0; i < n; i++) put(i, c, src[i]);
+            }
+        } else if (f->format == AV_SAMPLE_FMT_FLT) {
+            const float *src = reinterpret_cast<const float *>(f->extended_data[0]);
+            for (int i = 0; i < n * ch; i++) put(i / ch, i % ch, src[i]);
+        } else {
+            m->pcm.assign(m->pcm.size(), 0);
+        }
+        if (xaudio2_stream_queue(t.out, m->pcm.data(), m->pcm.size())) t.samples += (uint64_t)n;
+        else t.dropped += (uint64_t)n;
+        av_frame_unref(m->aframe);
+    }
+}
+
 // Makes `frame` hold frame number `want` (1-based). Bink frames depend on their predecessors, so going
 // back (a looping movie wraps to frame 1) restarts the stream.
 bool movie_decode(Movie *m, uint32_t want) {
@@ -187,6 +260,7 @@ bool movie_decode(Movie *m, uint32_t want) {
                 return false;
             }
             avcodec_flush_buffers(m->dec);
+            for (Track &t : m->tracks) avcodec_flush_buffers(t.dec);
         }
         m->decoded = 0;
     }
@@ -196,8 +270,12 @@ bool movie_decode(Movie *m, uint32_t want) {
             if (g_verbose) log("bink: %s: end of stream at frame %u (wanted %u): %s", m->name.c_str(), m->decoded, want, av_message(err).c_str());
             return false;
         }
-        if (m->pkt->stream_index == m->stream && avcodec_send_packet(m->dec, m->pkt) >= 0 && avcodec_receive_frame(m->dec, m->frame) >= 0)
-            m->decoded++;
+        if (m->pkt->stream_index == m->stream) {
+            if (avcodec_send_packet(m->dec, m->pkt) >= 0 && avcodec_receive_frame(m->dec, m->frame) >= 0) m->decoded++;
+        } else {
+            for (Track &t : m->tracks)
+                if (t.stream == m->pkt->stream_index) movie_audio(m, t);
+        }
         av_packet_unref(m->pkt);
     }
     return true;
@@ -262,15 +340,20 @@ SHIM_NAMED(binkw32, BinkOpen, "_BinkOpen@8", 2) {
     wr32(bink + BINK_FRAMERATE, m->rate);
     wr32(bink + BINK_FRAMERATEDIV, m->rate_div);
     g_movies[bink] = m;
-    log("BinkOpen(%s, %#x): %ux%u, %u frames at %u/%u fps%s", m->name.c_str(), a[1], m->width, m->height, m->frames, m->rate, m->rate_div,
-        m->alpha ? ", alpha" : "");
+    std::string tr;
+    for (const Track &t : m->tracks) tr += " " + std::to_string(t.id) + (t.out ? "" : "(no engine)");
+    log("BinkOpen(%s, %#x): %ux%u, %u frames at %u/%u fps%s; sound tracks:%s", m->name.c_str(), a[1], m->width, m->height, m->frames, m->rate,
+        m->rate_div, m->alpha ? ", alpha" : "", tr.empty() ? " none" : tr.c_str());
     return bink;
 }
 
 SHIM_NAMED(binkw32, BinkClose, "_BinkClose@4", 1) {
     std::lock_guard<std::mutex> g(g_lock);
     if (Movie *m = find(a[0])) {
-        log("BinkClose(%s): %u frames shown, %u skipped", m->name.c_str(), m->shown, m->skipped);
+        std::string tr;
+        for (const Track &t : m->tracks)
+            if (t.samples || t.dropped) tr += " track " + std::to_string(t.id) + ": " + std::to_string(t.samples) + " samples (" + std::to_string(t.dropped) + " dropped)";
+        log("BinkClose(%s): %u frames shown, %u skipped;%s", m->name.c_str(), m->shown, m->skipped, tr.empty() ? " no sound played" : tr.c_str());
         g_movies.erase(a[0]);
         movie_free(m);
         heap_free(a[0]);
@@ -315,6 +398,8 @@ SHIM_NAMED(binkw32, BinkDoFrame, "_BinkDoFrame@4", 1) {
     uint32_t want = rd32(a[0] + BINK_FRAMENUM);
     bool fresh = m->decoded != want;
     if (movie_decode(m, want) && (fresh || m->set < 0)) movie_present(m);
+    if (!m->paused)
+        for (Track &t : m->tracks) xaudio2_stream_play(t.out, true);
     return 0;
 }
 
@@ -365,6 +450,7 @@ SHIM_NAMED(binkw32, BinkPause, "_BinkPause@8", 2) {
         m->start += Clock::now() - m->pause_begin;
     }
     m->paused = pause;
+    for (Track &t : m->tracks) xaudio2_stream_play(t.out, !pause && m->decoded != 0);
     return pause;
 }
 
@@ -383,11 +469,22 @@ SHIM_NAMED(binkw32, BinkGetRealtime, "_BinkGetRealtime@12", 3) {
     return 0;
 }
 
-// Sound: nothing is played yet (T-053). The game only calls BinkSetSoundSystem when DirectSound exists.
+// Sound output is ours (see the top of the file), so the DirectSound hand-over and the track selection need no
+// action: every track of the file is opened and BinkSetVolume decides which ones are heard.
 SHIM_NAMED(binkw32, BinkSetSoundSystem, "_BinkSetSoundSystem@8", 2) { return 1; }
 SHIM_NAMED(binkw32, BinkOpenDirectSound, "_BinkOpenDirectSound@4", 1) { return 0; }
 SHIM_NAMED(binkw32, BinkSetSoundTrack, "_BinkSetSoundTrack@8", 2) { return 0; }
-SHIM_NAMED(binkw32, BinkSetVolume, "_BinkSetVolume@12", 3) { return 0; }
+SHIM_NAMED(binkw32, BinkSetVolume, "_BinkSetVolume@12", 3) {
+    // (bink, track id, volume 0..32768)
+    std::lock_guard<std::mutex> g(g_lock);
+    if (Movie *m = find(a[0]))
+        for (Track &t : m->tracks)
+            if (t.id == a[1]) {
+                t.volume = (float)a[2] / 32768.0f;
+                xaudio2_stream_volume(t.out, t.volume);
+            }
+    return 0;
+}
 // Memory and I/O tuning of the original library: the host decoder allocates and reads by itself.
 SHIM_NAMED(binkw32, BinkSetMemory, "_BinkSetMemory@8", 2) { return 0; }
 SHIM_NAMED(binkw32, BinkSetIOSize, "_BinkSetIOSize@4", 1) { return 0; }

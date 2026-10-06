@@ -15,7 +15,7 @@ Evidence: `artifacts/boot/native_title_screen.png`, `native_main_menu.png`, `nat
 |---|---|
 | P0–P3 recon, baseline, shim design, renderer in isolation | done |
 | P4 static recompilation | done — exit criteria met 2026-10-06 |
-| P5 integration | in progress: boots, renders, plays its videos, loads a mission; no sound |
+| P5 integration | in progress: boots, renders, plays its videos, has sound, loads a mission |
 | P6–P8 | not started |
 
 ## Run it
@@ -27,6 +27,8 @@ BO1_KEYS="35000:0x20" BO1_CMDS="50000|devmap cuba" BO1_D3D_DUMP=artifacts/boot/f
 ```
 The first ~25 s are the intro movie (video works since 2026-10-06; `BO1_BINK=off` skips all movies). With it the scripted
 key is best sent at 45 s and the mission command at 60 s (`BO1_KEYS="45000:0x20" BO1_CMDS="60000|devmap cuba"`, verified).
+Unattended runs: put `SDL_AUDIO_DRIVER=dummy` in front (silent; `scripts/boot_try.sh` does it), or `SDL_AUDIO_DRIVER=disk
+SDL_AUDIO_DISK_OUTPUT_FILE=file.raw` to capture the mix (float32 stereo 48 kHz). `BO1_AUDIO=off` = no sound at all.
 `last_run.log` contains binary bytes: use `grep -a`.
 
 ## Build
@@ -43,6 +45,7 @@ BlackOps.exe --tools/lifter--> artifacts/lifted/*.c --clang--> arm64 objects
 src/runtime/guest_os.cpp     arena, heap, virtual memory, threads/TEB/TLS, import trampolines, COM objects
 src/platform/win32/*.cpp     kernel32, user32/gdi32, winsock, misc DLLs
    bink_ffmpeg.cpp           Bink video on FFmpeg's decoder (ADR-008); contract in RE_NOTES "Bink as the game uses it"
+   xaudio2_faudio.cpp        XAudio2 2.7 on FAudio (ADR-009): voices, the game's own effects and callbacks, xWMA via FFmpeg
    steam_local.cpp           Steam: local offline stand-in (ADR-015), table re/steam_abi.csv
    d3d9_null.cpp             guest-visible Direct3D objects and their lifetime, lock memory, capability answers
    d3d9_live.cpp             watches every Direct3D call and feeds it to the renderer as a call record
@@ -63,8 +66,8 @@ tests/boot/main.cpp          entry point of bo1_boot; tests/boot/steam_selftest.
 
 ## What is missing, in the order I would do it
 1. ~~T-054 Bink video~~ — done 2026-10-06 (video only; the movies' sound tracks come with T-053).
-2. **T-053 sound** (ADR-009: XAudio2 2.7 on FAudio). `brew install faudio` was approved by the user on 2026-10-06 but has to be
-   run by the user (the agent session's permission check refused the install) — check `brew list --versions faudio`.
+2. **T-053 sound** — XAudio2 2.7 on FAudio works since 2026-10-06 (`xaudio2_faudio.cpp`; RE_NOTES "XAudio2 as the game uses it"),
+   including the movies' sound tracks. Left: nobody has LISTENED yet — it was only measured (levels, spectra, no dropouts).
 3. **T-057 input with a human**: the window, keyboard and mouse position are wired, but only scripted
    keys were verified. Mouse look (relative mode), key repeat, focus changes, gamepad (the XInput shim is a stub).
 4. **T-058 performance**: nothing is measured on the live path. The renderer re-uploads constants per draw
@@ -85,6 +88,8 @@ tests/boot/main.cpp          entry point of bo1_boot; tests/boot/steam_selftest.
 - Ask the user before: system-wide installs, downloads > 500 MB, `git push`, changing an ADR.
 
 ## Things that cost time once (do not repeat)
+- **The sound engine must run at 48 kHz**: the game's effects write fixed 480-frame blocks; at 44.1 kHz they overwrite
+  game variables (crash in the next sound update). `xaudio2_faudio.cpp` forces it — do not "fix" that to the device rate.
 - **Apple Silicon host pages are 16 KiB**, the guest's are 4 KiB. Anything that maps or protects memory per
   page must handle partial host pages (`vm_zero()` in `guest_os.cpp`).
 - **Do not edit a shell script while it is running** (bash reads scripts incrementally; a capture run was lost).

@@ -4,15 +4,16 @@ Update this file at every checkpoint (see AGENTS.md rule 2).
 Layout: open work is listed once, in **OPEN** (in the order it is planned). The phase sections below are the record of finished work with its evidence. Summary for a newcomer: `docs/HANDOFF_STATUS.md`.
 
 ## NOW
-- **T-053** (P5) Sound: XAudio2 2.7 on FAudio (ADR-009). `brew install faudio` is approved by the user (2026-10-06) but must be run by the user — the agent session's permission check refused it; check with `brew list --versions faudio`.
-  - [ ] Step 1 (needs no library) — the `IXAudio2` / voice / callback methods the game calls: slot, stack words and what it does with results, read off its call sites like `tools/steam_sites.py` / `tools/bink_sites.py` did -> `re/xaudio2_abi.csv` + RE_NOTES.
-  - [ ] Step 2 — guest-visible COM objects (`CoCreateInstance` in `misc_dlls.cpp`) backed by FAudio; output through SDL3.
-  - [ ] Step 3 — the movies' sound tracks (Bink audio from `bink_ffmpeg.cpp` into a source voice).
+- **T-053** (P5) Sound: XAudio2 2.7 on FAudio (ADR-009). FAudio 26.10 installed by the user 2026-10-06.
+  - [x] Step 1 DONE 2026-10-06 — the interface the game uses (evidence: RE_NOTES § "XAudio2 as the game uses it" with the call-site VAs; `re/xaudio2_usage.csv` — 19 of 83 methods called in a 170 s run; 8 symbols).
+  - [x] Step 2 DONE 2026-10-06 — `src/platform/win32/xaudio2_faudio.cpp`: engine, mastering / submix / source voices, the game's own effects (XAPO) and voice callbacks on a guest-capable mixer thread, xWMA decoded with FFmpeg, engine forced to 48 kHz (evidence: `artifacts/boot/audio_cuba_run.log` — 170 s from start-up into mission 1, 516 source voices, 998 buffers, 0 `Com_ERROR`, no trap; captured mix `artifacts/boot/audio_out.raw`: no clipping, no NaN, -41..-17 dBFS whenever the game is not in a movie, no clicks at block boundaries; `artifacts/boot/audio_spectrogram.png`).
+  - [x] Step 3 DONE 2026-10-07 — the movies' sound tracks: `bink_ffmpeg.cpp` decodes every track (`binkaudio_dct`) as its packets come by and plays ids 0 and 1 on the game's engine through host stream voices; `BinkSetVolume` and `BinkPause` act on them (evidence: `artifacts/boot/audio_cuba_run.log` — `treyarch.bik` track 0: 940,800 samples = 19.6 s, `cuba_load.bik` tracks 0 and 1: 2,250,240 samples each = 46.9 s = 1,406 frames, 0 dropped; captured mix: intro -10..-25 dBFS where it was silent before, level = file x 0.707).
+  - [ ] Step 4 — a human listens (`scripts/run_native.sh`): pitch, balance, dialogue, music; then decide what needs fixing.
 
 ## OPEN (planned order)
 | ID | Phase | Status | What | Notes |
 |---|---|---|---|---|
-| T-053 | P5 | NOW | Sound: XAudio2 2.7 on FAudio (ADR-009), incl. the movies' sound tracks | see NOW; the install is approved and has to be run by the user |
+| T-053 | P5 | NOW | Sound: XAudio2 2.7 on FAudio (ADR-009) | works incl. movie sound (measured); left: a listening test by the user — see NOW |
 | T-057 | P5 | TODO | Input with a human at the keyboard: focus, key repeat, mouse look (relative mode), gamepad through SDL for the XInput shim | needs the user in front of `scripts/run_native.sh`; only scripted keys are verified |
 | T-058 | P5 | TODO | Frame-rate / frame-time measurement of the live path (menu, cuba) and first profile | nothing measured yet; the renderer re-uploads constants per draw |
 | T-059 | P5 | TODO | Free Direct3D objects and their guest memory on the final Release; forward `Reset` | today the guest heap grows with every level |

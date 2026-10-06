@@ -65,6 +65,10 @@ uint32_t thread_create(uint32_t entry, uint32_t param, uint32_t stack_size, bool
 // must live there on macOS — and has to return once its argument becomes true (the guest thread ended).
 int thread_run_main(uint32_t stack_size, const std::function<void(Cpu *)> &body,
                     const std::function<void(const std::atomic<bool> &)> &host_main = nullptr);
+// A guest thread whose body is host code: it has a guest stack, TEB and Cpu, so the body may call into the
+// guest with guest_call(). For host services that deliver guest callbacks from their own threads (the
+// audio mixer, xaudio2_faudio.cpp). The thread is not joined.
+bool thread_spawn_host(uint32_t stack_size, const std::function<void(Cpu *)> &body);
 [[noreturn]] void thread_exit_current(uint32_t code);
 void process_exit(uint32_t code);
 
