@@ -445,6 +445,11 @@ CONFIRMED by running (`artifacts/boot/last_run.log`; `BO1_VERBOSE=2` lists every
 - 87 distinct imports and ~4,900 import calls up to that point; no trap, no host fault.
 - `wndproc` of the main window class: 0x00554AA0 (LIKELY `MainWndProc`).
 
+## Steamworks interface versions of the game's SDK (ADR-014)
+- CONFIRMED (strings of Valve's original 2010 `steam_api.dll`, shipped renamed as `steam_api.cdx`): `SteamClient009`, `SteamUser014`, `SteamFriends007`, `SteamUtils005`, `STEAMAPPS_INTERFACE_VERSION003`, `STEAMUSERSTATS_INTERFACE_VERSION007`, `SteamNetworking004`, `SteamMatchMaking008`, `SteamMatchMakingServers002`, `STEAMREMOTESTORAGE_INTERFACE_VERSION002`, `SteamGameServer010`, `SteamGameServerStats001`, `SteamMasterServerUpdater001`, `SteamContentServer002`.
+- Slots the game calls (static, `re/com_steam_usage.json`): SteamUser 2,3,4,19,20; SteamFriends 3,4,5,6,20 (+3 unresolved sites); SteamUtils 9,10; SteamApps 7; SteamUserStats 7,10; SteamNetworking 0,1,2,3; SteamGameServer 1,3,5,7,18; SteamMasterServerUpdater 0.
+- GUESS (from memory of the public SDK headers, to be confirmed against the real `isteamuser.h` of that SDK before any bridge code): ISteamUser014 slot 2 = GetSteamID, 3 = InitiateGameConnection, 4 = TerminateGameConnection, 19 = AdvertiseGame, 20 = RequestEncryptedAppTicket.
+
 ## Gotchas / surprises
 - **Unclean-exit marker:** the game creates `%LOCALAPPDATA%\Activision\CoD\__BlackOps` while running; if it exists at startup a modal "Run In Safe Mode?" box appears (CONFIRMED: window title seen, file found). `run_baseline.sh` deletes it; the port's file shim will see the same create/delete pattern.
 - **`+devmap` on the command line is ignored, the same command through the console buffer works.** `Cbuf_AddText(0, "devmap cuba\n")` (VA 0x0049B930, called from the proxy 10 s after the title screen) loads `common` + `cuba` and starts the mission (CONFIRMED: `Loading fastfile 'cuba'`, in-game frame in `tests/golden/`). This is the baseline's scripted way into any SP map and a ready-made test hook for the port.

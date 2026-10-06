@@ -3,7 +3,7 @@ Status: TODO · NOW · DONE · BLOCKED. Only ONE task is NOW at a time. Mark DON
 Update this file at every checkpoint (see AGENTS.md rule 2).
 
 ## NOW
-- **BLOCKED on a user decision (Steam): T-024 / T-045.** The lifted game boots to `SteamAPI_Init`; with no Steam implementation it exits with "Steam must be running to play this game." The shipped steam_api.dll runs in the interpreter but its own protection refuses to initialise (see LOG 2026-10-06 06:40, ADR-010 note). Not blocked: T-036, T-038, T-046, T-044 leftovers.
+- **T-047** (P4, ADR-014) Steam spike: with Steam for macOS running under the owner's account and Valve's `libsteam_api.dylib`, does `SteamAPI_Init` succeed for app id 42700, is the user logged on, is the app owned? WAITING for the user: Steam installed + logged in, Steamworks SDK (dylib + headers) placed in `artifacts/steamworks/`. Evidence: output of `tests/steam_spike`.
 
 ## DONE
 - **T-001** (P0) DONE 2026-10-05 — game install present in `reference/`, `scripts/doctor.sh` run, tool availability recorded.
@@ -60,6 +60,9 @@ Update this file at every checkpoint (see AGENTS.md rule 2).
 - [x] **T-046** DONE 2026-10-06 (evidence: docs/LIFTER.md "x86_64 cross-check"; `artifacts/lifted/difftest_x64.log` — x86_64 -O0 under Rosetta agrees with arm64 on all 26,294 vectors except three 1-ulp libm differences; at -O1 an Apple clang x86_64 miscompile was found and reduced: `tests/diff/compiler_bugs/x86_64_byte_insert_after_load.c`). (M4c) Diff-test suite green; x86_64 (Rosetta) build of the lifted code as a cross-check.
 - [ ] **T-024** BLOCKED 2026-10-06 (from P2) steam_api.dll interpreter spike (ADR-010). Done: interpreter host (`src/platform/win32/x86_module.cpp`), the DLL loads unmodified, runs its start-up, reads `steam_emu.ini` and its state files (evidence: `artifacts/boot/last_run.log`, LOG). Blocked: it then stops itself with "Internal error 0x0A: Protection initialization failed!" after enumerating the loaded modules. Finding out what that check wants = analysing the anti-tamper of a DRM-circumvention DLL -> ground rule 1: stop and ask the user.
 - [ ] **T-036** (from P3) shader/pipeline disk cache. **T-037** native D3D9 reference (Windows PC: user prefers to keep it as a last resort). **T-038** video textures in a trace.
+
+- [ ] **T-047** Steam spike (ADR-014), see NOW.
+- [ ] **T-048** Steam bridge: flat imports, interface objects for the slots the game calls, callbacks (after T-047 passes and the interface versions are known).
 
 ## P5+ (expand after P4 exit)
 Integration -> strangler fig -> Metal optimisation -> QA. See docs/PLAN.md.
