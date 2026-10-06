@@ -615,6 +615,9 @@ private:
             fprintf(debug_log_, " s%u=%08x", s.reg, bound_tex_[s.reg]);
             if (t) fprintf(debug_log_, "(f%u %ux%u a%u%u m%u%u%u)", t->fmt, t->w, t->h, st[1], st[2], st[5], st[6], st[7]);
         }
+        if (rs_[52])
+            fprintf(debug_log_, " stencil[func=%u ref=%u mask=%x wmask=%x fail=%u zfail=%u pass=%u two=%u ccw=%u/%u/%u/%u]", rs_[56], rs_[57], rs_[58], rs_[59], rs_[53], rs_[54], rs_[55],
+                    rs_[185], rs_[189], rs_[186], rs_[187], rs_[188]);
         fprintf(debug_log_, "\n");
         if (r.arg(6) > 2) return; // quads: also show where the vertices are and the constants that place them
         auto ib = buffers_.find(cur_ib_);

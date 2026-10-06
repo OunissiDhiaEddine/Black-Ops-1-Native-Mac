@@ -3,8 +3,8 @@ Status: TODO · NOW · DONE · BLOCKED. Only ONE task is NOW at a time. Mark DON
 Update this file at every checkpoint (see AGENTS.md rule 2).
 
 ## NOW
-- **T-056** (P5) Open rendering differences against the golden frames: khe_sanh (sky brighter, far field blurred; SSIM 0.973) and the menu specks (0.983) — investigate with the replay tool. IN PROGRESS 2026-10-06: khe_sanh cause found = a start-up vertex buffer the trace did not record (LOG); fixing the proxy and re-capturing.
-- Queue after it (none needs Steam): T-054 Bink on FFmpeg · T-053 XAudio2 on FAudio (needs the user's OK for `brew install faudio`) · T-038 video textures in a trace · T-044 leftovers.
+- **T-038** (P3 leftover) Record video textures (`--record-video`) for the menu and confirm the TV screens match — the only difference left in the menu after T-056.
+- Queue after it (none needs Steam): T-054 Bink on FFmpeg · T-053 XAudio2 on FAudio (needs the user's OK for `brew install faudio`) · T-044 leftovers.
 - Waiting on the Steam hand-off (another agent, not this line of work): T-045 remainder, T-055 live test, T-052 part 3, P5 exit.
 
 ## DONE
@@ -46,7 +46,7 @@ Update this file at every checkpoint (see AGENTS.md rule 2).
 - [x] **T-034** DONE 2026-10-05 (evidence: menu + 3 mission frames rendered, 0 skipped draws; RE_NOTES § Metal replay results). Render-state -> PSO mapping + cache; first triangle from trace; then main menu frame.
 - [x] **T-035** DONE 2026-10-05 (evidence: `scripts/replay_check.sh` exit 0 at SSIM >= 0.95; `re/replay_check.json`). Golden-frame comparison (SSIM + diff image) automated in CI script.
 - [x] **T-036** CLOSED 2026-10-06 by measurement — see the P5 section. Persistent shader/pipeline cache (translated MSL by bytecode hash + MTLBinaryArchive).
-- [ ] **T-037** (last resort — user) Settle the two open differences (menu red specks, khe_sanh sky/far blur) against native D3D9 frames from the user's Windows PC (the proxy DLL works on Windows unchanged).
+- [ ] **T-037** (last resort — user) Settle the two open differences (menu red specks, khe_sanh sky/far blur) against native D3D9 frames from the user's Windows PC (the proxy DLL works on Windows unchanged). — 2026-10-06: both differences were explained and fixed without it (T-056); only needed if a new doubt about the Wine baseline comes up.
 - [ ] **T-038** Record video textures (`--record-video`) for one scenario and confirm the TV screens match.
 - **P3 exit review** — DONE 2026-10-05 (LOG): PASS with the open items above. Gate G1: go (docs/DECISIONS.md).
 
@@ -65,7 +65,7 @@ Update this file at every checkpoint (see AGENTS.md rule 2).
 - [x] **T-051** DONE 2026-10-06 (evidence: `scripts/replay_check.sh` -> `re/replay_check.json` byte-identical to before the split: cuba 0.999, vorkuta 0.998, menu 0.983, khe_sanh 0.973; 0 skipped draws). Renderer library `bo1_metal` = `src/rhi/{d3d9_call.h,renderer.h}` + `src/metal/metal_renderer.mm`; the replay tool links it.
 - [ ] **T-055** (WAITS on the Steam hand-off for the live test) Native `d3d9` shim that turns the game's live calls into `d3d9_call.h` records for the renderer (replaces `d3d9_null.cpp`). Can only be exercised once the game gets past its start-up checks.
 - [ ] **T-052** SDL3-backed user32. PART 1 DONE 2026-10-06 (evidence: `build/test_win_messages` -> "99 keys mapped; all checks passed"): `src/platform/window/win_messages.{h,cpp}` translates SDL3 events into Win32 messages (keys with virtual key + set-1 scan code + extended/repeat/transition bits, WM_SYSKEY*, WM_CHAR, mouse buttons/move/wheel, focus, size, close). PART 2 DONE 2026-10-06 (evidence: `build/test_window_service` -> "all checks passed"): `src/platform/window/window_service.{h,cpp}` — the process main thread owns the SDL window, CAMetalLayer and event pump; other threads create the window through a blocking request and read input from a thread-safe Win32 message queue. PART 3 open: point the user32 shims (`CreateWindowExA`, `PeekMessageA`, cursor, focus) and the boot harness at the service, gamepad through SDL for the XInput shim — to be done when the game reaches window creation, so that it can be tested.
-- [ ] **T-056** Rendering differences vs golden frames (khe_sanh sky/far field, menu specks).
+- [x] **T-056** DONE 2026-10-06 (evidence: `re/replay_check.json` — cuba 0.9994, vorkuta 0.9985–0.9986, khe_sanh 0.9984–0.9989 (was 0.968–0.978), menu 0.975–0.976 with only the TV screens left; no unrecorded vertex/index buffers; `build/sm3c` on the 13 relative-addressing shaders: 13/13 compile, corpus 6,845/6,845 translate). Rendering differences vs golden frames. Two causes, neither in the Metal renderer proper: (1) khe_sanh sky/far field = the trace lacked a start-up vertex buffer (proxy fixed, all scenarios re-captured); (2) menu specks = SM3 translator ignored shader-defined constants in relative addressing (fixed). Tools added: per-pass debug dump (`BO1_DEBUG_FRAME` / `BO1_DEBUG_DIR`, `tools/pass_dump.py`), unrecorded-data report in the replay, `--cursor` for repeatable menu captures.
 - [ ] **T-053** XAudio2 2.7 on FAudio (ADR-009; `brew install faudio` needs the user's OK). **T-054** Bink on FFmpeg (ADR-008).
 - [x] **T-036** CLOSED 2026-10-06 by measurement (evidence: `build/replay … --backend metal` now prints "shader work": menu window 182 functions / 171 pipelines = translate 7.6 ms + MSL compile 29.3 ms + pipeline creation 15.9 ms; khe_sanh 209 / 131 = 8.4 + 31.9 + 21.9 ms). On every run after the first, Metal's own on-disk shader cache already makes this ~60 ms in total, so a project-side cache would only help the very first run (measured in P3 at ~10 shader functions/s); an explicit `MTLBinaryArchive` moves to P7 (start-up polish).
 

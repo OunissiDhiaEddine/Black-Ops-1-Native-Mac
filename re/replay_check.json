@@ -4,7 +4,7 @@
   "cuba": [
    {
     "frame": "frame_005200.png",
-    "ssim": 0.9993,
+    "ssim": 0.9994,
     "mae": 0.04,
     "pixels_off_by_16": 0.0003
    },
@@ -16,7 +16,7 @@
    },
    {
     "frame": "frame_005240.png",
-    "ssim": 0.9993,
+    "ssim": 0.9994,
     "mae": 0.05,
     "pixels_off_by_16": 0.0004
    }
@@ -44,41 +44,41 @@
   "menu": [
    {
     "frame": "frame_001700.png",
-    "ssim": 0.9714,
-    "mae": 2.1,
-    "pixels_off_by_16": 0.0412
+    "ssim": 0.9754,
+    "mae": 1.93,
+    "pixels_off_by_16": 0.0389
    },
    {
     "frame": "frame_001720.png",
-    "ssim": 0.9739,
-    "mae": 2.07,
-    "pixels_off_by_16": 0.0399
+    "ssim": 0.976,
+    "mae": 1.96,
+    "pixels_off_by_16": 0.0393
    },
    {
     "frame": "frame_001740.png",
-    "ssim": 0.9721,
-    "mae": 2.17,
-    "pixels_off_by_16": 0.0409
+    "ssim": 0.9752,
+    "mae": 2.01,
+    "pixels_off_by_16": 0.0396
    }
   ],
   "vorkuta": [
    {
     "frame": "frame_005200.png",
-    "ssim": 0.9973,
-    "mae": 0.09,
-    "pixels_off_by_16": 0.0009
-   },
-   {
-    "frame": "frame_005220.png",
-    "ssim": 0.9973,
-    "mae": 0.09,
+    "ssim": 0.9985,
+    "mae": 0.07,
     "pixels_off_by_16": 0.0007
    },
    {
+    "frame": "frame_005220.png",
+    "ssim": 0.9986,
+    "mae": 0.07,
+    "pixels_off_by_16": 0.0005
+   },
+   {
     "frame": "frame_005240.png",
-    "ssim": 0.9973,
-    "mae": 0.1,
-    "pixels_off_by_16": 0.0009
+    "ssim": 0.9985,
+    "mae": 0.08,
+    "pixels_off_by_16": 0.0006
    }
   ]
  }
