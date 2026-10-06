@@ -18,7 +18,7 @@ for dir in tests/golden/*/; do
   ./build/replay "$trace" --backend metal --frames "$first-$((first + 42))" --dump "artifacts/replay/$name" \
     >"artifacts/replay/$name.log" 2>&1
   echo "== $name: $(grep 'metal backend' "artifacts/replay/$name.log")"
-  grep -E '^ +[0-9]+  ' "artifacts/replay/$name.log" | head -5
+  grep -E '^ +[0-9]+  |^  unrecorded' "artifacts/replay/$name.log" | head -8
   .venv/bin/python tools/compare_frames.py "$dir" "artifacts/replay/$name" --diff "artifacts/replay/${name}_diff" \
     --threshold "$THRESH" --json "artifacts/replay/$name.json" || status=1
 done

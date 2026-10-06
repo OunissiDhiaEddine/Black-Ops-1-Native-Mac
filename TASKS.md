@@ -3,7 +3,7 @@ Status: TODO · NOW · DONE · BLOCKED. Only ONE task is NOW at a time. Mark DON
 Update this file at every checkpoint (see AGENTS.md rule 2).
 
 ## NOW
-- **T-056** (P5) Open rendering differences against the golden frames: khe_sanh (sky brighter, far field blurred; SSIM 0.973) and the menu specks (0.983) — investigate with the replay tool.
+- **T-056** (P5) Open rendering differences against the golden frames: khe_sanh (sky brighter, far field blurred; SSIM 0.973) and the menu specks (0.983) — investigate with the replay tool. IN PROGRESS 2026-10-06: khe_sanh cause found = a start-up vertex buffer the trace did not record (LOG); fixing the proxy and re-capturing.
 - Queue after it (none needs Steam): T-054 Bink on FFmpeg · T-053 XAudio2 on FAudio (needs the user's OK for `brew install faudio`) · T-038 video textures in a trace · T-044 leftovers.
 - Waiting on the Steam hand-off (another agent, not this line of work): T-045 remainder, T-055 live test, T-052 part 3, P5 exit.
 
