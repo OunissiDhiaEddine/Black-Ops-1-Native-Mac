@@ -3,7 +3,7 @@ Status: TODO · NOW · DONE · BLOCKED. Only ONE task is NOW at a time. Mark DON
 Update this file at every checkpoint (see AGENTS.md rule 2).
 
 ## NOW
-- **T-051** (P5) Renderer library: move the Metal backend from `tests/replay/` into `src/metal` behind a D3D9-shaped interface in `src/rhi` (ADR-004), shared by the replay tool and the game's `d3d9` shim.
+- **T-052** (P5) SDL3-backed user32 (window, messages, keyboard/mouse, gamepad) replacing `user32_headless.cpp`; then T-036 (shader/pipeline disk cache).
 
 ## DONE
 - **T-001** (P0) DONE 2026-10-05 — game install present in `reference/`, `scripts/doctor.sh` run, tool availability recorded.
@@ -63,7 +63,8 @@ Update this file at every checkpoint (see AGENTS.md rule 2).
 
 ## P5 — Integration (started 2026-10-06 with the user's approval)
 - [x] **T-050** DONE 2026-10-06 (evidence: `build/replay artifacts/traces/menu.bin --window --frames 1900-2000` -> "window: 102 frames shown", 156,725 draws, 0 skipped; `artifacts/replay_window/frame_002000.png`). SDL3 window + CAMetalLayer presentation for the replay tool; `scripts/replay_window.sh <scenario> [first_frame] [fps]`.
-- [ ] **T-051** Renderer library split (`src/rhi` + `src/metal`); replay check must stay at the P3 SSIM numbers.
+- [x] **T-051** DONE 2026-10-06 (evidence: `scripts/replay_check.sh` -> `re/replay_check.json` byte-identical to before the split: cuba 0.999, vorkuta 0.998, menu 0.983, khe_sanh 0.973; 0 skipped draws). Renderer library `bo1_metal` = `src/rhi/{d3d9_call.h,renderer.h}` + `src/metal/metal_renderer.mm`; the replay tool links it.
+- [ ] **T-055** Native `d3d9` shim that turns the game's live calls into `d3d9_call.h` records for the renderer (replaces `d3d9_null.cpp`). Can only be exercised once the game gets past its start-up checks.
 - [ ] **T-052** SDL3-backed user32 (window, messages, keyboard/mouse, gamepad) replacing `user32_headless.cpp`.
 - [ ] **T-053** XAudio2 2.7 on FAudio (ADR-009; `brew install faudio` needs the user's OK). **T-054** Bink on FFmpeg (ADR-008).
 - [ ] **T-036** (carried) shader/pipeline disk cache.

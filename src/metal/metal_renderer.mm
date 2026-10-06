@@ -1,4 +1,4 @@
-// Metal replay backend (T-032 / T-034): executes the game's recorded D3D9 calls on Metal and dumps
+// Metal renderer (T-032 / T-034, library since T-051): executes the game's D3D9 calls on Metal and dumps
 // the back buffer for frames inside the window. D3D9 semantics live here (ADR-004 proposal a):
 // state is tracked exactly as the device would, and translated to Metal objects at draw time.
 //
@@ -22,10 +22,10 @@
 #include <unordered_map>
 #include <vector>
 
-#include "backend.h"
+#include "renderer.h"
 #include "sm3.h"
 
-namespace bo1::replay {
+namespace bo1::rhi {
 using namespace trace;
 
 namespace {
@@ -123,9 +123,9 @@ struct Consts { // must match the translator's `Consts`
     float extra[4];
 };
 
-class MetalBackend final : public Backend {
+class MetalRenderer final : public Renderer {
 public:
-    explicit MetalBackend(const Options &o) : opts_(o) {
+    explicit MetalRenderer(const Options &o) : opts_(o) {
         dev_ = MTLCreateSystemDefaultDevice();
         if (!dev_) throw std::runtime_error("no Metal device");
         queue_ = [dev_ newCommandQueue];
@@ -1098,6 +1098,6 @@ private:
 
 } // namespace
 
-std::unique_ptr<Backend> make_metal_backend(const Options &opts) { return std::make_unique<MetalBackend>(opts); }
+std::unique_ptr<Renderer> make_metal_renderer(const Options &opts) { return std::make_unique<MetalRenderer>(opts); }
 
-} // namespace bo1::replay
+} // namespace bo1::rhi

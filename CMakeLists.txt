@@ -23,14 +23,18 @@ target_link_libraries(sm3c PRIVATE bo1_shaders "-framework Metal" "-framework Fo
 list(APPEND CMAKE_PREFIX_PATH /opt/homebrew)
 find_package(SDL3 REQUIRED CONFIG)
 
-# Trace replay harness (P3). The slot tables come from the proxy's header: single source of truth.
+# Renderer (ADR-004): D3D9-shaped call records in (src/rhi), Metal out (src/metal). Shared by the replay
+# tool and the native runtime's d3d9 shim. The slot tables come from the proxy's header: single source of truth.
+add_library(bo1_metal STATIC src/metal/metal_renderer.mm)
+target_include_directories(bo1_metal PUBLIC src/rhi tools/d3d9_proxy)
+set_source_files_properties(src/metal/metal_renderer.mm tools/sm3c/main.mm PROPERTIES COMPILE_OPTIONS "-fobjc-arc")
+target_link_libraries(bo1_metal PUBLIC bo1_shaders SDL3::SDL3 "-framework Metal" "-framework Foundation"
+                      "-framework CoreGraphics" "-framework ImageIO" "-framework QuartzCore")
+
+# Trace replay harness (P3).
 add_executable(replay
   tests/replay/main.cpp
   tests/replay/trace.cpp
-  tests/replay/null_backend.cpp
-  tests/replay/metal_backend.mm)
-target_include_directories(replay PRIVATE tests/replay tools/d3d9_proxy)
-set_source_files_properties(tests/replay/metal_backend.mm tools/sm3c/main.mm PROPERTIES COMPILE_OPTIONS "-fobjc-arc")
-target_link_libraries(replay PRIVATE bo1_shaders SDL3::SDL3 "-framework Metal" "-framework Foundation"
-                      "-framework CoreGraphics" "-framework ImageIO" "-framework QuartzCore")
-
+  tests/replay/null_backend.cpp)
+target_include_directories(replay PRIVATE tests/replay)
+target_link_libraries(replay PRIVATE bo1_metal)
