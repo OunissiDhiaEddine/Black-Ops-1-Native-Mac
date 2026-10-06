@@ -3,8 +3,8 @@ Status: TODO · NOW · DONE · BLOCKED. Only ONE task is NOW at a time. Mark DON
 Update this file at every checkpoint (see AGENTS.md rule 2).
 
 ## NOW
-- **T-038** (P3 leftover) Record video textures (`--record-video`) for the menu and confirm the TV screens match — the only difference left in the menu after T-056.
-- Queue after it (none needs Steam): T-054 Bink on FFmpeg · T-053 XAudio2 on FAudio (needs the user's OK for `brew install faudio`) · T-044 leftovers.
+- **T-054** (P5) Bink on FFmpeg (ADR-008): host shim for the 18 `binkw32.dll` imports. First step: the `BINK` / `BINKFRAMEBUFFERS` field offsets the game reads directly (game functions at 0x006D9000–0x006DA290), then a decoder test against the shipped `.bik` files.
+- Queue after it (none needs Steam): T-053 XAudio2 on FAudio (needs the user's OK for `brew install faudio`) · T-044 leftovers.
 - Waiting on the Steam hand-off (another agent, not this line of work): T-045 remainder, T-055 live test, T-052 part 3, P5 exit.
 
 ## DONE
@@ -47,7 +47,7 @@ Update this file at every checkpoint (see AGENTS.md rule 2).
 - [x] **T-035** DONE 2026-10-05 (evidence: `scripts/replay_check.sh` exit 0 at SSIM >= 0.95; `re/replay_check.json`). Golden-frame comparison (SSIM + diff image) automated in CI script.
 - [x] **T-036** CLOSED 2026-10-06 by measurement — see the P5 section. Persistent shader/pipeline cache (translated MSL by bytecode hash + MTLBinaryArchive).
 - [ ] **T-037** (last resort — user) Settle the two open differences (menu red specks, khe_sanh sky/far blur) against native D3D9 frames from the user's Windows PC (the proxy DLL works on Windows unchanged). — 2026-10-06: both differences were explained and fixed without it (T-056); only needed if a new doubt about the Wine baseline comes up.
-- [ ] **T-038** Record video textures (`--record-video`) for one scenario and confirm the TV screens match.
+- [x] **T-038** DONE 2026-10-06 (evidence: `scripts/capture_golden.sh menu - 1700 80 video` + `scripts/replay_check.sh` -> menu SSIM 0.9997–0.9999, was 0.975 with the screens missing; `re/replay_check.json`). Record video textures (`--record-video`) for one scenario and confirm the TV screens match.
 - **P3 exit review** — DONE 2026-10-05 (LOG): PASS with the open items above. Gate G1: go (docs/DECISIONS.md).
 
 ## P4 — Static recompilation (G1 passed 2026-10-05; ADR-013)

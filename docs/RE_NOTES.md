@@ -292,21 +292,21 @@ Source: `tools/trace_census.py artifacts/traces/trace-20261005-162759.bin --name
 | vorkuta | 70,021 | 0 | 120 | 187 | 0.9977–0.9991 | 0.0–0.1% |
 | khe_sanh | 118,432 | 0 | 131 | 209 | 0.968–0.978 | 3.0–9.4% |
 
-**After T-056 (2026-10-06; traces and golden frames re-captured the same day, `re/replay_check.json`) — the table above is the P3 state:**
+**After T-056 / T-038 (2026-10-06; traces and golden frames re-captured the same day, `re/replay_check.json`) — the table above is the P3 state:**
 
 | Scenario | SSIM vs Wine golden | Pixels differing > 16/255 (max) |
 |---|---|---|
-| menu | 0.9752–0.9760 | 4.0% |
+| menu | 0.9997–0.9999 | 0.0% |
 | cuba | 0.9994–0.9994 | 0.0% |
 | vorkuta | 0.9985–0.9986 | 0.1% |
 | khe_sanh | 0.9984–0.9989 | 0.2% |
 
-menu: what is left is the TV screens (Bink frames, not recorded without `--record-video`).
+No skipped draws and no unrecorded data in any scenario. The menu trace is captured with video frames (`capture_golden.sh … video`), so its two TV screens (Bink planes uploaded as DYNAMIC L8 textures with DISCARD locks, sampled by the game's YUV shader) are compared as well — CONFIRMED equal (T-038).
 
 - Shader corpus: 6,845 / 6,845 translate and compile (`re/shader_translation_report.json`).
 - Metal validation layer (`MTL_DEBUG_LAYER=1`, cuba, 2 frames): **no errors or failed assertions**; ~38,000 warnings, all "redundant set…" (the replay backend re-sets state per draw by design) and "unused vertex binding at buffer index 16" (the default-attribute buffer).
 - **Differences from the baseline, by cause:**
-  1. menu: the TV screens are green in the replay — Bink frame textures are not recorded unless `--record-video` is used (by design, CONFIRMED: the difference image is confined to the two screens).
+  1. menu: the TV screens are green in the replay — Bink frame textures are not recorded unless `--record-video` is used (by design, CONFIRMED: the difference image is confined to the two screens). **RESOLVED 2026-10-06 (T-038):** the menu scenario is now captured with `video`; the screens match.
   2. menu: small red specks (dust motes lit by the red lamp) in the baseline, absent in the replay — **RESOLVED 2026-10-06 (T-056), translator bug.** The particle vertex shaders pick the quad corner with relative addressing into a table the shader defines itself (`def c56..c59`, `c[56 + a0.w]`); the translator read that table from the application-set registers, so every particle quad collapsed. Fix: `BO1_REL_C` in `src/shaders/sm3_msl.cpp` (def'd registers win in indexed reads; 13 vertex shaders in the corpus use this). CONFIRMED by the difference image (only the TV screens remain).
   3. khe_sanh: bright sky and blurred far field in the replay — **RESOLVED 2026-10-06 (T-056), capture gap, the renderer was right.** The trace lacked the vertex data of the full-screen quad that initialises the float-Z target (see "Frame structure of a mission frame"); the proxy now records the first writes of every buffer and all four scenarios were re-captured. CONFIRMED: khe_sanh SSIM 0.968–0.978 -> 0.998–0.999.
 - What D3D9 behaviour the backend had to implement to get here (all in `tests/replay/metal_backend.mm`): viewport reset on `SetRenderTarget`; clears clipped to viewport/scissor/rect list (as quads); `NULL`-FOURCC colour targets as depth-only passes; sampled depth textures via comparison samplers and a per-draw shader variant; L8/A8L8/X8/G16R16/R32F channel swizzles (as views on render targets, which Metal does not allow to be swizzled); DISCARD locks as fresh buffers; clockwise front faces with D3D cull modes; alpha test in the pixel shader; half-pixel offset in the vertex shader; missing vertex elements from a constant (0,0,0,1) buffer.

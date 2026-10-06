@@ -1,21 +1,23 @@
 #!/usr/bin/env bash
 # T-014: capture one golden scenario from the Wine baseline: frames, full trace window, frame times.
-#   scripts/capture_golden.sh <name> <map|-> <first_frame> [seconds]
+#   scripts/capture_golden.sh <name> <map|-> <first_frame> [seconds] [video]
 #     name         scenario id, e.g. menu, cuba, vorkuta
 #     map          SP map to load with `devmap` 10 s after "Press Any Key" ("-" = stay in the main menu)
 #     first_frame  first of 61 frames recorded with all uploads (and captured as PNG every 20)
+#     video        literal "video": also record Bink video frames inside the window (T-038; the menu's TV screens)
 # Results:
 #   tests/golden/<name>/frame_NNNNNN.png   back buffers inside the window  (gitignored: game imagery)
 #   tests/golden/<name>/metrics.json       frame-time statistics + provenance (committed)
 #   artifacts/traces/<name>.bin            the trace (gitignored)
 set -euo pipefail
 cd "$(dirname "$0")/.."
-NAME="$1"; MAP="$2"; FIRST="$3"; SECS="${4:-180}"
+NAME="$1"; MAP="$2"; FIRST="$3"; SECS="${4:-180}"; VIDEO="${5:-}"
 LAST=$((FIRST + 60))
 CMDS=()
 [ "$MAP" != "-" ] && CMDS=(--cmds "42000|devmap $MAP")
 # The main-menu camera follows the mouse: pin the cursor to the window centre so the view is repeatable.
 [ "$MAP" = "-" ] && CMDS=(--cursor 400,300)
+[ "$VIDEO" = video ] && CMDS+=(--record-video)
 WINEDEBUG="${WINEDEBUG:--all,warn+debugstr}" scripts/run_baseline.sh --wine cx --net --trace --record \
   --record-frames "$FIRST-$LAST" --record-max-mb 9000 --capture 20 --seconds "$SECS" \
   --keys "32000:0x20" ${CMDS[@]+"${CMDS[@]}"} >"artifacts/baseline/golden-$NAME.out" 2>&1 || true
