@@ -5,6 +5,9 @@
 // to be compared with a message trace from the Wine baseline if the game misbehaves).
 #include <unistd.h>
 
+#include <chrono>
+#include <string>
+#include <vector>
 #include <map>
 #include <mutex>
 
@@ -288,7 +291,48 @@ SHIM(user32, GetMonitorInfoA, 2) {
 }
 
 // ---- messages: the headless queue is always empty ----------------------------------------------------------
+// BO1_CMDS="ms|command;ms|command": engine console commands, queued through the game's own
+// Cbuf_AddText(localClientNum, text) (VA 0x0049B930, re/symbols.csv) on the thread that pumps messages —
+// the same hook the tracing proxy uses for the baseline (e.g. "60000|devmap cuba").
+static void run_scripted_commands(Cpu *cpu) {
+    struct Cmd { long at; std::string text; };
+    static std::vector<Cmd> cmds;
+    static bool parsed = false;
+    static auto t0 = std::chrono::steady_clock::now();
+    if (!parsed) {
+        parsed = true;
+        if (const char *e = getenv("BO1_CMDS")) {
+            std::string spec = e;
+            size_t pos = 0;
+            while (pos < spec.size()) {
+                size_t end = spec.find(';', pos);
+                if (end == std::string::npos) end = spec.size();
+                std::string tok = spec.substr(pos, end - pos);
+                pos = end + 1;
+                size_t bar = tok.find('|');
+                if (bar != std::string::npos) cmds.push_back({strtol(tok.c_str(), nullptr, 0), tok.substr(bar + 1)});
+            }
+        }
+        static const uint8_t prologue[] = {0x6A, 0x35, 0xE8}; // push 0x35 ; call Sys_EnterCriticalSection
+        if (!cmds.empty() && memcmp(g_mem + 0x0049B930, prologue, 3) != 0) {
+            log("BO1_CMDS: this is not the executable the Cbuf_AddText address belongs to — ignored");
+            cmds.clear();
+        }
+    }
+    if (cmds.empty()) return;
+    long now = (long)std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - t0).count();
+    for (size_t i = 0; i < cmds.size();) {
+        if (cmds[i].at > now) { i++; continue; }
+        uint32_t text = heap_strdup(cmds[i].text + "\n");
+        log("scripted command: %s", cmds[i].text.c_str());
+        guest_call(cpu, 0x0049B930, {0, text});
+        heap_free(text);
+        cmds.erase(cmds.begin() + (long)i);
+    }
+}
+
 SHIM(user32, PeekMessageA, 5) { // (lpMsg, hWnd, wMsgFilterMin, wMsgFilterMax, wRemoveMsg)
+    run_scripted_commands(cpu);
     win::WindowService &ws = win::WindowService::get();
     win::Msg m;
     if (!ws.enabled() || !ws.peek(&m, a[4] & 1)) return 0;

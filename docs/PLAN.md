@@ -73,10 +73,12 @@ Components:
 - Milestones: M4a lift+run one leaf function correctly -> M4b lift whole binary, boots to a null-renderer main loop -> M4c diff-test suite green.
 **Risks:** unresolved indirect jumps; x87 precision (software fallback if needed); runtime-generated code; SEH-based control flow; flag-emulation performance (mitigate with flag liveness analysis).
 **Exit:** headless boot to main loop, no crash for 10 minutes, diff-test suite green.
+**Status 2026-10-06: met** (`artifacts/boot/soak_run.log`: 615 s, 38,000 frames; diff tests: `re/difftest_report_all.json`).
 
 ## P5 — Integration
 Lifted game + `src/platform` + Metal backend -> main menu -> mission 1. Triage crashes with address -> name via `re/symbols.csv`. Compare frames with golden.
 **Exit:** campaign mission 1 playable start to finish.
+**Status 2026-10-06:** the native build shows the title screen, the main menu and the opening of mission 1 (cuba) through Metal in a window; no sound, no video, input only verified with scripted keys.
 
 ## P6 — Strangler fig (only where it pays)
 Replace lifted modules with clean 64-bit C++ in `src/native/`, in priority order: (1) renderer front-end / draw submission (cut D3D9-shaped overhead, batch for Metal), (2) memory allocator, (3) file system + fastfile loading, (4) sound, (5) UI/menus, (6) whatever profiling shows is hot. Each replacement keeps diff-test + golden-frame suites green. Stop when perf and maintainability goals are met — full purity is optional.
