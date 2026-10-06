@@ -174,6 +174,19 @@ first instruction after which registers / XMM / x87 differ.
 Harness sanity check (mutation test, 2026-10-05): making `add` wrong for 1 input in 8 turned
 32 of 1,160 vectors red; making `sub` wrong for a single input value turned 3 red.
 
+### x86_64 cross-check (T-046, 2026-10-06)
+The same generated C, compiled for x86_64 and run under Rosetta 2 on the same 26,294 vectors:
+- at **-O0**: identical verdicts to the arm64 build except three functions that differ by 1 ulp in a
+  transcendental result (0x0048F160, 0x004D6A60, 0x009654FA) — the x86_64 and arm64 system libm disagree
+  there. Consequence worth remembering: for `fsin/fcos/fyl2x/…` the reference (Unicorn) itself calls the
+  host libm, so "matches the reference" says nothing about a real x87 for those instructions.
+- at **-O1**: one more difference (0x0092C780), traced to a **miscompile in Apple clang 21.0.0's
+  x86_64 backend**: `c->eax = load32(p); c->eax = (c->eax & 0xFFFFFF00) | g[c->eax];` stores the
+  zero-extended byte and drops the upper 24 bits. Reduced, UB-free reproducer:
+  `tests/diff/compiler_bugs/x86_64_byte_insert_after_load.c` (arm64 is correct at every level).
+  So an optimised x86_64 build is not a usable oracle with this toolchain; the arm64 build is what the
+  differential tests validate.
+
 ## 7. Open items
 - 8 functions are not lifted (`re/lift_coverage.json` -> `unlifted`): 3 CRT crash handlers that push segment
   registers (`__invoke_watson`, `_abort`, `___report_gsfailure`), 2 SSSE3 (`palignr`) routines behind a CPUID

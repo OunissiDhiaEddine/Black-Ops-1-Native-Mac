@@ -203,3 +203,9 @@ Entry template:
 - Learned: see docs/RE_NOTES.md "Boot path as executed by the lifted image". The first real run of the lifted code needed exactly one lifter addition (PUSHAW/POPAW) and the address-taken entries — nothing else trapped in ~1.9M lifted instructions' worth of start-up code paths.
 - Problems: Steam. The shipped DLL is protected and rejects our environment; I stopped at the API boundary (ground rule 1). Details and options: docs/DECISIONS.md.
 - Next: user decision; meanwhile only Steam-independent tasks.
+
+### 2026-10-06 07:05 — T-046 — x86_64 cross-check of the lifted code
+- Did: compiled `artifacts/lifted/*.c` for x86_64 (-O1, then -O0), ran all 26,294 vectors under Rosetta 2, diffed the verdicts against the arm64 run.
+- Evidence: `artifacts/lifted/difftest_x64.log`; docs/LIFTER.md "x86_64 cross-check". -O0: same verdicts except three functions with 1-ulp transcendental differences (host libm). -O1: additionally 0x0092C780 — a miscompile in Apple clang 21.0.0 (x86_64 only), reduced to `tests/diff/compiler_bugs/x86_64_byte_insert_after_load.c` (prints 00000005 instead of 00001205 at -O1/-O2; arm64 correct).
+- Learned: the reference emulator computes x87 transcendentals with the host libm, so agreement there is circular; an optimised x86_64 build cannot serve as an oracle with this toolchain.
+- Next: user decision on Steam (STATE).
