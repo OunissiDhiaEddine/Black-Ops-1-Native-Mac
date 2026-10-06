@@ -1,0 +1,58 @@
+// The game's window on macOS (T-052 part 2, ADR-006). AppKit requires windows and the event pump on the
+// process main thread, while the game's "main" thread is an ordinary guest thread. So the process main
+// thread runs WindowService::run() and every other thread talks to it through this interface:
+// window creation is a blocking request, input arrives as Win32 messages in a thread-safe queue.
+#pragma once
+#include <atomic>
+#include <condition_variable>
+#include <deque>
+#include <mutex>
+#include <string>
+
+#include "win_messages.h"
+
+namespace bo1::win {
+
+class WindowService {
+public:
+    static WindowService &get();
+
+    // ---- process main thread ----
+    // Initialises SDL video and serves requests / pumps events until `done` becomes true. False if SDL failed.
+    bool run(const std::atomic<bool> &done);
+
+    // ---- any thread ----
+    // Creates the game window (one per process) with a w x h client area; blocks until it exists.
+    bool create(uint32_t hwnd, const std::string &title, int w, int h);
+    void set_title(const std::string &title);
+    void *metal_layer() const { return layer_; } // CAMetalLayer*, valid after create()
+    bool has_window() const { return window_ != nullptr; }
+    bool focused() const { return focused_; }
+    void cursor(int32_t *x, int32_t *y);
+    // PeekMessage semantics: copies the oldest message; removes it when `remove` is set.
+    bool peek(Msg *out, bool remove);
+    void post(const Msg &m);
+    size_t pending();
+
+private:
+    void serve_requests();
+    struct CreateRequest {
+        uint32_t hwnd;
+        std::string title;
+        int w, h;
+        bool done, ok;
+    };
+    std::mutex mu_;
+    std::condition_variable cv_;
+    CreateRequest *create_ = nullptr;
+    std::string new_title_;
+    bool title_pending_ = false;
+    std::deque<Msg> queue_;
+    SDL_Window *window_ = nullptr;
+    void *layer_ = nullptr;
+    uint32_t hwnd_ = 0;
+    InputState input_;
+    std::atomic<bool> focused_{false}, running_{false};
+};
+
+} // namespace bo1::win

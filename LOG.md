@@ -2,7 +2,7 @@
 
 ## STATE  (OVERWRITE this block at every checkpoint — it is the resume point)
 - **Date/time:** 2026-10-06 ~06:45
-- **Phase / task:** **P5 started 2026-10-06** (user approval; SDL3 3.4.18 installed). T-050, T-051 DONE, T-036 closed by measurement. **NOW: T-052 part 2** (main-thread SDL window service + user32 shims on it). P4 exit was only partly met (diff tests green; the native boot stops at the game's Steam check — see docs/DECISIONS.md).
+- **Phase / task:** **P5 started 2026-10-06** (user approval; SDL3 3.4.18 installed). T-050, T-051 DONE, T-036 closed by measurement. T-052 parts 1-2 DONE (part 3 = wiring into the shims, waits until testable). **NOW: T-056** (rendering differences vs golden frames). P4 exit was only partly met (diff tests green; the native boot stops at the game's Steam check — see docs/DECISIONS.md).
 - **Last completed:** boot runtime runs the lifted game from the entry point through CRT start-up, static initialisers, WinMain, CPU detection, D3D9 probe, window-class registration and the build banner up to `SteamAPI_Init` (87 imports, ~4,900 calls, no trap). The shipped steam_api.dll runs unmodified under the interpreter but stops itself: "Internal error 0x0A: Protection initialization failed!".
 - **Next exact step:** depends on the user's answer (options A/B/C in the ADR note). Work that does NOT depend on it: T-036 (shader/pipeline disk cache for the replay renderer), T-038 (video textures in a trace), T-046 (x86_64 cross-build of the lifted code), T-044 leftovers (MXCSR FTZ/DAZ: the game only reaches LDMXCSR through the CRT's `_controlfp` — log what it sets once the game runs further; A2 audit).
 - **Standard commands:** `scripts/boot_try.sh [seconds] [lines]` (builds + runs `artifacts/boot/bo1_boot`, log in `artifacts/boot/last_run.log`; `BO1_NO_STEAM_DLL=1` = truthful "no Steam" shims instead of loading the shipped DLL; `BO1_VERBOSE=2` = every import call; `BO1_IMPORT_STATS=1`); `scripts/difftest.sh [max_funcs] [per_func] [seed] [leaf|all]` (`all` ≈ 6 min; `SKIP_VECTORS=1` ≈ 1-3 min); `tests/diff/debug_vector.sh <func> [nth]`; lifter inputs: `tools/lifter/find_entries.py` -> `tools/lifter/flag_audit.py` -> `tools/lifter/lift.py --stats re/lift_coverage.json`; `tools/import_abi.py`; `tools/com_abi.py`; `tools/adapter_probe.py`. P3: `scripts/build.sh`, `scripts/replay_check.sh`. Baseline: `scripts/run_baseline.sh --wine cx --net --trace …`.
@@ -242,3 +242,9 @@ Entry template:
 - Evidence: `build/test_win_messages` -> "99 keys mapped; all checks passed" (key down/repeat/up lParam bits, extended keys, Alt combinations as WM_SYSKEY*, WM_CHAR, mouse state in wParam, wheel delta 120, focus/close sequences, unique scan codes).
 - Not verified: against a real Windows message trace (LIKELY correct from the Win32 documentation; the game reads keys from the scan code in lParam — to be confirmed when it runs).
 - Next: T-052 part 2.
+
+### 2026-10-06 07:25 — T-052 part 2 — main-thread window service
+- Did: `src/platform/window/window_service.{h,cpp}`; `tests/window/test_window_service.cpp` (main thread runs the service; a worker thread creates the window and receives synthetic key/mouse input as Win32 messages).
+- Evidence: `build/test_window_service` -> "all checks passed"; `build/test_win_messages` -> "99 keys mapped; all checks passed".
+- Not done: the user32 shims still use the headless implementation (part 3) — the game does not reach window creation yet, so that wiring could not be tested.
+- Next: T-056.
