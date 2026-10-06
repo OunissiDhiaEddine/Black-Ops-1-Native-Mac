@@ -557,9 +557,19 @@ uint32_t com_new(uint32_t vtable, uint32_t extra) {
     return o;
 }
 
-uint32_t import_lookup_or_stub(const std::string &dll, const std::string &name) {
+uint32_t import_lookup_or_stub(const std::string &dll, const std::string &name_in) {
+    // imports by ordinal that the shims know by name
+    static const struct { const char *dll, *ord, *name; } kOrdinals[] = {{"ws2_32.dll", "#115", "WSAStartup"}, {"ws2_32.dll", "#116", "WSACleanup"},
+                                                                         {"ws2_32.dll", "#111", "WSAGetLastError"}};
+    std::string name = name_in;
+    for (const auto &o : kOrdinals)
+        if (name == o.ord && strcasecmp(dll.c_str(), o.dll) == 0) name = o.name;
     if (uint32_t t = import_lookup(dll, name)) return t;
     std::lock_guard<std::mutex> lk(g_tramp_mu);
+    for (size_t i = 0; i < g_tramps.size(); i++) // one stub per function
+        if (!g_tramps[i]->fn && g_tramps[i]->name == name && strcasecmp(g_tramps[i]->dll.c_str(), dll.c_str()) == 0)
+            return kTrampBase + (uint32_t)i * kTrampStep;
+    if (g_verbose) fprintf(stderr, "[bo1] no shim yet for %s!%s (resolved at run time; traps if called)\n", dll.c_str(), name.c_str());
     return tramp_add(dll, name, nullptr, 0);
 }
 void imports_redirect(const std::string &dll, const std::function<uint32_t(const std::string &)> &resolve) {

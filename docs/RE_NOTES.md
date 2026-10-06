@@ -434,6 +434,17 @@ Method: header sampling with python (inline, 2026-10-05) over `reference/.../zon
 - **CRT dispatch tables at odd addresses**: around 0x00BA3960 (.data) code pointers sit at offset 2 mod 4 (`__trandisp` tables). CONFIRMED.
 - **D3D9 adapter answers of the baseline** (WineCX wined3d on an M1): adapter "NVIDIA GeForce 8800 GTX", desktop 1440x900@60 X8R8G8B8, 18 modes for format 22, caps blob, and the 8 distinct capability checks the game makes before creating the device — including FOURCC `NULL` as a render-target format (`re/d3d9_adapter_probe.json`, from the proxy's BO1_ADAPTER_PROBE). CONFIRMED.
 
+## Boot path as executed by the lifted image (T-045, headless runtime, 2026-10-06)
+CONFIRMED by running (`artifacts/boot/last_run.log`; `BO1_VERBOSE=2` lists every import call):
+1. CRT start-up (`__tmainCRTStartup` 0x0096D8D9): probes `FlsAlloc/FlsGetValue/FlsSetValue/FlsFree`, `EncodePointer/DecodePointer` through GetProcAddress; heap, TLS, locks, environment, command line.
+2. C++ static initialisers (`_initterm` at 0x0096CE4A…): one of them (0x009A0A90 -> 0x004C38C0 -> 0x006518D0) calls `SteamAPI_RegisterCallback` — Steam callbacks are registered before `WinMain`.
+3. `WinMain` (0x0050A730): opens `localization.txt`; `SHGetFolderPathA(CSIDL_LOCAL_APPDATA|CREATE)`; the "did not quit properly" marker `%LOCALAPPDATA%\Activision\CoD\__BlackOps` (present -> MessageBox "Run In Safe Mode?", type MB_OKCANCEL|MB_ICONQUESTION; it is created on start); `GlobalMemoryStatusEx` via GetProcAddress, else `GlobalMemoryStatus`.
+4. CPU detection at 0x005CA980 (CPUID inside 16-bit `pusha/popa` brackets), D3D9 probe `Direct3DCreate9(32)`, `RegisterClassExA("CoDBlackOps", wndproc 0x00554AA0)`.
+5. Build banner through OutputDebugStringA: `7.0.152 CL(966072) CODPCAB-V64 CEG Thu Sep 01 16:06:17 2011 COD_T5_S SP build win-x86 Sep  1 2011`.
+6. Looks for `noship_create_steam_appid.txt` (absent), calls `SteamAPI_Init`; on failure: MessageBox "Fatal Error" / "Steam must be running to play this game." and `ExitProcess(0)`.
+- 87 distinct imports and ~4,900 import calls up to that point; no trap, no host fault.
+- `wndproc` of the main window class: 0x00554AA0 (LIKELY `MainWndProc`).
+
 ## Gotchas / surprises
 - **Unclean-exit marker:** the game creates `%LOCALAPPDATA%\Activision\CoD\__BlackOps` while running; if it exists at startup a modal "Run In Safe Mode?" box appears (CONFIRMED: window title seen, file found). `run_baseline.sh` deletes it; the port's file shim will see the same create/delete pattern.
 - **`+devmap` on the command line is ignored, the same command through the console buffer works.** `Cbuf_AddText(0, "devmap cuba\n")` (VA 0x0049B930, called from the proxy 10 s after the title screen) loads `common` + `cuba` and starts the mission (CONFIRMED: `Loading fastfile 'cuba'`, in-game frame in `tests/golden/`). This is the baseline's scripted way into any SP map and a ready-made test hook for the port.

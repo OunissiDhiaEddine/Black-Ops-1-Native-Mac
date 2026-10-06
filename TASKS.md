@@ -3,7 +3,7 @@ Status: TODO · NOW · DONE · BLOCKED. Only ONE task is NOW at a time. Mark DON
 Update this file at every checkpoint (see AGENTS.md rule 2).
 
 ## NOW
-- **T-045** (P4) boot runtime: run `artifacts/boot/bo1_boot`, implement what it stops at; includes **T-024** (Steam DLL under the interpreter, `src/platform/win32/x86_module.cpp`).
+- **BLOCKED on a user decision (Steam): T-024 / T-045.** The lifted game boots to `SteamAPI_Init`; with no Steam implementation it exits with "Steam must be running to play this game." The shipped steam_api.dll runs in the interpreter but its own protection refuses to initialise (see LOG 2026-10-06 06:40, ADR-010 note). Not blocked: T-036, T-038, T-046, T-044 leftovers.
 
 ## DONE
 - **T-001** (P0) DONE 2026-10-05 — game install present in `reference/`, `scripts/doctor.sh` run, tool availability recorded.
@@ -56,9 +56,9 @@ Update this file at every checkpoint (see AGENTS.md rule 2).
 - [x] **T-042** DONE 2026-10-06 (evidence: `re/lift_coverage.json` — 21,952 / 21,960 functions lift, 1,588,514 instructions; `re/difftest_report.json` — leaf set with FP/SIMD state: 11,926 vectors, 11,923 pass, 2 NaN-payload-only, 1 known-wrong reference, 0 unexplained). Coverage loop: lift ALL functions, histogram of unsupported instructions (`re/lift_coverage.json`), implement by frequency until >= 99% of functions lift. Order: remaining integer ops, string ops, x87, SSE/SSE2 scalar, SSE packed, MMX/SSSE3 leftovers.
 - [x] **T-043** DONE 2026-10-06 (evidence: `re/difftest_report_all.json` — every lifted function attempted with its whole call tree: 24,385 tried, 13,840 produced vectors, 26,294 vectors -> 26,275 pass, 1 x87-approx, 6 NaN-payload-only, 5 double-range, 7 fail in 9 functions that are all explained in `tests/diff/reference_deviations.json`; 0 unexplained). Diff tests for non-leaf functions (calls stubbed/recorded), fs: (TEB) support in the harness, x87/SSE state comparison.
 - [ ] **T-044** PARTLY DONE 2026-10-06: flag audit (`re/flag_audit.json`: 9 entry-live functions + 3 call sites, all handled via `Cpu.xfl`), LOCKed RMW atomic (0 non-atomic left), compile cost measured (docs/LIFTER.md §7), unlifted list = 8 (`re/lift_coverage.json`). Left: FTZ/DAZ/MXCSR audit, A2 (non-returning calls / stack tricks) audit. Whole-image build: split into translation units, measure compile time and binary size on this machine; flags-live-across-call audit; unresolved switch tables (64) and unreached code (0.8%) lists.
-- [ ] **T-045** Runtime for M4b: loader, TEB/TLS, threads, the shims the boot path calls (from `re/platform_map.csv`, hottest first), null D3D9 device -> boot headless to the main loop.
+- [ ] **T-045** PARTLY DONE 2026-10-06 (evidence: `artifacts/boot/last_run.log` / LOG — CRT start-up, C++ static initialisers, WinMain, CPU detection, D3D9 probe, window class, build banner, up to the Steam check: 87 distinct imports, ~4,900 import calls, no trap). Remaining part depends on T-024. Runtime for M4b: loader, TEB/TLS, threads, the shims the boot path calls (from `re/platform_map.csv`, hottest first), null D3D9 device -> boot headless to the main loop.
 - [ ] **T-046** (M4c) Diff-test suite green; x86_64 (Rosetta) build of the lifted code as a cross-check.
-- [ ] **T-024** (from P2) steam_api.dll interpreter spike (ADR-010) — needed before M4b can pass Steam init.
+- [ ] **T-024** BLOCKED 2026-10-06 (from P2) steam_api.dll interpreter spike (ADR-010). Done: interpreter host (`src/platform/win32/x86_module.cpp`), the DLL loads unmodified, runs its start-up, reads `steam_emu.ini` and its state files (evidence: `artifacts/boot/last_run.log`, LOG). Blocked: it then stops itself with "Internal error 0x0A: Protection initialization failed!" after enumerating the loaded modules. Finding out what that check wants = analysing the anti-tamper of a DRM-circumvention DLL -> ground rule 1: stop and ask the user.
 - [ ] **T-036** (from P3) shader/pipeline disk cache. **T-037** native D3D9 reference (Windows PC: user prefers to keep it as a last resort). **T-038** video textures in a trace.
 
 ## P5+ (expand after P4 exit)

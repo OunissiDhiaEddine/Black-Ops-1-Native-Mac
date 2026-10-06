@@ -46,6 +46,12 @@ uint32_t wait_one(Cpu *cpu, uint32_t handle, uint32_t ms, bool alertable);
 bool run_apcs(Cpu *cpu);                                                   // returns true if at least one ran
 void queue_apc(uint32_t routine, uint32_t a0, uint32_t a1, uint32_t a2);   // to the calling thread
 
+// Loaded modules as the guest sees them (kernel32_core.cpp): the image, the emulated modules, and the
+// name-only handles of the DLLs the shims stand in for.
+uint32_t module_list(uint32_t *out, uint32_t max);   // returns the total count
+std::string module_path(uint32_t handle);            // "" if the handle is not a module
+uint32_t emu_module_by_index(unsigned i, std::string *name); // x86_module.cpp; 0 when out of range
+
 // from guest_os.cpp
 bool thread_resume(HObject *o);
 bool thread_wait(HObject *o, uint32_t ms, bool *is_thread);

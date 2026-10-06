@@ -132,6 +132,13 @@ uint32_t emu_module_base(const std::string &dll) {
     return 0;
 }
 
+uint32_t emu_module_by_index(unsigned i, std::string *name) {
+    std::lock_guard<std::mutex> lk(g_mod_mu);
+    if (i >= g_modules.size()) return 0;
+    if (name) *name = g_modules[i].name;
+    return g_modules[i].base;
+}
+
 // ---- interpreter ------------------------------------------------------------------------------------------
 struct Emu {
     uc_engine *uc = nullptr;

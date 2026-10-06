@@ -41,17 +41,20 @@ SHIM(advapi32, RegCloseKey, 1) { return 0; }
 // ---- shell32 -------------------------------------------------------------------------------------------
 SHIM(shell32, SHGetFolderPathA, 5) {
     // (hwnd, csidl, hToken, dwFlags, pszPath[MAX_PATH])
-    std::string sub;
+    std::string sub, root = kGuestHomeDir;
     switch (a[1] & 0xFF) {
     case 0x1C: sub = "\\AppData\\Local"; break;   // CSIDL_LOCAL_APPDATA
     case 0x1A: sub = "\\AppData\\Roaming"; break; // CSIDL_APPDATA
     case 0x05: sub = "\\Documents"; break;        // CSIDL_PERSONAL
     case 0x00: sub = "\\Desktop"; break;
+    case 0x2E: root = "C:\\users\\Public", sub = "\\Documents"; break; // CSIDL_COMMON_DOCUMENTS
+    case 0x23: root = "C:\\ProgramData"; break;                          // CSIDL_COMMON_APPDATA
     default:
         log("SHGetFolderPathA(csidl %#x) not mapped", a[1]);
         return 0x80070057u; // E_INVALIDARG
     }
-    std::string path = std::string(kGuestHomeDir) + sub;
+    std::string path = root + sub;
+    if (g_verbose) log("SHGetFolderPathA(csidl %#x) -> %s", a[1], path.c_str());
     std::string host = host_path(path);
     for (size_t i = 1; i <= host.size(); i++)
         if (i == host.size() || host[i] == '/') mkdir(host.substr(0, i).c_str(), 0755);
@@ -107,9 +110,11 @@ static uint32_t wsa_startup(uint32_t version, uint32_t data) {
 SHIM(ws2_32, WSAStartup, 2) { return wsa_startup(a[0], a[1]); }
 SHIM(wsock32, WSAStartup, 2) { return wsa_startup(a[0], a[1]); }
 SHIM(psapi, EnumProcessModules, 4) {
-    // (hProcess, lphModule, cb, lpcbNeeded): the executable only
-    if (a[2] >= 4) wr32(a[1], 0x00400000);
-    if (a[3]) wr32(a[3], 4);
+    // (hProcess, lphModule, cb, lpcbNeeded): executable first, then every loaded module
+    uint32_t list[64];
+    uint32_t n = module_list(list, 64);
+    for (uint32_t i = 0; i < n && i < 64 && (i + 1) * 4 <= a[2]; i++) wr32(a[1] + 4 * i, list[i]);
+    if (a[3]) wr32(a[3], n * 4);
     return 1;
 }
 

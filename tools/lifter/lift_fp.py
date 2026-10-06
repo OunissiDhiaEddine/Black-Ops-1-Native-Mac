@@ -435,6 +435,14 @@ def lift_int(L, i, m, ops):
     if m == "popal":
         return ["cpu->edi = POP32(); cpu->esi = POP32(); cpu->ebp = POP32(); cpu->esp += 4; cpu->ebx = POP32(); "
                 "cpu->edx = POP32(); cpu->ecx = POP32(); cpu->eax = POP32();"]
+    if m == "pushaw":   # 16-bit PUSHA: ax, cx, dx, bx, sp (before), bp, si, di
+        regs = ["eax", "ecx", "edx", "ebx", None, "ebp", "esi", "edi"]
+        body = "".join(f"cpu->esp -= 2; M16(cpu->esp) = (uint16_t){'s_' if r is None else 'cpu->' + r}; " for r in regs)
+        return ["{ uint32_t s_ = cpu->esp; " + body + "}"]
+    if m == "popaw":
+        regs = ["edi", "esi", "ebp", None, "ebx", "edx", "ecx", "eax"]
+        body = "".join("cpu->esp += 2; " if r is None else f"cpu->{r} = (cpu->{r} & 0xFFFF0000u) | M16(cpu->esp); cpu->esp += 2; " for r in regs)
+        return [body]
     if m == "xlatb":
         return ["cpu->eax = (cpu->eax & 0xFFFFFF00u) | M8(cpu->ebx + (uint8_t)cpu->eax);"]
     if m == "mul" and n == 1 and sz == 1:
