@@ -145,9 +145,21 @@ uint32_t vm_alloc(uint32_t addr, uint32_t size, bool system_area) {
 }
 
 void vm_zero(uint32_t addr, uint32_t size) {
-    uint32_t a = addr & ~0xFFFu, len = page_up((uint64_t)addr + size - a);
-    // a fresh anonymous mapping over the range: reads as zero again and gives the pages back to the host
-    mmap(g_mem + a, len, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON | MAP_FIXED, -1, 0);
+    uint64_t lo = addr & ~0xFFFu, hi = lo + page_up((uint64_t)addr + size - lo);
+    // Guest pages are 4 KiB, host pages may be larger (16 KiB on Apple Silicon): only host pages that lie
+    // completely inside the range may be replaced by a fresh mapping (reads as zero, memory goes back to
+    // the host). The rest is cleared by hand — remapping it would wipe the guest pages next to the range
+    // (the game decommits right up to a page it keeps: hunk temp memory, T-045).
+    const uint64_t hp = (uint64_t)sysconf(_SC_PAGESIZE);
+    uint64_t alo = (lo + hp - 1) & ~(hp - 1), ahi = hi & ~(hp - 1);
+    if (alo < ahi) {
+        memset(g_mem + lo, 0, (size_t)(alo - lo));
+        if (mmap(g_mem + alo, (size_t)(ahi - alo), PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON | MAP_FIXED, -1, 0) == MAP_FAILED)
+            memset(g_mem + alo, 0, (size_t)(ahi - alo));
+        memset(g_mem + ahi, 0, (size_t)(hi - ahi));
+    } else {
+        memset(g_mem + lo, 0, (size_t)(hi - lo));
+    }
 }
 
 bool vm_free(uint32_t base) {
