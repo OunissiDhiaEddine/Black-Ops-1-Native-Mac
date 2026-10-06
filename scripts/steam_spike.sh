@@ -4,7 +4,8 @@
 # Valve's Steamworks SDK unpacked under artifacts/steamworks/ (the script looks for libsteam_api.dylib there).
 set -euo pipefail
 cd "$(dirname "$0")/.."
-DYLIB="$(find artifacts/steamworks -name libsteam_api.dylib 2>/dev/null | head -1)"
+mkdir -p artifacts/steamworks
+DYLIB="$(find artifacts/steamworks -name libsteam_api.dylib 2>/dev/null | head -1 || true)"
 [ -n "$DYLIB" ] || { echo "no libsteam_api.dylib under artifacts/steamworks/ (see docs/DECISIONS.md ADR-014)"; exit 2; }
 mkdir -p artifacts/steamworks/spike
 clang -O1 -Wall tests/steam_spike/main.c -o artifacts/steamworks/spike/steam_spike
