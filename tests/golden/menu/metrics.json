@@ -1,29 +1,29 @@
 {
  "scenario": "menu",
  "map": null,
- "run_stamp": "20261006-112146",
+ "run_stamp": "20261006-113734",
  "window_frames": [
   1700,
   1760
  ],
- "frames_presented": 2034,
+ "frames_presented": 2291,
  "frame_time_window": {
   "frames": 61,
-  "mean_ms": 34.58,
-  "median_ms": 31.71,
-  "p95_ms": 50.17,
-  "max_ms": 69.77,
-  "fps_mean": 28.9
+  "mean_ms": 34.81,
+  "median_ms": 33.15,
+  "p95_ms": 40.82,
+  "max_ms": 99.21,
+  "fps_mean": 28.7
  },
  "frame_time_last_600": {
   "frames": 601,
-  "mean_ms": 30.31,
-  "median_ms": 27.38,
-  "p95_ms": 42.47,
-  "max_ms": 162.78,
-  "fps_mean": 33.0
+  "mean_ms": 35.61,
+  "median_ms": 32.78,
+  "p95_ms": 47.38,
+  "max_ms": 173.75,
+  "fps_mean": 28.1
  },
  "note": "Baseline = WineCX 24.0.7 + wined3d under Rosetta 2, 800x600 windowed, com_maxfps 60, with the tracing proxy active. Frame times measure the BASELINE under tracing, not the game's potential.",
- "git": "95c86ec",
+ "git": "2973a32",
  "trace_stopped_early": false
 }

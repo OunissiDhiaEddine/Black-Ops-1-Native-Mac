@@ -4,81 +4,81 @@
   "cuba": [
    {
     "frame": "frame_005200.png",
-    "ssim": 0.9992,
-    "mae": 0.05,
-    "pixels_off_by_16": 0.0004
+    "ssim": 0.9993,
+    "mae": 0.04,
+    "pixels_off_by_16": 0.0003
    },
    {
     "frame": "frame_005220.png",
-    "ssim": 0.9989,
-    "mae": 0.06,
-    "pixels_off_by_16": 0.0006
+    "ssim": 0.9994,
+    "mae": 0.03,
+    "pixels_off_by_16": 0.0002
    },
    {
     "frame": "frame_005240.png",
-    "ssim": 0.9989,
-    "mae": 0.07,
-    "pixels_off_by_16": 0.0006
+    "ssim": 0.9993,
+    "mae": 0.05,
+    "pixels_off_by_16": 0.0004
    }
   ],
   "khe_sanh": [
    {
     "frame": "frame_005200.png",
-    "ssim": 0.9683,
-    "mae": 6.61,
-    "pixels_off_by_16": 0.0928
+    "ssim": 0.9984,
+    "mae": 0.13,
+    "pixels_off_by_16": 0.0016
    },
    {
     "frame": "frame_005220.png",
-    "ssim": 0.9731,
-    "mae": 5.04,
-    "pixels_off_by_16": 0.0945
+    "ssim": 0.9986,
+    "mae": 0.12,
+    "pixels_off_by_16": 0.0014
    },
    {
     "frame": "frame_005240.png",
-    "ssim": 0.9777,
-    "mae": 1.92,
-    "pixels_off_by_16": 0.03
+    "ssim": 0.9989,
+    "mae": 0.1,
+    "pixels_off_by_16": 0.0014
    }
   ],
   "menu": [
    {
     "frame": "frame_001700.png",
-    "ssim": 0.9837,
-    "mae": 2.54,
-    "pixels_off_by_16": 0.0419
+    "ssim": 0.9714,
+    "mae": 2.1,
+    "pixels_off_by_16": 0.0412
    },
    {
     "frame": "frame_001720.png",
-    "ssim": 0.9822,
-    "mae": 2.6,
-    "pixels_off_by_16": 0.0429
+    "ssim": 0.9739,
+    "mae": 2.07,
+    "pixels_off_by_16": 0.0399
    },
    {
     "frame": "frame_001740.png",
-    "ssim": 0.9835,
-    "mae": 2.56,
-    "pixels_off_by_16": 0.0419
+    "ssim": 0.9721,
+    "mae": 2.17,
+    "pixels_off_by_16": 0.0409
    }
   ],
   "vorkuta": [
    {
     "frame": "frame_005200.png",
-    "ssim": 0.9977,
-    "mae": 0.08,
-    "pixels_off_by_16": 0.0006
+    "ssim": 0.9973,
+    "mae": 0.09,
+    "pixels_off_by_16": 0.0009
    },
    {
     "frame": "frame_005220.png",
-    "ssim": 0.9977,
-    "mae": 0.08,
-    "pixels_off_by_16": 0.0005
+    "ssim": 0.9973,
+    "mae": 0.09,
+    "pixels_off_by_16": 0.0007
    },
    {
     "frame": "frame_005240.png",
-    "ssim": 0.9991,
-    "mae": 0.07,
-    "pixels_off_by_16": 0.0004
+    "ssim": 0.9973,
+    "mae": 0.1,
+    "pixels_off_by_16": 0.0009
    }
   ]
  }
