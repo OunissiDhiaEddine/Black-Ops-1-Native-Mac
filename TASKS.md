@@ -3,7 +3,7 @@ Status: TODO · NOW · DONE · BLOCKED. Only ONE task is NOW at a time. Mark DON
 Update this file at every checkpoint (see AGENTS.md rule 2).
 
 ## NOW
-- **T-047** (P4, ADR-014) Steam spike: with Steam for macOS running under the owner's account and Valve's `libsteam_api.dylib`, does `SteamAPI_Init` succeed for app id 42700, is the user logged on, is the app owned? WAITING for the user: Steam installed + logged in, Steamworks SDK (dylib + headers) placed in `artifacts/steamworks/`. Evidence: output of `tests/steam_spike`.
+- **T-051** (P5) Renderer library: move the Metal backend from `tests/replay/` into `src/metal` behind a D3D9-shaped interface in `src/rhi` (ADR-004), shared by the replay tool and the game's `d3d9` shim.
 
 ## DONE
 - **T-001** (P0) DONE 2026-10-05 — game install present in `reference/`, `scripts/doctor.sh` run, tool availability recorded.
@@ -61,8 +61,12 @@ Update this file at every checkpoint (see AGENTS.md rule 2).
 - [ ] **T-024** BLOCKED 2026-10-06 (from P2) steam_api.dll interpreter spike (ADR-010). Done: interpreter host (`src/platform/win32/x86_module.cpp`), the DLL loads unmodified, runs its start-up, reads `steam_emu.ini` and its state files (evidence: `artifacts/boot/last_run.log`, LOG). Blocked: it then stops itself with "Internal error 0x0A: Protection initialization failed!" after enumerating the loaded modules. Finding out what that check wants = analysing the anti-tamper of a DRM-circumvention DLL -> ground rule 1: stop and ask the user.
 - [ ] **T-036** (from P3) shader/pipeline disk cache. **T-037** native D3D9 reference (Windows PC: user prefers to keep it as a last resort). **T-038** video textures in a trace.
 
-- [ ] **T-047** Steam spike (ADR-014), see NOW.
-- [ ] **T-048** Steam bridge: flat imports, interface objects for the slots the game calls, callbacks (after T-047 passes and the interface versions are known).
+## P5 — Integration (started 2026-10-06 with the user's approval)
+- [x] **T-050** DONE 2026-10-06 (evidence: `build/replay artifacts/traces/menu.bin --window --frames 1900-2000` -> "window: 102 frames shown", 156,725 draws, 0 skipped; `artifacts/replay_window/frame_002000.png`). SDL3 window + CAMetalLayer presentation for the replay tool; `scripts/replay_window.sh <scenario> [first_frame] [fps]`.
+- [ ] **T-051** Renderer library split (`src/rhi` + `src/metal`); replay check must stay at the P3 SSIM numbers.
+- [ ] **T-052** SDL3-backed user32 (window, messages, keyboard/mouse, gamepad) replacing `user32_headless.cpp`.
+- [ ] **T-053** XAudio2 2.7 on FAudio (ADR-009; `brew install faudio` needs the user's OK). **T-054** Bink on FFmpeg (ADR-008).
+- [ ] **T-036** (carried) shader/pipeline disk cache.
 
-## P5+ (expand after P4 exit)
+## P5+ (later)
 Integration -> strangler fig -> Metal optimisation -> QA. See docs/PLAN.md.

@@ -132,8 +132,8 @@ int main(int argc, char **argv) {
 
     int rc = thread_run_main(im.stack_reserve, [&](Cpu *cpu) {
         // DLL initialisers run before the entry point, like under the Windows loader. steam_api.dll is the
-        // one module that can be interpreted instead of lifted or shimmed (ADR-010, superseded by ADR-014): off by default.
-        if (getenv("BO1_EMULATED_STEAM_DLL") && !emu_module_attach(cpu, "C:\\bo1\\steam_api.dll", "steam_api.dll"))
+        // one module that is interpreted instead of lifted or shimmed (ADR-010); BO1_NO_STEAM_DLL=1 skips it.
+        if (!getenv("BO1_NO_STEAM_DLL") && !emu_module_attach(cpu, "C:\\bo1\\steam_api.dll", "steam_api.dll"))
             fprintf(stderr, "[bo1] steam_api.dll did not initialise\n");
         guest_call(cpu, im.entry, {});
     });

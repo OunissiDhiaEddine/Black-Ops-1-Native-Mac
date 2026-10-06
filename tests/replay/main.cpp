@@ -1,5 +1,5 @@
 // Trace replay harness (T-031).
-//   replay <trace.bin> [--backend null|metal] [--frames A-B] [--dump DIR]
+//   replay <trace.bin> [--backend null|metal] [--frames A-B] [--dump DIR] [--window] [--fps N]
 // Feeds the game's recorded D3D9 calls (depth 0 only) to a backend, frame by frame.
 #include <chrono>
 #include <cstdio>
@@ -14,7 +14,7 @@ using namespace bo1;
 
 int main(int argc, char **argv) {
     if (argc < 2) {
-        std::fprintf(stderr, "usage: replay <trace.bin> [--backend null|metal] [--frames A-B] [--dump DIR]\n");
+        std::fprintf(stderr, "usage: replay <trace.bin> [--backend null|metal] [--frames A-B] [--dump DIR] [--window] [--fps N]\n");
         return 2;
     }
     std::string path = argv[1], backend_name = "null";
@@ -27,6 +27,8 @@ int main(int argc, char **argv) {
             opts.first_frame = std::atoi(s);
             if (const char *dash = std::strchr(s, '-')) opts.last_frame = std::atoi(dash + 1);
         } else if (a == "--dump" && i + 1 < argc) opts.dump_dir = argv[++i];
+        else if (a == "--window") opts.window = true, backend_name = "metal";
+        else if (a == "--fps" && i + 1 < argc) opts.fps = std::atoi(argv[++i]);
         else {
             std::fprintf(stderr, "unknown option %s\n", a.c_str());
             return 2;
@@ -45,7 +47,7 @@ int main(int argc, char **argv) {
         trace::Record r;
         uint64_t records = 0, nested = 0;
         int frame = 0;
-        while (reader.next(r)) {
+        while (!backend->wants_quit() && reader.next(r)) {
             records++;
             if (r.depth) { // made by the D3D9 implementation while servicing a game call
                 nested++;

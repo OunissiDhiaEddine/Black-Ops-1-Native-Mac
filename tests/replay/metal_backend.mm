@@ -8,6 +8,9 @@
 #import <Foundation/Foundation.h>
 #import <ImageIO/ImageIO.h>
 #import <Metal/Metal.h>
+#import <QuartzCore/CAMetalLayer.h>
+#include <SDL3/SDL.h>
+#include <SDL3/SDL_metal.h>
 
 #include <algorithm>
 #include <array>
@@ -185,12 +188,15 @@ public:
                 flush(true);
                 frames_rendered_++;
                 if (!opts_.dump_dir.empty() && frame >= opts_.first_frame && frame % 20 == 0) dump_backbuffer(frame);
+                if (opts_.window) present_to_window(frame);
             }
         }
     }
+    bool wants_quit() override { return quit_; }
 
     int report() override {
         flush(true);
+        if (opts_.window) printf("window: %d frames shown\n", frames_shown_);
         printf("metal backend: %d frames rendered, %llu draws executed, %llu skipped; %zu pipelines, %zu shader functions compiled\n",
                frames_rendered_, (unsigned long long)draws_, (unsigned long long)draws_skipped_, pipelines_.size(), functions_compiled_);
         for (auto &[k, n] : problems_) printf("  %8d  %s\n", n, k.c_str());
@@ -969,6 +975,59 @@ private:
         return fallback_[key] = [dev_ newTextureWithDescriptor:d];
     }
 
+    // ---- live window (P5/T-050): the game's back buffer is copied to a CAMetalLayer drawable ----------
+    void present_to_window(int frame) {
+        Tex *t = tex(kBackBufferTex);
+        if (!t || !t->tex) return;
+        if (!window_) {
+            if (!SDL_Init(SDL_INIT_VIDEO)) {
+                fprintf(stderr, "SDL_Init failed: %s\n", SDL_GetError());
+                opts_.window = false;
+                return;
+            }
+            window_ = SDL_CreateWindow("BO1 Metal replay", (int)t->w, (int)t->h, SDL_WINDOW_METAL);
+            view_ = window_ ? SDL_Metal_CreateView(window_) : nullptr;
+            if (!view_) {
+                fprintf(stderr, "cannot create the window: %s\n", SDL_GetError());
+                opts_.window = false;
+                return;
+            }
+            layer_ = (__bridge CAMetalLayer *)SDL_Metal_GetLayer(view_);
+            layer_.device = dev_;
+            layer_.pixelFormat = t->tex.pixelFormat;
+            layer_.framebufferOnly = NO; // the drawable is a blit destination
+            layer_.drawableSize = CGSizeMake(t->w, t->h);
+            next_present_ = SDL_GetTicksNS();
+        }
+        SDL_Event ev;
+        while (SDL_PollEvent(&ev))
+            if (ev.type == SDL_EVENT_QUIT || (ev.type == SDL_EVENT_KEY_DOWN && ev.key.key == SDLK_ESCAPE)) quit_ = true;
+        id<CAMetalDrawable> drawable = [layer_ nextDrawable];
+        if (drawable && drawable.texture.pixelFormat == t->tex.pixelFormat && drawable.texture.width == t->w && drawable.texture.height == t->h) {
+            id<MTLCommandBuffer> cb = [queue_ commandBuffer];
+            id<MTLBlitCommandEncoder> blit = [cb blitCommandEncoder];
+            [blit copyFromTexture:t->tex sourceSlice:0 sourceLevel:0 sourceOrigin:MTLOriginMake(0, 0, 0) sourceSize:MTLSizeMake(t->w, t->h, 1)
+                        toTexture:drawable.texture destinationSlice:0 destinationLevel:0 destinationOrigin:MTLOriginMake(0, 0, 0)];
+            [blit endEncoding];
+            [cb presentDrawable:drawable];
+            [cb commit];
+            frames_shown_++;
+        } else if (!warned_window_) {
+            warned_window_ = true;
+            fprintf(stderr, "window: drawable does not match the back buffer (format %lu vs %lu); frame not shown\n",
+                    (unsigned long)(drawable ? drawable.texture.pixelFormat : 0), (unsigned long)t->tex.pixelFormat);
+        }
+        char title[96];
+        snprintf(title, sizeof(title), "BO1 Metal replay — frame %d", frame);
+        SDL_SetWindowTitle(window_, title);
+        if (opts_.fps > 0) { // pace the replay like the game's presents
+            next_present_ += 1000000000ull / (uint64_t)opts_.fps;
+            uint64_t now = SDL_GetTicksNS();
+            if (next_present_ > now) SDL_DelayNS(next_present_ - now);
+            else next_present_ = now;
+        }
+    }
+
     void dump_backbuffer(int frame) {
         Tex *t = tex(kBackBufferTex);
         if (!t || !t->tex) return;
@@ -992,6 +1051,12 @@ private:
     }
 
     Options opts_;
+    SDL_Window *window_ = nullptr;
+    SDL_MetalView view_ = nullptr;
+    CAMetalLayer *layer_ = nil;
+    bool quit_ = false, warned_window_ = false;
+    uint64_t next_present_ = 0;
+    int frames_shown_ = 0;
     id<MTLDevice> dev_ = nil;
     id<MTLCommandQueue> queue_ = nil;
     id<MTLLibrary> internal_ = nil;
