@@ -27,6 +27,11 @@ public:
     void set_title(const std::string &title);
     void *metal_layer() const { return layer_; } // CAMetalLayer*, valid after create()
     bool has_window() const { return window_ != nullptr; }
+    // enable(): the game's message queue is fed from here (set before the guest starts).
+    // enable(true): in addition a main thread is going to call run(), so create() can be served.
+    void enable(bool with_window = false) { enabled_ = true, wants_window_ = with_window; }
+    bool enabled() const { return enabled_; }
+    bool wants_window() const { return wants_window_; }
     bool focused() const { return focused_; }
     void cursor(int32_t *x, int32_t *y);
     // PeekMessage semantics: copies the oldest message; removes it when `remove` is set.
@@ -52,7 +57,7 @@ private:
     void *layer_ = nullptr;
     uint32_t hwnd_ = 0;
     InputState input_;
-    std::atomic<bool> focused_{false}, running_{false};
+    std::atomic<bool> focused_{false}, running_{false}, enabled_{false}, wants_window_{false};
 };
 
 } // namespace bo1::win

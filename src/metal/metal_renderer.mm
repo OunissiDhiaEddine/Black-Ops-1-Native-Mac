@@ -220,7 +220,7 @@ public:
                 flush(true);
                 frames_rendered_++;
                 if (!opts_.dump_dir.empty() && frame >= opts_.first_frame && frame % 20 == 0) dump_backbuffer(frame);
-                if (opts_.window) present_to_window(frame);
+                if (opts_.window || opts_.layer) present_to_window(frame);
             }
         }
     }
@@ -1183,7 +1183,14 @@ private:
     void present_to_window(int frame) {
         Tex *t = tex(kBackBufferTex);
         if (!t || !t->tex) return;
-        if (!window_) {
+        if (opts_.layer && !layer_) { // the runtime's window (src/platform/window): only the layer is ours to use
+            layer_ = (__bridge CAMetalLayer *)opts_.layer;
+            layer_.device = dev_;
+            layer_.pixelFormat = t->tex.pixelFormat;
+            layer_.framebufferOnly = NO;
+            layer_.drawableSize = CGSizeMake(t->w, t->h);
+        }
+        if (!opts_.layer && !window_) {
             if (!SDL_Init(SDL_INIT_VIDEO)) {
                 fprintf(stderr, "SDL_Init failed: %s\n", SDL_GetError());
                 opts_.window = false;
@@ -1204,7 +1211,7 @@ private:
             next_present_ = SDL_GetTicksNS();
         }
         SDL_Event ev;
-        while (SDL_PollEvent(&ev))
+        while (!opts_.layer && SDL_PollEvent(&ev))
             if (ev.type == SDL_EVENT_QUIT || (ev.type == SDL_EVENT_KEY_DOWN && ev.key.key == SDLK_ESCAPE)) quit_ = true;
         id<CAMetalDrawable> drawable = [layer_ nextDrawable];
         if (drawable && drawable.texture.pixelFormat == t->tex.pixelFormat && drawable.texture.width == t->w && drawable.texture.height == t->h) {
@@ -1221,6 +1228,7 @@ private:
             fprintf(stderr, "window: drawable does not match the back buffer (format %lu vs %lu); frame not shown\n",
                     (unsigned long)(drawable ? drawable.texture.pixelFormat : 0), (unsigned long)t->tex.pixelFormat);
         }
+        if (opts_.layer) return; // window title and pacing belong to the game
         char title[96];
         snprintf(title, sizeof(title), "BO1 Metal replay — frame %d", frame);
         SDL_SetWindowTitle(window_, title);

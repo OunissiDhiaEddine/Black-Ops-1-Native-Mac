@@ -12,12 +12,16 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+#include <chrono>
+#include <string>
+#include <thread>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 
 #include "guest_os.h"
 #include "image_info.h"
+#include "window_service.h"
 
 using namespace bo1;
 
@@ -134,6 +138,44 @@ int main(int argc, char **argv) {
     signal(SIGALRM, on_alarm);
     if (seconds > 0) alarm((unsigned)seconds);
 
+    // BO1_WINDOW=1: a real window (SDL3 on the process main thread, src/platform/window) shows what the Metal
+    // renderer draws and feeds keyboard / mouse to the game; without it the run is headless.
+    std::function<void(const std::atomic<bool> &)> host_main;
+    if (getenv("BO1_WINDOW")) {
+        win::WindowService::get().enable(true);
+        host_main = [](const std::atomic<bool> &done) {
+            if (!win::WindowService::get().run(done)) fprintf(stderr, "[bo1] no window: SDL video is not available\n");
+        };
+    }
+    // BO1_KEYS="ms:vk,ms:vk": scripted key presses (milliseconds after start, Windows virtual-key code), delivered
+    // through the same message queue as real input — the unattended way past "Press Any Key" (cf. the proxy's BO1_KEYS).
+    if (const char *keys = getenv("BO1_KEYS")) {
+        win::WindowService::get().enable(getenv("BO1_WINDOW") != nullptr);
+        std::string spec = keys;
+        std::thread([spec] {
+            auto t0 = std::chrono::steady_clock::now();
+            size_t pos = 0;
+            while (pos < spec.size()) {
+                size_t end = spec.find(',', pos);
+                if (end == std::string::npos) end = spec.size();
+                std::string tok = spec.substr(pos, end - pos);
+                pos = end + 1;
+                size_t colon = tok.find(':');
+                if (colon == std::string::npos) continue;
+                long at = strtol(tok.c_str(), nullptr, 0);
+                uint32_t vk = (uint32_t)strtoul(tok.c_str() + colon + 1, nullptr, 0);
+                std::this_thread::sleep_until(t0 + std::chrono::milliseconds(at));
+                uint32_t scan = vk == 0x20 ? 0x39 : vk == 0x0D ? 0x1C : vk == 0x1B ? 0x01 : vk == 0x28 ? 0x50 : vk == 0x26 ? 0x48 : 0;
+                uint32_t down = 1 | (scan << 16), up = down | (1u << 30) | (1u << 31);
+                win::WindowService &ws = win::WindowService::get();
+                ws.post({0x00010100, win::WM_KEYDOWN, vk, down, (uint32_t)at, 0, 0});
+                if (vk == 0x20 || vk == 0x0D) ws.post({0x00010100, win::WM_CHAR, vk, down, (uint32_t)at, 0, 0});
+                std::this_thread::sleep_for(std::chrono::milliseconds(80));
+                ws.post({0x00010100, win::WM_KEYUP, vk, up, (uint32_t)at, 0, 0});
+                fprintf(stderr, "[bo1] scripted key vk=0x%x posted at %ld ms\n", vk, at);
+            }
+        }).detach();
+    }
     int rc = thread_run_main(im.stack_reserve, [&](Cpu *cpu) {
         // Steam is served by the local stand-in (src/platform/win32/steam_local.cpp, ADR-015). The ADR-010
         // experiment — the shipped steam_api.dll, interpreted, its initialisers run before the entry point like
@@ -142,7 +184,7 @@ int main(int argc, char **argv) {
             fprintf(stderr, "[bo1] steam_api.dll did not initialise\n");
         if (steam_test) process_exit((uint32_t)steam_selftest(cpu));
         guest_call(cpu, im.entry, {});
-    });
+    }, host_main);
     fprintf(stderr, "[bo1] entry point returned (%d)\n", rc);
     imports_report();
     return rc;

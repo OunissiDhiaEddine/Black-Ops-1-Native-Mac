@@ -52,7 +52,7 @@ PY
 
 # libunicorn (x86 interpreter for the emulated steam_api.dll, ADR-010) comes with the Python package in the venv
 UNICORN="$(ls -d .venv/lib/python3*/site-packages/unicorn | head -1)"
-CXXFLAGS="-std=c++20 -O1 -g -Wall -Wextra -Werror -Wno-unused-parameter -ffp-contract=off -Isrc/runtime -Isrc/platform/win32 -Isrc/rhi -Itools/d3d9_proxy -I$LIFT -I$OUT/gen -I$UNICORN/include"
+CXXFLAGS="-std=c++20 -O1 -g -Wall -Wextra -Werror -Wno-unused-parameter -ffp-contract=off -Isrc/runtime -Isrc/platform/win32 -Isrc/rhi -Itools/d3d9_proxy -Isrc/platform/window -I/opt/homebrew/include -I$LIFT -I$OUT/gen -I$UNICORN/include"
 CFLAGS="-std=c11 -O1 -g -Wall -Werror -ffp-contract=off -Isrc/runtime -I$LIFT"
 pids=()
 for c in src/runtime/guest_os.cpp src/platform/win32/*.cpp tests/boot/main.cpp tests/boot/steam_selftest.cpp; do
@@ -70,8 +70,8 @@ if [ ! -f "$o" ] || [ src/runtime/runtime.c -nt "$o" ] || [ src/runtime/lifted.h
 fi
 for p in ${pids[@]+"${pids[@]}"}; do wait "$p"; done
 # the Metal renderer (ADR-004) comes from the CMake build: the game's live Direct3D calls go to it (d3d9_live.cpp)
-bash scripts/build.sh bo1_metal bo1_shaders >/dev/null
-clang++ "$OUT"/obj/*.o "$LIFT"/obj/lifted_*.o build/libbo1_metal.a build/libbo1_shaders.a "$UNICORN/lib/libunicorn.2.dylib" \
+bash scripts/build.sh bo1_metal bo1_shaders bo1_window >/dev/null
+clang++ "$OUT"/obj/*.o "$LIFT"/obj/lifted_*.o build/libbo1_metal.a build/libbo1_shaders.a build/libbo1_window.a "$UNICORN/lib/libunicorn.2.dylib" \
   /opt/homebrew/lib/libSDL3.dylib -framework Metal -framework Foundation -framework CoreGraphics -framework ImageIO -framework QuartzCore \
   -Wl,-rpath,"$PWD/$UNICORN/lib" -o "$OUT/bo1_boot"
 echo "built $OUT/bo1_boot"

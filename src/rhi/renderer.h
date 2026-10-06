@@ -13,6 +13,8 @@ struct Options {
     int last_frame = 1 << 30;
     std::string dump_dir;    // where a rendering backend writes frame images
     bool window = false;     // show every rendered frame in a window (SDL3 + CAMetalLayer)
+    void *layer = nullptr;   // CAMetalLayer* of an existing window: frames are presented there and the renderer
+                             // neither creates a window nor touches SDL (the native runtime owns window and events)
     int fps = 60;            // presentation rate of the window (0 = as fast as the calls arrive)
 };
 

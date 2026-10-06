@@ -3,6 +3,7 @@
 #pragma once
 #include <cstddef>
 #include <cstdint>
+#include <atomic>
 #include <functional>
 #include <memory>
 #include <string>
@@ -60,7 +61,10 @@ uint32_t thread_teb(GuestThread *t);
 // `entry(param)` in the guest. Returns a handle (HObject of kind "thread") or 0.
 uint32_t thread_create(uint32_t entry, uint32_t param, uint32_t stack_size, bool suspended, uint32_t *tid_out);
 // Runs `body` as the first guest thread on a host thread with a large stack and waits for it.
-int thread_run_main(uint32_t stack_size, const std::function<void(Cpu *)> &body);
+// `host_main`, if given, runs on the calling (process main) thread meanwhile — the window and event pump
+// must live there on macOS — and has to return once its argument becomes true (the guest thread ended).
+int thread_run_main(uint32_t stack_size, const std::function<void(Cpu *)> &body,
+                    const std::function<void(const std::atomic<bool> &)> &host_main = nullptr);
 [[noreturn]] void thread_exit_current(uint32_t code);
 void process_exit(uint32_t code);
 

@@ -14,6 +14,7 @@
 
 #include "d3d9_objects.h"
 #include "renderer.h"
+#include "window_service.h"
 
 namespace bo1 {
 namespace {
@@ -106,6 +107,7 @@ void observe(uint32_t tag, Cpu *, const uint32_t *a, int words, uint32_t result)
         if (iface != IFACE_D3D9 || slot != 16 || (result & 0x80000000u)) return; // nothing to draw with before CreateDevice
         rhi::Options o;
         if (const char *d = getenv("BO1_D3D_DUMP")) o.dump_dir = d;
+        o.layer = win::WindowService::get().metal_layer(); // NULL when headless: frames are rendered, not shown
         try {
             g_renderer = rhi::make_metal_renderer(o);
         } catch (const std::exception &e) {

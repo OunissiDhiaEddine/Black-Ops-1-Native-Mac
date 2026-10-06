@@ -10,6 +10,7 @@
 
 #include "image_info.h"
 #include "win32_util.h"
+#include "window_service.h"
 
 namespace bo1 {
 
@@ -70,6 +71,7 @@ static uint32_t send(Cpu *cpu, uint32_t hwnd, uint32_t msg, uint32_t wp, uint32_
     return guest_call(cpu, proc, {hwnd, msg, wp, lp});
 }
 
+static void adjust_rect(uint32_t rect, uint32_t style, bool menu);
 SHIM(user32, CreateWindowExA, 12) {
     // (dwExStyle, lpClassName, lpWindowName, dwStyle, X, Y, nWidth, nHeight, hWndParent, hMenu, hInstance, lpParam)
     uint32_t hwnd;
@@ -118,6 +120,18 @@ SHIM(user32, CreateWindowExA, 12) {
     if (a[3] & 0x10000000u) { // WS_VISIBLE
         std::lock_guard<std::mutex> lk(g_mu);
         g_windows[hwnd].visible = true;
+    }
+    // The game's main window becomes a real one when the window service runs (BO1_WINDOW=1). Its client
+    // area is what the game asked the outer size for: borders and caption are added back by AdjustWindowRect.
+    win::WindowService &ws = win::WindowService::get();
+    if (ws.wants_window() && !ws.has_window() && !a[8] /* top level */) {
+        uint32_t rc = heap_alloc(16, true);
+        adjust_rect(rc, a[3], false); // how much the style adds around a client area
+        int cw = (int32_t)a[6] - ((int32_t)rd32(rc + 8) - (int32_t)rd32(rc)), ch = (int32_t)a[7] - ((int32_t)rd32(rc + 12) - (int32_t)rd32(rc + 4));
+        heap_free(rc);
+        if (cw < 64 || ch < 64) cw = (int32_t)a[6], ch = (int32_t)a[7];
+        if (ws.create(hwnd, a[2] ? "Call of Duty: Black Ops (native)" : "bo1", cw, ch)) log("window: %dx%d client area for hwnd %08x", cw, ch, hwnd);
+        else log("window: could not create the real window (continuing headless)");
     }
     return hwnd;
 }
@@ -274,12 +288,25 @@ SHIM(user32, GetMonitorInfoA, 2) {
 }
 
 // ---- messages: the headless queue is always empty ----------------------------------------------------------
-SHIM(user32, PeekMessageA, 5) { return 0; }
-SHIM(user32, GetMessageA, 4) {
-    // Blocks until a message arrives; nothing ever does in the headless runtime.
-    log("GetMessageA: blocking forever (headless runtime has no message source)");
-    for (;;) usleep(1000000);
-    return 0;
+SHIM(user32, PeekMessageA, 5) { // (lpMsg, hWnd, wMsgFilterMin, wMsgFilterMax, wRemoveMsg)
+    win::WindowService &ws = win::WindowService::get();
+    win::Msg m;
+    if (!ws.enabled() || !ws.peek(&m, a[4] & 1)) return 0;
+    wr32(a[0], m.hwnd), wr32(a[0] + 4, m.message), wr32(a[0] + 8, m.wparam), wr32(a[0] + 12, m.lparam);
+    wr32(a[0] + 16, m.time), wr32(a[0] + 20, (uint32_t)m.x), wr32(a[0] + 24, (uint32_t)m.y);
+    return 1;
+}
+SHIM(user32, GetMessageA, 4) { // (lpMsg, hWnd, wMsgFilterMin, wMsgFilterMax): blocks until a message arrives
+    win::WindowService &ws = win::WindowService::get();
+    if (!ws.enabled()) {
+        log("GetMessageA: blocking forever (no message source in the headless runtime)");
+        for (;;) usleep(1000000);
+    }
+    win::Msg m;
+    while (!ws.peek(&m, true)) usleep(1000);
+    wr32(a[0], m.hwnd), wr32(a[0] + 4, m.message), wr32(a[0] + 8, m.wparam), wr32(a[0] + 12, m.lparam);
+    wr32(a[0] + 16, m.time), wr32(a[0] + 20, (uint32_t)m.x), wr32(a[0] + 24, (uint32_t)m.y);
+    return m.message != 0x0012; // WM_QUIT ends the caller's loop
 }
 SHIM(user32, TranslateMessage, 1) { return 0; }
 SHIM(user32, DispatchMessageA, 1) {
@@ -306,6 +333,18 @@ SHIM(user32, CallNextHookEx, 4) { return 0; }
 static int32_t g_cursor_count = 0;
 SHIM(user32, ShowCursor, 1) { return (uint32_t)(a[0] ? ++g_cursor_count : --g_cursor_count); }
 SHIM(user32, GetCursorPos, 1) {
+    win::WindowService &ws = win::WindowService::get();
+    if (ws.enabled() && ws.has_window()) { // screen position = window origin + position inside the client area
+        int32_t x, y, ox = 0, oy = 0;
+        ws.cursor(&x, &y);
+        {
+            std::lock_guard<std::mutex> lk(g_mu);
+            if (!g_windows.empty()) ox = g_windows.begin()->second.x, oy = g_windows.begin()->second.y;
+        }
+        wr32(a[0], (uint32_t)(ox + x));
+        wr32(a[0] + 4, (uint32_t)(oy + y));
+        return 1;
+    }
     wr32(a[0], (uint32_t)(kScreenW / 2));
     wr32(a[0] + 4, (uint32_t)(kScreenH / 2));
     return 1;

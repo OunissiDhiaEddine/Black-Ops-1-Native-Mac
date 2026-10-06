@@ -3,6 +3,7 @@
 
 #include <pthread.h>
 #include <sys/mman.h>
+#include <thread>
 #include <unistd.h>
 
 #include <algorithm>
@@ -426,12 +427,23 @@ uint32_t thread_create(uint32_t entry, uint32_t param, uint32_t stack_size, bool
     return h;
 }
 
-int thread_run_main(uint32_t stack_size, const std::function<void(Cpu *)> &body) {
+int thread_run_main(uint32_t stack_size, const std::function<void(Cpu *)> &body,
+                    const std::function<void(const std::atomic<bool> &)> &host_main) {
     auto *t = new GuestThread();
     if (!thread_setup(t, stack_size)) return -1;
     t->body = body;
     if (!thread_start(t, std::max<uint32_t>(t->stack_hi - t->stack_lo, 4u << 20))) return -1;
-    pthread_join(t->host, nullptr);
+    if (host_main) {
+        static std::atomic<bool> done{false};
+        std::thread waiter([t] {
+            pthread_join(t->host, nullptr);
+            done = true;
+        });
+        host_main(done);
+        waiter.join();
+    } else {
+        pthread_join(t->host, nullptr);
+    }
     return (int)t->exit_code;
 }
 
