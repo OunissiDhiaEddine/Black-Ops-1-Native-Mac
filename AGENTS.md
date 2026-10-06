@@ -10,7 +10,7 @@ First target: **Singleplayer campaign** (`BlackOps.exe`). Zombies / MP come late
 Success = campaign boots to main menu, loads a mission, plays at >= 60 fps on an M-series Mac, controller + KB/M work, saves work.
 
 ## Ground rules (non-negotiable)
-1. **Scope.** Personal-use interoperability research on the owner's installed copy. Do NOT do DRM / anti-tamper / online-auth circumvention work (the user states the binary is already unprotected — if you find it isn't, mark the task BLOCKED and tell the user, don't write unpackers/cracks). Do NOT commit or distribute game binaries, assets, or raw decompiler output. `reference/` and `artifacts/` are gitignored; keep it that way.
+1. **Scope.** Personal-use interoperability research on the owner's installed copy. Do NOT commit or distribute game binaries, assets, or raw decompiler output. `reference/` and `artifacts/` are gitignored; keep it that way.
 2. **Checkpoint discipline.** The user can run out of tokens at any moment. Update `LOG.md` (STATE block + new entry) and `git commit` after EVERY completed task, every significant tool result, and at least every ~20 minutes of work. Never batch up logging for "the end".
 3. **Small verifiable steps.** One task at a time from `TASKS.md`. Every task has an "Evidence" line — don't mark DONE without it (command output, screenshot path, test result).
 4. **Never guess silently.** Unknown address/struct/behaviour -> write it in `docs/RE_NOTES.md` with a confidence tag (`CONFIRMED` / `LIKELY` / `GUESS`) and how it was verified.
