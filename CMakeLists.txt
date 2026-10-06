@@ -38,3 +38,10 @@ add_executable(replay
   tests/replay/null_backend.cpp)
 target_include_directories(replay PRIVATE tests/replay)
 target_link_libraries(replay PRIVATE bo1_metal)
+
+# SDL3 -> Win32 window messages (T-052) and its unit test.
+add_library(bo1_window STATIC src/platform/window/win_messages.cpp)
+target_include_directories(bo1_window PUBLIC src/platform/window)
+target_link_libraries(bo1_window PUBLIC SDL3::SDL3)
+add_executable(test_win_messages tests/window/test_win_messages.cpp)
+target_link_libraries(test_win_messages PRIVATE bo1_window)
