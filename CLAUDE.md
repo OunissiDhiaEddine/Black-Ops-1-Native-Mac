@@ -1,7 +1,7 @@
 # CLAUDE.md — BO1 → native Apple Silicon (Metal + arm64)
 
-> The single entry point for any coding agent. Read it fully at the start of EVERY session.
-> `AGENTS.md` is only a pointer to this file. The rule numbers below are cited by older log entries and ADRs — keep them stable.
+> The single entry point for any coding agent. `AGENTS.md` is only a pointer to this file.
+> The rule numbers below are cited by older log entries and ADRs — keep them stable (3 and 5 were retired on 2026-10-07).
 
 ## Mission
 Run Call of Duty: Black Ops (2010, Treyarch "T5" engine, PE32 / x86, Direct3D 9) as a **native arm64 Mach-O app on Apple Silicon with a Metal renderer and no Wine at runtime**.
@@ -12,7 +12,7 @@ Success = campaign boots to main menu, loads a mission, plays at >= 60 fps on an
 ## Where things are written down
 | File | Holds | Changes |
 |---|---|---|
-| `CLAUDE.md` | rules, session protocol, repo map (this file) | rarely |
+| `CLAUDE.md` | rules, repo map (this file) | rarely |
 | `LOG.md` | STATE block (the resume point, overwritten) + append-only session log | after every task |
 | `TASKS.md` | NOW, the OPEN table, then the record of finished work with its evidence | after every task |
 | `docs/RUNBOOK.md` | how to run, build and regression-test; switches; architecture map; debugging; pitfalls | when a command or expected result changes |
@@ -24,28 +24,24 @@ Success = campaign boots to main menu, loads a mission, plays at >= 60 fps on an
 
 One fact lives in one place. Status goes in `LOG.md` / `TASKS.md`, commands in `docs/RUNBOOK.md`, knowledge in `docs/RE_NOTES.md`; the others link to it instead of repeating it.
 
-## Ground rules (non-negotiable)
-1. **Scope.** Personal-use interoperability research on the owner's installed copy. Do NOT commit or distribute game binaries, assets, or raw decompiler output. `reference/` and `artifacts/` are gitignored; keep it that way.
-2. **Checkpoint discipline.** The user can run out of tokens at any moment. Update `LOG.md` (STATE block + new entry) and `git commit` after EVERY completed task, every significant tool result, and at least every ~20 minutes of work. Never batch up logging for "the end".
-3. **Small verifiable steps.** One task at a time from `TASKS.md`. Every task has an "Evidence" line — don't mark DONE without it (command output, screenshot path, test result).
+## Ground rules
+1. **Scope.** Personal-use interoperability research on the owner's installed copy. Do NOT commit or distribute game binaries, assets, lifted code, or raw decompiler output. `reference/`, `artifacts/` and `src/lifted/` are gitignored; keep it that way.
+2. **Log after every task.** The user can run out of tokens at any moment. After EVERY completed task: update `LOG.md` (STATE block + new entry) and `TASKS.md` (status + evidence: command output, screenshot path, test result), then `git commit`. Never batch up logging for "the end".
 4. **Never guess silently.** Unknown address/struct/behaviour -> write it in `docs/RE_NOTES.md` with a confidence tag (`CONFIRMED` / `LIKELY` / `GUESS`) and how it was verified.
-5. **Reproducible.** Every analysis/build step is a script in `scripts/` or `tools/`. No "I ran this once in a terminal" results.
 6. **Originals are read-only.** Never modify files in `reference/`. Work on copies in `artifacts/`.
-7. **Ask the user before:** installing system-wide software, downloads > 500 MB, touching anything outside this directory, `git push`, or changing a decision in `docs/DECISIONS.md`.
+7. **Ask the user before:** installing system-wide software, downloads > 500 MB, changing files outside the repository, `git push`, or changing a decision in `docs/DECISIONS.md`.
 
-## Session protocol
-**Start:** read `LOG.md` STATE block + last 3 entries -> `TASKS.md` NOW section -> state in one sentence what you'll do -> do it. Look up commands in `docs/RUNBOOK.md` when you need them.
-**During:** follow rule 2. Keep `TASKS.md` statuses current.
-**Low budget / long step ahead / user says "wrap up":** overwrite STATE block with: exact next command to run, files in flight, open questions, anything half-done and how to resume it. Then commit.
-**Finish a phase:** check its exit criteria in `docs/PLAN.md`, record the result in `LOG.md`, then ask the user before starting the next phase.
+Everything else is yours to decide: which open task to take, the approach, names, when to build or run, merging your branch, cleaning up after yourself. Pick the reasonable option, note it in the log, and keep going.
 
-**What goes in the STATE block:** only what changes from checkpoint to checkpoint — date/time, phase and task, what works, what is missing, the next exact step, whether the regression set is green, files in flight, open questions for the user. Commands, switches and machine facts belong in `docs/RUNBOOK.md`.
+## Resuming
+`LOG.md`'s STATE block is the resume point and `TASKS.md` lists what is open; read what your task needs. Commands are in `docs/RUNBOOK.md`.
+The STATE block holds only what changes from checkpoint to checkpoint: date/time, phase and task, what works, what is missing, the next exact step, whether the regression set is green, files in flight, open questions for the user.
 
 ## Working in parallel threads
-- The work runs as a Claude project: one thread per piece of work. The user allows git worktrees, one branch per task.
-- A thread in a worktree (`.claude/worktrees/<name>`, branch `claude/<name>`) has its own `build/` and `artifacts/boot/` and merges into `main` when its task is done; the thread in the main folder commits on `main` directly.
-- `LOG.md` and `TASKS.md` are edited by every thread: re-read them right before editing, keep edits small, append log entries with the real wall-clock time (`date`), and merge `main` before finishing.
-- One 8 GB machine: do not overlap long builds or runs more than necessary, and never play sound or open a window on the user's desktop unasked (unattended runs: `SDL_AUDIO_DRIVER=dummy`).
+- One thread per piece of work, each in its own worktree (`.claude/worktrees/<name>`, branch `claude/<name>`) with its own `build/` and `artifacts/boot/`; the thread in the main folder commits on `main` directly.
+- When its task is done, a thread merges `main` into its branch, merges the branch into `main`, then removes its own worktree and branch (without force).
+- `LOG.md` and `TASKS.md` are edited by every thread: re-read them right before editing, keep edits small, and append log entries with the real wall-clock time (`date`).
+- One 8 GB machine: do not overlap long builds or runs, and never play sound or open a window on the user's desktop unasked (unattended runs: `SDL_AUDIO_DRIVER=dummy`).
 
 ## Settled by the user (do not reopen without asking)
 - **Steam = ADR-015** (2026-10-06): a local, offline stand-in inside the runtime. It reports no DLC on purpose. Unknown Steam methods trap with their slot number: add them only with evidence from the game's call site (`tools/steam_sites.py`). The shipped `steam_api.dll` is not loaded, modified or analysed. The user will not install the Steam client.
