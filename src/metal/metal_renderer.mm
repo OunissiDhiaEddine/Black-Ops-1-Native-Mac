@@ -9,6 +9,7 @@
 #import <ImageIO/ImageIO.h>
 #import <Metal/Metal.h>
 #import <QuartzCore/CAMetalLayer.h>
+#include <initializer_list>
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_metal.h>
 
@@ -217,9 +218,16 @@ public:
     void end_frame(int frame) override {
         @autoreleasepool {
             if (rendering(frame)) {
-                flush(true);
+                // The frame's work is submitted; the CPU only waits for the GPU when it reads the picture back
+                // (a dump), otherwise for the PREVIOUS frame, so that at most one frame is queued (waiting for
+                // this one cost 21% of the render thread in the first profile, T-058).
+                bool dump = !opts_.dump_dir.empty() && frame >= opts_.first_frame && frame % 20 == 0;
+                id<MTLCommandBuffer> mine = cmd_;
+                flush(dump);
+                if (!dump && prev_frame_cmd_) [prev_frame_cmd_ waitUntilCompleted];
+                prev_frame_cmd_ = dump ? nil : mine;
                 frames_rendered_++;
-                if (!opts_.dump_dir.empty() && frame >= opts_.first_frame && frame % 20 == 0) dump_backbuffer(frame);
+                if (dump) dump_backbuffer(frame);
                 if (opts_.window || opts_.layer) present_to_window(frame);
             }
         }
@@ -745,6 +753,11 @@ private:
         if (d3d & 8) m |= MTLColorWriteMaskAlpha;
         return m;
     }
+    // Cache key for the per-draw state caches: the values themselves, not text (formatting them was 18% of the
+    // render thread in the first profile, T-058).
+    static std::string bin_key(std::initializer_list<uint64_t> v) {
+        return std::string(reinterpret_cast<const char *>(v.begin()), v.size() * sizeof(uint64_t));
+    }
     static std::string fmt_key(const char *f, ...) {
         char buf[512];
         va_list ap;
@@ -972,9 +985,9 @@ private:
 
     id<MTLRenderPipelineState> pipeline(Shader &vs, Shader &ps, id<MTLFunction> vf, id<MTLFunction> pf, const std::vector<Elem> &decl) {
         bool blend = rs_[27] != 0, sep = rs_[206] != 0;
-        std::string key = fmt_key("%u:%u:%p:%u:%lu:%lu:%d:%u:%u:%u:%d:%u:%u:%u:%u", cur_vs_, cur_ps_, (__bridge void *)pf, cur_decl_, (unsigned long)pass_color_,
-                                  (unsigned long)pass_depth_, blend, rs_[19], rs_[20], rs_[171], sep, rs_[207], rs_[208], rs_[209], rs_[168]);
-        for (int i = 0; i < 4; i++) key += fmt_key(":%u", streams_[i].stride);
+        std::string key = bin_key({cur_vs_, cur_ps_, (uint64_t)(uintptr_t)(__bridge void *)pf, cur_decl_, (uint64_t)pass_color_, (uint64_t)pass_depth_, blend,
+                                   rs_[19], rs_[20], rs_[171], sep, rs_[207], rs_[208], rs_[209], rs_[168], streams_[0].stride, streams_[1].stride,
+                                   streams_[2].stride, streams_[3].stride});
         auto it = pipelines_.find(key);
         if (it != pipelines_.end()) return it->second;
         (void)ps;
@@ -1036,8 +1049,8 @@ private:
 
     id<MTLDepthStencilState> depth_state() {
         bool z = rs_[7] != 0, stencil = rs_[52] != 0, two = rs_[185] != 0;
-        std::string key = fmt_key("%d:%u:%u:%d:%u:%u:%u:%u:%u:%u:%d:%u:%u:%u:%u", z, rs_[14], rs_[23], stencil, rs_[53], rs_[54], rs_[55], rs_[56], rs_[58],
-                                  rs_[59], two, rs_[186], rs_[187], rs_[188], rs_[189]);
+        std::string key = bin_key({z, rs_[14], rs_[23], stencil, rs_[53], rs_[54], rs_[55], rs_[56], rs_[58], rs_[59], two, rs_[186], rs_[187], rs_[188],
+                                   rs_[189]});
         auto it = depth_states_.find(key);
         if (it != depth_states_.end()) return it->second;
         MTLDepthStencilDescriptor *d = [MTLDepthStencilDescriptor new];
@@ -1061,7 +1074,7 @@ private:
     }
 
     id<MTLSamplerState> sampler(uint32_t u, uint32_t v, uint32_t w, uint32_t mag, uint32_t min, uint32_t mip, uint32_t aniso, bool compare) {
-        std::string key = fmt_key("%u:%u:%u:%u:%u:%u:%u:%d", u, v, w, mag, min, mip, aniso, compare);
+        std::string key = bin_key({u, v, w, mag, min, mip, aniso, compare});
         auto it = samplers_.find(key);
         if (it != samplers_.end()) return it->second;
         auto addr = [](uint32_t a) {
@@ -1318,6 +1331,7 @@ private:
     std::unordered_map<uint32_t, Buf> buffers_;
     std::unordered_map<uint32_t, Shader> shaders_;
     std::unordered_map<uint32_t, std::vector<Elem>> decls_;
+    id<MTLCommandBuffer> prev_frame_cmd_ = nil;
     std::unordered_map<std::string, id<MTLRenderPipelineState>> pipelines_;
     std::unordered_map<uint32_t, std::vector<std::string>> pipeline_users_; // shader / declaration id -> keys in pipelines_
     std::unordered_map<std::string, id<MTLDepthStencilState>> depth_states_;
