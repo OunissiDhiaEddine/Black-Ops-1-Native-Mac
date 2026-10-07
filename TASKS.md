@@ -6,7 +6,7 @@ Layout: open work is listed once, in **OPEN** (in the order it is planned). The 
 ## NOW
 - **T-057** (P5) Input with a human. User's test 2026-10-06 (window, trackpad): keyboard works, sound "great", mission 1 loads; the mouse had an "acceleration" problem on the trackpad; a real mouse is untested.
   - [x] Mouse look fixed in code 2026-10-06 — cause: `SetCursorPos` was a no-op while the game re-centres the cursor every frame (RE_NOTES § "Mouse as the game uses it"). Now a virtual cursor + SDL relative mouse mode (evidence so far: `build/test_win_messages` -> "all checks passed" incl. the new model of the game's look loop — 10 px of motion is reported once, a resting hand reports 0, quarter steps add up).
-  - [ ] The user confirms it by hand in `scripts/run_native.sh` (trackpad, then a real mouse): turning follows the hand and stops when it stops; the pointer comes back in the pause menu and after Cmd-Tab.
+  - [x] Confirmed by the user on the trackpad 2026-10-07: "perfect the mouse works fabulous" (evidence: `artifacts/boot/mouse_look.log` — 109 re-centre calls, relative mode switched on 2 times; "mouse look:" lines in `artifacts/boot/native_run.log`). A real mouse is still untested.
   - [ ] Key repeat, focus changes, gamepad (the XInput shim is still a stub).
 
 ## OPEN (planned order)
