@@ -303,3 +303,9 @@ Entry template:
 - Not done: the native build still ends a fatal error at "unimplemented import … EnumThreadWindows" instead of showing the message; left, since it only changes how a fatal error is reported.
 - Next: STATE.
 
+
+### 2026-10-07 07:55 — T-061 — starting with full screen saved stopped the game (fixed); mission 1 -> mission 2 in one run works
+- Found: with `r_fullscreen 1` in `players/config.cfg` (what the user's session left behind) the game stopped at start-up: "unimplemented import … user32.dll!EnumDisplayMonitors" (0x006B76D7: it looks for the monitor `r_monitor` names only when it starts in full screen). It surfaced because `scripts/run_native.sh` no longer forces a windowed start. Fix: `EnumDisplayMonitors` shim in `user32_headless.cpp` (one monitor, the game's callback is called once).
+- Evidence: `artifacts/boot/t061_fullscreen_start.log` — `CreateWindowExA(… style 80000000, 1280x800)`, `CreateDevice 1280x800`, "time limit reached (still running)". `artifacts/boot/t061_cuba_to_vorkuta.log` — `devmap cuba`, then `devmap vorkuta` in the same run: "Server: vorkuta", `CL_InitCGame`, `vorkuta.svg` written, 11,500 frames, 92,626 Direct3D objects created / 58,643 destroyed, 0 stops.
+- Learned: the end of a mission cannot be triggered from the console — `changelevel` (0x007FBBB0) and `missionsuccess` (0x007FBCD0) are script builtins that set the level-change request (0x01C07014) and the next map's name; LIKELY the same server start as `devmap` afterwards (not traced further).
+- NOT verified: the full-screen start in a real window (headless only); the script-triggered hand-over at the end of mission 1 (needs someone to finish the mission).

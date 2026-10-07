@@ -279,6 +279,15 @@ SHIM(user32, GetSystemMetrics, 1) {
 static const uint32_t kMonitor = 0x00010001;
 SHIM(user32, MonitorFromPoint, 3) { return kMonitor; }
 SHIM(user32, MonitorFromWindow, 2) { return kMonitor; }
+// (hdc, lprcClip, lpfnEnum, dwData): one monitor. The game uses it when it starts in full screen, to find the
+// monitor `r_monitor` names (0x006B76D7; its callback 0x006B7680 counts down and keeps the handle).
+SHIM(user32, EnumDisplayMonitors, 4) {
+    uint32_t rc = heap_alloc(16, true);
+    wr32(rc, 0), wr32(rc + 4, 0), wr32(rc + 8, (uint32_t)kScreenW), wr32(rc + 12, (uint32_t)kScreenH);
+    if (a[2]) guest_call(cpu, a[2], {kMonitor, 0, rc, a[3]});
+    heap_free(rc);
+    return 1;
+}
 SHIM(user32, GetMonitorInfoA, 2) {
     uint32_t size = rd32(a[1]);
     for (int k = 0; k < 2; k++) { // rcMonitor, rcWork
