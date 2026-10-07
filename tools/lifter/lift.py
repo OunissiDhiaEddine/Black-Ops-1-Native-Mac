@@ -99,9 +99,43 @@ class Lifter:
                     ts = [t for t in (int(t, 16) for t in r["targets"].split(";")) if self.is_code(t)]
                     if ts:
                         self.tables[int(r["insn"], 16)] = ts
+        self.completed_tables = {}            # insn addr -> (targets Ghidra listed, targets in the image)
+        self.complete_tables(sorted(a for a in self.funcs if a not in self.extra))
 
     def is_code(self, va):
         return any(a <= va < b for a, b in self.code)
+
+    def complete_tables(self, starts):
+        """Ghidra lists only part of some `jmp [idx*4 + table]` tables (7 in this image; at 0x00663218, in the
+        save-game reader, 1 of 4 targets — the missing cases trapped as TRAP_BAD_JUMP). The table is in the
+        image: take the run of pointers at `table` that point into the function the jump is in, stopping at the
+        next table. Ghidra's own targets are kept (tables addressed with a negative offset have no such run)."""
+        import bisect
+        sites = {}
+        for a in self.tables:
+            i = next(self.md.disasm(self.image[a - self.base: a - self.base + 16], a), None)
+            if i is None or i.mnemonic != "jmp":
+                continue
+            o = i.operands[0]
+            if o.type == X.X86_OP_MEM and not o.mem.base and o.mem.index and o.mem.scale == 4 and not o.mem.segment:
+                sites[a] = o.mem.disp & 0xFFFFFFFF
+        bases = sorted(set(sites.values()))
+        for a, t in sites.items():
+            k = bisect.bisect_right(starts, a)
+            lo, hi = starts[k - 1], starts[k] if k < len(starts) else 0xFFFFFFFF
+            k = bisect.bisect_right(bases, t)
+            end = bases[k] if k < len(bases) else 0xFFFFFFFF
+            run = []
+            while t < end and len(run) < 1024:
+                v = int.from_bytes(self.image[t - self.base: t - self.base + 4], "little")
+                if not lo <= v < hi:
+                    break
+                run.append(v)
+                t += 4
+            new = [v for v in dict.fromkeys(run) if v not in self.tables[a]]
+            if new:
+                self.completed_tables[a] = (len(set(self.tables[a])), len(set(self.tables[a]) | set(new)))
+                self.tables[a] = self.tables[a] + new
 
     # ---- operand helpers -----------------------------------------------------------------
     def rd_reg(self, reg):
@@ -618,6 +652,7 @@ def main() -> int:
             "blocks_added_by_repair": sum(m.get("ext", 0) for m in meta.values()),
             "locked_instructions_not_atomic": dict(L.locked_plain),
             "jump_tables_inferred": {f"0x{a:08x}": n for a, n in sorted(L.inferred_tables.items())},
+            "jump_tables_completed": {f"0x{a:08x}": list(n) for a, n in sorted(L.completed_tables.items())},
             "x87_decode_mismatches": dict(lift_fp.MISMATCH),
             "unlifted": unlifted,
             "blockers": dict(reasons.most_common()),
