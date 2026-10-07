@@ -148,4 +148,5 @@ Design references: `docs/HOST_ABI.md` (guest/host calls), `docs/LIFTER.md`, `doc
   then run together — on a loaded machine a `loadgame` timed "after the load" can arrive before the start save exists.
 - **`git add -A` picks up the worktree's links** (`.venv`, `reference`, `re/ghidra_export` are links there and the
   ignore patterns name directories): add paths explicitly.
+- **Withdrawn work is kept as patches** in `docs/patches/` (apply with `git apply` on the commit named in the log entry of 2026-10-07): the stall-free shader compile and the alternative setjmp / longjmp implementation.
 - **CSV files under `re/` have Windows line endings** (`platform_map.csv`, `symbols.csv`): edit them in binary mode.

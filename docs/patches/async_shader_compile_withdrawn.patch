@@ -1,0 +1,282 @@
+diff --git a/src/metal/metal_renderer.mm b/src/metal/metal_renderer.mm
+index 69e28fe..13399bd 100644
+--- a/src/metal/metal_renderer.mm
++++ b/src/metal/metal_renderer.mm
+@@ -87,6 +87,7 @@ FormatInfo format_info(uint32_t f) {
+     bool cube = false, volume = false, depth = false, null_target = false;
+     bool unrecorded = false; // the game's latest write to it is not in the trace (LockDesc.dumped == 0 or 3)
+     uint64_t used_gen = 0;
++    int drawn_frame = -2, prev_drawn_frame = -2; // the last two frames with a draw into it (as a render target)
+ };
+ struct Surface { // a 2D slice of a texture (or the whole of a standalone surface)
+     uint32_t tex = 0, level = 0, face = 0;
+@@ -120,14 +121,14 @@ bool missing(uint64_t a, uint64_t b) const {
+ struct Precompiled {
+     std::mutex mu;
+     std::condition_variable cv;
++    bool background = false; // started when the shader was created (Options::precompile), not at its first use
+     bool done = false;
+     id<MTLFunction> fn = nil;
+     std::string error;
+ };
+ struct Shader {
+     int created_frame = 0;
+-    std::shared_ptr<Precompiled> pre; // the variant without shadow samplers (mask 0), if started
+-    sm3::Result pre_meta;
++    std::map<uint32_t, std::shared_ptr<Precompiled>> pending; // compiles under way, by shadow-sampler mask
+     std::vector<uint32_t> code;
+     bool vs = false, failed = false;
+     sm3::Result meta; // from the first translation (inputs, samplers)
+@@ -255,7 +256,7 @@ void end_frame(int frame) override {
+     }
+     bool wants_quit() override { return quit_; }
+     Work work() override {
+-        return {ns_translate_, ns_library_, ns_pipeline_, ns_gpu_wait_, ns_upload_, ns_drawable_, functions_compiled_, pipelines_created_, uploads_, upload_bytes_, precompiled_used_};
++        return {ns_translate_, ns_library_, ns_pipeline_, ns_gpu_wait_, ns_upload_, ns_drawable_, functions_compiled_, pipelines_created_, uploads_, upload_bytes_, precompiled_used_, draws_deferred_};
+     }
+ 
+     int report() override {
+@@ -952,23 +953,22 @@ void stretch_rect(const Record &r) {
+     }
+ 
+     // ---- shaders, pipelines, states ------------------------------------------------------------
+-    // Translation is cheap and done here; the MSL compile (the slow part when Metal's cache does not know the
+-    // shader yet) runs on a background queue, two at a time, below the render thread's priority.
+-    void precompile(Shader &s) {
+-        sm3::Options o;
+-        auto t0 = std::chrono::steady_clock::now();
+-        sm3::Result res = sm3::translate(s.code, o);
+-        ns_translate_ += since(t0);
+-        if (!res.ok) return; // the first use reports it
++    // The MSL compile — the slow part when Metal's cache does not know the shader yet (~0.25 s) — on another
++    // thread. Two queues, two compiles at a time each: one for shaders a draw is waiting for, one below the
++    // render thread's priority for Options::precompile.
++    std::shared_ptr<Precompiled> start_compile(const std::string &source, bool background) {
+         auto pre = std::make_shared<Precompiled>();
+-        NSString *msl = @(res.msl.c_str());
++        pre->background = background;
++        NSString *msl = @(source.c_str());
+         id<MTLDevice> dev = dev_;
+-        static NSOperationQueue *queue = [] {
++        static NSOperationQueue *queues[2] = {nil, nil};
++        if (!queues[background ? 1 : 0]) {
+             NSOperationQueue *q = [[NSOperationQueue alloc] init];
+             q.maxConcurrentOperationCount = 2;
+-            q.qualityOfService = NSQualityOfServiceUtility;
+-            return q;
+-        }();
++            q.qualityOfService = background ? NSQualityOfServiceUtility : NSQualityOfServiceUserInitiated;
++            queues[background ? 1 : 0] = q;
++        }
++        NSOperationQueue *queue = queues[background ? 1 : 0];
+         g_pre_queued++;
+         [queue addOperationWithBlock:^{
+             @autoreleasepool {
+@@ -983,38 +983,58 @@ void precompile(Shader &s) {
+             g_pre_done++;
+             pre->cv.notify_all();
+         }];
+-        res.msl.clear();
+-        s.pre_meta = std::move(res);
+-        s.pre = std::move(pre);
++        return pre;
++    }
++    void keep_meta(Shader &s, sm3::Result &res) {
++        if (s.have_meta) return;
++        s.meta = std::move(res);
++        s.meta.msl.clear();
++        s.have_meta = true;
++    }
++    void precompile(Shader &s) {
++        sm3::Options o;
++        auto t0 = std::chrono::steady_clock::now();
++        sm3::Result res = sm3::translate(s.code, o);
++        ns_translate_ += since(t0);
++        if (!res.ok) return; // the first use reports it
++        s.pending[0] = start_compile(res.msl, true);
++        keep_meta(s, res);
+     }
+ 
+-    id<MTLFunction> function(Shader &s, uint32_t shadow_mask) {
++    // The compiled function of a shader (variant `shadow_mask`). With `async_ok` a function that is not there
++    // yet is compiled on another thread: nil is returned and *pending set — the caller leaves its draw out.
++    id<MTLFunction> function(Shader &s, uint32_t shadow_mask, bool async_ok = false, bool *pending = nullptr) {
+         if (s.failed) return nil;
+         auto it = s.fn.find(shadow_mask);
+         if (it != s.fn.end()) return it->second;
+-        if (shadow_mask == 0 && s.pre) { // started at creation: normally finished long ago
+-            std::shared_ptr<Precompiled> pre = std::move(s.pre);
+-            s.pre = nullptr;
+-            bool done;
+-            id<MTLFunction> f;
+-            std::string error;
+-            {
+-                std::lock_guard<std::mutex> lk(pre->mu);
+-                done = pre->done, f = pre->fn, error = pre->error;
++        if (auto pit = s.pending.find(shadow_mask); pit != s.pending.end()) {
++            std::shared_ptr<Precompiled> pre = pit->second;
++            std::unique_lock<std::mutex> lk(pre->mu);
++            if (!pre->done && async_ok) {
++                *pending = true;
++                return nil;
++            }
++            // Needed now. A compile started for this draw path is waited for; one from the creation-time queue
++            // may be far from its turn, so it is dropped and the shader compiled here as before.
++            if (!pre->done && !pre->background) {
++                auto t0 = std::chrono::steady_clock::now();
++                pre->cv.wait(lk, [&] { return pre->done; });
++                ns_library_ += since(t0);
+             }
+-            // Not finished (still queued behind the rest of the level's shaders): compile it here as before
+-            // rather than wait for its turn; the background result is dropped.
+-            if (!done) late_ = true;
++            bool done = pre->done, background = pre->background;
++            id<MTLFunction> f = pre->fn;
++            std::string error = pre->error;
++            lk.unlock();
++            s.pending.erase(shadow_mask);
+             if (done) {
+                 if (!f) {
+                     s.failed = true;
+                     problem("shader compile: " + error);
+                     return nil;
+                 }
+-                if (!s.have_meta) s.meta = std::move(s.pre_meta), s.have_meta = true;
+                 functions_compiled_++;
+-                precompiled_used_++;
+-                return s.fn[0] = f;
++                if (background) precompiled_used_++;
++                return s.fn[shadow_mask] = f;
+             }
+         }
+         sm3::Options o;
+@@ -1027,6 +1047,12 @@ void precompile(Shader &s) {
+             problem("shader translation: " + res.error);
+             return nil;
+         }
++        if (async_ok) {
++            s.pending[shadow_mask] = start_compile(res.msl, false);
++            keep_meta(s, res);
++            *pending = true;
++            return nil;
++        }
+         NSError *err = nil;
+         t0 = std::chrono::steady_clock::now();
+         id<MTLLibrary> lib = [dev_ newLibraryWithSource:@(res.msl.c_str()) options:nil error:&err];
+@@ -1037,21 +1063,25 @@ void precompile(Shader &s) {
+             problem(std::string("shader compile: ") + (err ? [[err.localizedDescription componentsSeparatedByString:@"\n"][0] UTF8String] : "?"));
+             return nil;
+         }
+-        if (!s.have_meta) {
+-            s.meta = std::move(res);
+-            s.meta.msl.clear();
+-            s.have_meta = true;
+-        }
++        keep_meta(s, res);
+         functions_compiled_++;
+-        // BO1_SHADER_LOG=1: every compile that happened at first use, with how long the shader had existed
++        // BO1_SHADER_LOG=1: every compile the render thread waited for, with how long the shader had existed
+         static const bool shader_log = getenv("BO1_SHADER_LOG") != nullptr;
+         if (shader_log)
+-            fprintf(stderr, "shader compiled at first use: %s, shadow mask %x, created in frame %d, used in frame %d, %.1f ms%s; background: %ld queued, %ld done\n", s.vs ? "vs" : "ps",
+-                    shadow_mask, s.created_frame, frame_, (double)since(t0) / 1e6, late_ ? " (background compile not finished)" : "", g_pre_queued.load(), g_pre_done.load());
+-        late_ = false;
++            fprintf(stderr, "shader compiled on the render thread: %s, shadow mask %x, created in frame %d, used in frame %d, %.1f ms\n", s.vs ? "vs" : "ps",
++                    shadow_mask, s.created_frame, frame_, (double)since(t0) / 1e6);
+         return s.fn[shadow_mask] = f;
+     }
+ 
++    // Is the current render target one the game draws into every frame? Only there may a draw be left out for a
++    // frame or two: a target that was not drawn the frame before may be filled once and kept.
++    bool recurring_target() {
++        Tex *t = tex(have_rt_ ? rt_.tex : have_ds_ ? ds_.tex : 0);
++        if (!t) return false;
++        if (t->drawn_frame != frame_) t->prev_drawn_frame = t->drawn_frame, t->drawn_frame = frame_;
++        return t->prev_drawn_frame == frame_ - 1;
++    }
++
+     static MTLVertexFormat vertex_format(uint8_t type) {
+         switch (type) {
+         case 0: return MTLVertexFormatFloat;
+@@ -1271,13 +1301,17 @@ void draw(const Record &r) {
+         if (!begin_pass()) return skip("no render target");
+         Shader &vs = vi->second, &ps = pi->second;
+         // Samplers bound to depth textures are sampled with comparison (hardware shadow maps).
+-        id<MTLFunction> pf0 = function(ps, 0);
++        const bool async_ok = recurring_target() && opts_.async_shaders;
++        bool pending = false;
++        id<MTLFunction> pf0 = function(ps, 0, async_ok, &pending);
++        id<MTLFunction> vf = function(vs, 0, async_ok, &pending); // both are started in the same frame
++        if (pending) return (void)draws_deferred_++;
+         if (!pf0) return skip("pixel shader unavailable");
+         uint32_t shadow = 0;
+         for (const sm3::SamplerDecl &s : ps.meta.samplers)
+             if (const Tex *t = tex(bound_tex_[s.reg]); t && t->depth && s.type == 2) shadow |= 1u << s.reg;
+-        id<MTLFunction> pf = shadow ? function(ps, shadow) : pf0;
+-        id<MTLFunction> vf = function(vs, 0);
++        id<MTLFunction> pf = shadow ? function(ps, shadow, async_ok, &pending) : pf0;
++        if (pending) return (void)draws_deferred_++;
+         if (!vf || !pf) return skip("shader unavailable");
+         if (pass_color_ == MTLPixelFormatInvalid && pass_depth_ == MTLPixelFormatInvalid) return skip("no attachments");
+         id<MTLRenderPipelineState> p = pipeline(vs, ps, vf, pf, di->second);
+@@ -1466,8 +1500,7 @@ void dump_backbuffer(int frame) {
+     uint64_t draws_ = 0, draws_skipped_ = 0;
+     size_t functions_compiled_ = 0;
+     uint64_t ns_translate_ = 0, ns_library_ = 0, ns_pipeline_ = 0; // where shader start-up time goes (T-036)
+-    bool late_ = false;
+-    uint64_t precompiled_used_ = 0, ns_drawable_ = 0, ns_gpu_wait_ = 0, ns_upload_ = 0, pipelines_created_ = 0, uploads_ = 0, upload_bytes_ = 0; // Work (T-058)
++    uint64_t draws_deferred_ = 0, precompiled_used_ = 0, ns_drawable_ = 0, ns_gpu_wait_ = 0, ns_upload_ = 0, pipelines_created_ = 0, uploads_ = 0, upload_bytes_ = 0; // Work (T-058)
+     static uint64_t since(std::chrono::steady_clock::time_point t0) {
+         return (uint64_t)std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - t0).count();
+     }
+diff --git a/src/platform/win32/d3d9_live.cpp b/src/platform/win32/d3d9_live.cpp
+index f64e2e2..7ca4954 100644
+--- a/src/platform/win32/d3d9_live.cpp
++++ b/src/platform/win32/d3d9_live.cpp
+@@ -157,10 +157,11 @@ struct FrameStats {
+         log("frame stats: frame %d, %.1f fps; frame ms avg %.2f p50 %.2f p95 %.2f p99 %.2f max %.1f; renderer ms avg %.2f p95 %.2f (%.0f%% of the frame); %.0f calls/frame",
+             g_frame, 1000.0 * n / sum, sum / n, pct(frame_ms, 0.5), pct(frame_ms, 0.95), pct(frame_ms, 0.99), pct(frame_ms, 1.0), rsum / n,
+             pct(render_ms, 0.95), 100.0 * rsum / sum, (double)calls_sum / n);
+-        log("frame stats: in these %zu frames: %zu slow (> 33.4 ms); shaders %.1f ms (%llu functions, %llu compiled ahead), pipelines %.1f ms (%llu), GPU wait %.1f ms, drawable wait %.1f ms, "
++        log("frame stats: in these %zu frames: %zu slow (> 33.4 ms); shaders %.1f ms (%llu functions, %llu compiled ahead, %llu draws left out meanwhile), pipelines %.1f ms (%llu), GPU wait %.1f ms, drawable wait %.1f ms, "
+             "texture uploads %.1f ms (%llu, %.1f MiB)",
+             frame_ms.size(), slow, (double)(w.ns_translate + w.ns_compile - at_window.ns_translate - at_window.ns_compile) / 1e6,
+             (unsigned long long)(w.functions - at_window.functions), (unsigned long long)(w.precompiled - at_window.precompiled),
++            (unsigned long long)(w.deferred - at_window.deferred),
+             (double)(w.ns_pipeline - at_window.ns_pipeline) / 1e6,
+             (unsigned long long)(w.pipelines - at_window.pipelines), (double)(w.ns_gpu_wait - at_window.ns_gpu_wait) / 1e6,
+             (double)(w.ns_drawable - at_window.ns_drawable) / 1e6, (double)(w.ns_upload - at_window.ns_upload) / 1e6, (unsigned long long)(w.uploads - at_window.uploads),
+@@ -185,6 +186,11 @@ void observe(uint32_t tag, Cpu *, const uint32_t *a, int words, uint32_t result)
+         // level creates ~6,000 shaders and uses a few hundred, and compiling the rest next to the game cost more
+         // than it saved (renderer time +55% while the queue ran, first-use compiles waiting behind it; T-058).
+         if (const char *v = getenv("BO1_PRECOMPILE")) o.precompile = atoi(v) != 0;
++        // A shader's first use does not stall the frame: it is compiled on another thread and the draws that
++        // need it are left out until it is ready (the user's choice, 2026-10-07). BO1_ASYNC_SHADERS=0 = exact
++        // rendering with the stall.
++        o.async_shaders = true;
++        if (const char *v = getenv("BO1_ASYNC_SHADERS")) o.async_shaders = atoi(v) != 0;
+         o.layer = win::WindowService::get().metal_layer(); // NULL when headless: frames are rendered, not shown
+         try {
+             g_renderer = rhi::make_metal_renderer(o);
+diff --git a/src/rhi/renderer.h b/src/rhi/renderer.h
+index fff6f92..4f7e065 100644
+--- a/src/rhi/renderer.h
++++ b/src/rhi/renderer.h
+@@ -17,6 +17,9 @@ struct Options {
+                              // neither creates a window nor touches SDL (the native runtime owns window and events)
+     bool precompile = false; // compile a shader in the background when the game creates it (level load), so that
+                              // its first use in a frame does not wait for the compiler (T-058: ~250 ms each, cold)
++    bool async_shaders = false; // compile a shader on another thread at its first use and leave draws that need it
++                                // out until it is ready (T-058): no stall, the object appears a moment late. Draws
++                                // into a target that was not drawn the frame before are compiled for at once.
+     int fps = 60;            // presentation rate of the window (0 = as fast as the calls arrive)
+ };
+ 
+@@ -37,6 +40,7 @@ public:
+         uint64_t ns_drawable = 0; // waiting for the window's next drawable (vsync / compositor)
+         uint64_t functions = 0, pipelines = 0, uploads = 0, upload_bytes = 0;
+         uint64_t precompiled = 0; // of `functions`: compiled in the background before their first use
++        uint64_t deferred = 0;    // draws left out because their shader was still being compiled (async_shaders)
+     };
+     virtual Work work() { return {}; }
+     // True once the user closed the window (or pressed Escape).
