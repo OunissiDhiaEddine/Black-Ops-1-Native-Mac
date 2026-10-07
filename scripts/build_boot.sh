@@ -4,7 +4,8 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 OUT=artifacts/boot
-LIFT=artifacts/lifted
+LIFT="${BO1_LIFT:-artifacts/lifted}"   # BO1_LIFT=artifacts/lifted_a2: the A2 audit tree (scripts/build_lifted.sh --a2-check)
+BIN=bo1_boot; [ "$LIFT" = artifacts/lifted ] || BIN="bo1_boot_$(basename "$LIFT" | sed s/lifted_//)"
 mkdir -p "$OUT/obj" "$OUT/gen"
 ls "$LIFT"/obj/lifted_*.o > /dev/null 2>&1 || { echo "no lifted objects: run scripts/difftest.sh first"; exit 1; }
 
@@ -76,5 +77,5 @@ bash scripts/build.sh bo1_metal bo1_shaders bo1_window >/dev/null
 clang++ "$OUT"/obj/*.o "$LIFT"/obj/lifted_*.o build/libbo1_metal.a build/libbo1_shaders.a build/libbo1_window.a "$UNICORN/lib/libunicorn.2.dylib" \
   /opt/homebrew/lib/libSDL3.dylib /opt/homebrew/lib/libavformat.dylib /opt/homebrew/lib/libavcodec.dylib /opt/homebrew/lib/libavutil.dylib /opt/homebrew/lib/libFAudio.dylib \
   -framework Metal -framework Foundation -framework CoreGraphics -framework ImageIO -framework QuartzCore \
-  -Wl,-rpath,"$PWD/$UNICORN/lib" -o "$OUT/bo1_boot"
-echo "built $OUT/bo1_boot"
+  -Wl,-rpath,"$PWD/$UNICORN/lib" -o "$OUT/$BIN"
+echo "built $OUT/$BIN"

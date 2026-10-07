@@ -70,7 +70,26 @@ Indirect *jumps* copy the flags to `Cpu.xfl` first, because such an entry can be
 
 **Assumption A2 — every call returns to the instruction after it.** Code that pops the return
 address and jumps elsewhere, or `longjmp`-style unwinding, breaks this; such functions must be
-listed and handled individually (T-044; C++ EH/SEH policy is ADR-012).
+listed and handled individually (C++ EH/SEH policy is ADR-012).
+
+*A2 audit (T-044, 2026-10-07): no violation found.* Two checks:
+- Dynamic — `scripts/build_lifted.sh --a2-check` builds a second tree (`artifacts/lifted_a2`, `lift.py --a2-check`)
+  in which every `ret` compares the address on the guest stack with the one the function was entered with, and
+  `BO1_LIFT=artifacts/lifted_a2 scripts/build_boot.sh` links it as `bo1_boot_a2`. A 185 s run (start-up, menu,
+  mission 1, `disconnect`, a failed `devmap` with recovery; `artifacts/boot/a2_audit_run.log`) printed 23 `[A2]`
+  lines from 17 functions. In all 23 the `ret` goes to the instruction after a real `call` (checked against the
+  image bytes) and the value at entry was not a return address at all (0, 0x20, stack pointers, …): these are
+  code fragments the lifter enters by a jump inside another function's frame (shared tails, case labels listed
+  as functions, entries found by the address scan) — the lifted tail call returns to the right host caller.
+  No function that was entered by a call returned anywhere else. Limit: only code that ran.
+- Static, over every lifted instruction: `call` to the next instruction — 1 (0x0096FDAA, an ordinary local
+  subroutine in the CRT); `ret` directly after `push` — 1 (0x00977B17, `__SEH_epilog4`: pops its return address,
+  unwinds the caller's frame, pushes the address back and returns — correct under the lifted `ret`, which only
+  adjusts `esp`); functions whose first instruction pops or drops the return address — 2 real ones out of
+  25,945 entries (0x00783740, a case label Ghidra lists as a function, and 0x0096C188 `_CallMemberFunction1`,
+  the C++ EH helper `pop eax; pop ecx; xchg [esp], eax; jmp eax`, which the lifted indirect tail call handles and
+  which only runs during C++ unwinding, ADR-012); the other 69 hits are entry-scan candidates that are text, not
+  code (addresses like 0x00454E4F = "ONE").
 
 *setjmp / longjmp (T-060).* The game leaves `Com_Error` — and with it every `disconnect` — through the CRT's
 `longjmp`, which restores the callee-saved registers and the stack pointer from the buffer and ends in
@@ -120,7 +139,7 @@ which changes results.
 | SSE scalar/packed arithmetic | C `float`/`double` (IEEE-754, round-to-nearest-even) | none for finite values |
 | NaN results | `LIFT_EXACT_NAN=1`: x86 rules restored after each operation — SSE: first NaN operand quieted; x87: larger significand / QNaN over SNaN / positive on a tie; no NaN operand: the *negative* default NaN | arm64's default NaN is positive; without the fix-up the sign/payload differ |
 | float -> int (`cvt(t)ss2si`, `fist(p)`, …) | explicit range check, x86 "integer indefinite" (0x80000000) on overflow/NaN | none (arm64 natively saturates) |
-| MXCSR | rounding field honoured by conversions only; exception masks ignored; **FTZ/DAZ not modelled** | arithmetic under a non-default rounding mode or with FTZ/DAZ set would differ — check what the game sets (T-044) |
+| MXCSR | rounding field honoured by conversions only; exception masks ignored; **FTZ/DAZ not modelled** | none in this game (audit T-044, 2026-10-07): the image has three `ldmxcsr`, all in the CRT — `__set_fpsr_sse2` (0x009811A1), whose only caller chain is `_control87` <- `_controlfp_s` <- `__setdefaultprecision` (0x00970B0B: `_controlfp_s(NULL, _PC_53, _MCW_PC)`) <- `__fpmath` <- `__cinit`, i.e. once at start-up and only the x87 precision field; and an unreferenced routine at 0x009811EA. None of `_control87` / `_controlfp_s` / `__set_fpsr_sse2` is address-taken (`re/ghidra_export/fnptr_refs.csv`, `re/extra_entries.csv`). So MXCSR keeps its reset value 0x1F80 in game code: round-to-nearest, FTZ and DAZ off — what the lifter assumes. x87 control-word writes (`fldcw`, 288 sites, the float-to-int idiom) are modelled. Not covered: whether XAudio2 itself sets FTZ/DAZ on its mixer thread, where the game's effects run (GUESS: it does; the difference would be confined to denormal-range samples) |
 | `rcpss/rsqrtss/rcpps/rsqrtps` | exact `1/x`, `1/sqrt(x)` | x86 returns 12-bit table approximations (differs in low bits; 1 use in the image) |
 | x87 registers | `double` | x87 keeps 64-bit significands and a 15-bit exponent. With precision control = 53 bits (Windows default, FCW 0x27F) results are identical except for double overflow/underflow in intermediates; with PC = 24 bits (what D3D9 sets without `D3DCREATE_FPU_PRESERVE`) every arithmetic result is additionally rounded to `float` (`x87_pc`) |
 | `fild m64` / `fistp m64` | via `double` | integers beyond 2^53 lose low bits (x87 holds all 64) |

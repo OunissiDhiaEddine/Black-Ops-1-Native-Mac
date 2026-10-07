@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Lift the game image and compile what changed (the lifting half of scripts/difftest.sh, without the tests).
-#   scripts/build_lifted.sh          env: JOBS=2 (parallel compiles; each needs ~1 GB)
+#   scripts/build_lifted.sh [--a2-check]    env: JOBS=2 (parallel compiles; each needs ~1 GB)
 # Generated C goes to artifacts/lifted/, objects to artifacts/lifted/obj/. Objects are written under a
 # temporary name and renamed, so a build of another thread that links them at the same time never sees
 # a half-written file. Afterwards: scripts/build_boot.sh.
@@ -8,8 +8,16 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 OUT=artifacts/lifted
 JOBS="${JOBS:-2}"
-mkdir -p "$OUT/obj"
-.venv/bin/python tools/lifter/lift.py --out "$OUT" --stats re/lift_coverage.json | head -1
+if [ "${1:-}" = "--a2-check" ]; then
+  # audit build of assumption A2 (docs/LIFTER.md): a second tree whose every `ret` checks its return address.
+  # Link it with BO1_LIFT=artifacts/lifted_a2 scripts/build_boot.sh -> artifacts/boot/bo1_boot_a2
+  OUT=artifacts/lifted_a2
+  mkdir -p "$OUT/obj"
+  .venv/bin/python tools/lifter/lift.py --a2-check --out "$OUT" | head -1
+else
+  mkdir -p "$OUT/obj"
+  .venv/bin/python tools/lifter/lift.py --out "$OUT" --stats re/lift_coverage.json | head -1
+fi
 CFLAGS="-std=c11 -O1 -g -Wall -Werror -Wno-unused-label -Wno-unused-function -ffp-contract=off -Isrc/runtime -I$OUT"
 todo=()
 for c in "$OUT"/lifted_*.c; do
