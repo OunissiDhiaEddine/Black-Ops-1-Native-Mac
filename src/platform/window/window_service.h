@@ -41,6 +41,16 @@ public:
     // reported as device deltas); the mode ends when the calls stop for kRelativeHoldMs.
     void warp(int32_t x, int32_t y);
     bool relative_mouse() const { return relative_on_; }
+    // The first connected game controller in XInput terms (T-057): buttons as XINPUT_GAMEPAD_* bits, triggers
+    // 0..255, sticks -32768..32767 with up = positive. False when no controller is connected.
+    struct PadState {
+        uint32_t packet;
+        uint16_t buttons;
+        uint8_t left_trigger, right_trigger;
+        int16_t lx, ly, rx, ry;
+    };
+    bool gamepad(PadState *out);
+    void rumble(uint16_t low, uint16_t high);
     static constexpr int kRelativeHoldMs = 500;
     // PeekMessage semantics: copies the oldest message; removes it when `remove` is set.
     bool peek(Msg *out, bool remove);
@@ -70,6 +80,8 @@ private:
     // BO1_MOUSE_LOG=file: every mouse motion event and every SetCursorPos, for judging mouse look from a real
     // hand ("ms kind a b ..." per line; kinds: motion, warp, relative)
     FILE *mouse_log_ = nullptr;
+    std::atomic<SDL_Gamepad *> pad_{nullptr};
+    std::atomic<uint32_t> pad_packet_{0};
     uint64_t look_events_ = 0, look_warps_ = 0;
     double look_dx_ = 0, look_dy_ = 0;
     std::atomic<bool> focused_{false}, running_{false}, enabled_{false}, wants_window_{false};

@@ -6,6 +6,7 @@
 #include <cstdlib>
 
 #include "win32_util.h"
+#include "window_service.h"
 
 namespace bo1 {
 
@@ -124,9 +125,48 @@ SHIM(psapi, GetProcessMemoryInfo, 3) {
     if (a[2] >= 4) wr32(a[1], 40);
     return 1;
 }
-SHIM(xinput1_3, XInputGetState, 2) { return 1167; }        // ERROR_DEVICE_NOT_CONNECTED
-SHIM(xinput1_3, XInputSetState, 2) { return 1167; }
-SHIM(xinput1_3, XInputGetCapabilities, 3) { return 1167; }
+// XInput: controller 0 is the first game controller SDL sees (window service, T-057); 1167 = ERROR_DEVICE_NOT_CONNECTED
+static bool pad_state(uint32_t index, win::WindowService::PadState *st) {
+    win::WindowService &ws = win::WindowService::get();
+    return index == 0 && ws.enabled() && ws.gamepad(st);
+}
+static void put_gamepad(uint32_t g, const win::WindowService::PadState &st) { // XINPUT_GAMEPAD, 12 bytes
+    wr16(g, st.buttons);
+    g_mem[g + 2] = st.left_trigger;
+    g_mem[g + 3] = st.right_trigger;
+    wr16(g + 4, (uint16_t)st.lx);
+    wr16(g + 6, (uint16_t)st.ly);
+    wr16(g + 8, (uint16_t)st.rx);
+    wr16(g + 10, (uint16_t)st.ry);
+}
+SHIM(xinput1_3, XInputGetState, 2) {
+    // (dwUserIndex, XINPUT_STATE *): { DWORD dwPacketNumber; XINPUT_GAMEPAD }
+    win::WindowService::PadState st;
+    if (!pad_state(a[0], &st)) return 1167;
+    wr32(a[1], st.packet);
+    put_gamepad(a[1] + 4, st);
+    return 0;
+}
+SHIM(xinput1_3, XInputSetState, 2) {
+    // (dwUserIndex, XINPUT_VIBRATION *): { WORD wLeftMotorSpeed, wRightMotorSpeed }
+    win::WindowService::PadState st;
+    if (!pad_state(a[0], &st)) return 1167;
+    win::WindowService::get().rumble(rd16(a[1]), rd16(a[1] + 2));
+    return 0;
+}
+SHIM(xinput1_3, XInputGetCapabilities, 3) {
+    // (dwUserIndex, dwFlags, XINPUT_CAPABILITIES *): { BYTE Type, SubType; WORD Flags; XINPUT_GAMEPAD; XINPUT_VIBRATION }
+    win::WindowService::PadState st;
+    if (!pad_state(a[0], &st)) return 1167;
+    memset(g_mem + a[2], 0, 20);
+    g_mem[a[2]] = 1;     // XINPUT_DEVTYPE_GAMEPAD
+    g_mem[a[2] + 1] = 1; // XINPUT_DEVSUBTYPE_GAMEPAD
+    win::WindowService::PadState full{0, 0xF3FF, 255, 255, 32767, 32767, 32767, 32767};
+    put_gamepad(a[2] + 4, full); // what the device has: every button, both triggers, both sticks
+    wr16(a[2] + 16, 0xFFFF);
+    wr16(a[2] + 18, 0xFFFF);
+    return 0;
+}
 SHIM(dsound, DirectSoundCreate8, 3) { return 0x88780078u; }        // DSERR_NODRIVER
 SHIM(dsound, DirectSoundCaptureCreate, 3) { return 0x88780078u; }
 
