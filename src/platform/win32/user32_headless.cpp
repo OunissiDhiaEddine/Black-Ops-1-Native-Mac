@@ -438,6 +438,12 @@ SHIM(user32, ChangeDisplaySettingsA, 2) {
     else log("ChangeDisplaySettingsA(NULL): nothing to restore");
     return 0; // DISP_CHANGE_SUCCESSFUL
 }
+// (dwThreadId, lpfn, lParam): the game's fatal-error routine (0x004C9B60) walks its thread's windows, LIKELY to hide
+// them before the message box. Nothing is enumerated: the callback is not called and the walk "succeeds".
+SHIM(user32, EnumThreadWindows, 3) {
+    log("EnumThreadWindows(thread %x): no windows reported (fatal-error path)", a[0]);
+    return 1;
+}
 SHIM(user32, MessageBoxA, 4) {
     // Never blocks. The text is the interesting part: the game reports fatal errors this way.
     log("MessageBoxA(\"%s\": \"%s\", type %x) -> IDNO/IDOK", gstr(a[2]).c_str(), gstr(a[1]).c_str(), a[3]);
