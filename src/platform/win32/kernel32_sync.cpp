@@ -306,6 +306,13 @@ SHIM(kernel32, ResumeThread, 1) {
     }
     return 1; // previous suspend count
 }
+// The game's only use (0x0056C499, CONFIRMED by tools/xref.py: one reference to the import, one caller) is its
+// fatal-error routine 0x004C9B60, which stops every other thread before it shows the message box and exits.
+// The others are left running here: the message and the exit follow at once.
+SHIM(kernel32, SuspendThread, 1) {
+    log("SuspendThread(%x): not suspended (fatal-error path; the error message follows)", a[0]);
+    return 0; // previous suspend count
+}
 SHIM(kernel32, ExitThread, 1) { thread_exit_current(a[0]); }
 SHIM(kernel32, GetExitCodeThread, 2) {
     auto o = handle_get(a[0]);
