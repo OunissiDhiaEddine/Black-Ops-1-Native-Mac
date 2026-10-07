@@ -500,6 +500,7 @@ private:
                 Consts &c = r.slot == 94 ? vsc_ : psc_;
                 uint32_t start = r.arg(1), bytes = (uint32_t)b->data.size();
                 if (start < sm3::kMaxFloatConsts) memcpy(c.c[start], b->data.data(), std::min<size_t>(bytes, (sm3::kMaxFloatConsts - start) * 16));
+                const_copy_[r.slot == 94 ? 0 : 1].dirty = true;
             }
             break;
         case 100: if (r.arg(1) < 16) streams_[r.arg(1)] = {r.arg(2), r.arg(3), r.arg(4)}; break;
@@ -598,6 +599,7 @@ private:
         gen_++;
         const_chunks_.clear();
         const_off_ = 0;
+        const_copy_[0] = const_copy_[1] = {};
         int n = debug_pass_++;
         fprintf(debug_log_, "%s %d:", kind, n);
         debug_desc("color", color);
@@ -718,6 +720,7 @@ private:
         gen_++;
         const_chunks_.clear();
         const_off_ = 0;
+        const_copy_[0] = const_copy_[1] = {};
     }
     id<MTLTexture> target_texture(const Surface &s, Tex **out = nullptr) {
         Tex *t = tex(s.tex);
@@ -751,6 +754,7 @@ private:
         }
         ensure_cmd();
         enc_ = [cmd_ renderCommandEncoderWithDescriptor:p];
+        const_copy_[0].on_encoder = const_copy_[1].on_encoder = false;
         pass_color_ = color ? color.pixelFormat : MTLPixelFormatInvalid;
         pass_depth_ = depth ? depth.pixelFormat : MTLPixelFormatInvalid;
         pass_w_ = color ? std::max<NSUInteger>(1, color.width >> rt_.level) : std::max<NSUInteger>(1, depth.width >> ds_.level);
@@ -1201,17 +1205,34 @@ private:
     }
 
     // Per-draw constants: bump-allocated from chunks that live until the command buffer is done.
-    void bind_consts(Consts &c, bool vertex) {
-        const NSUInteger need = (sizeof(Consts) + 255) & ~(NSUInteger)255;
-        if (const_chunks_.empty() || const_off_ + need > const_chunks_.back().length) {
-            const_chunks_.push_back([dev_ newBufferWithLength:need * 512 options:MTLResourceStorageModeShared]);
-            const_off_ = 0;
+    // `used` = how many float registers the shader can read (sm3::Result::float_consts_used; 0 = all): only
+    // those and the small tail (integer / bool registers, extras) are copied — the full block is 4.4 KiB and
+    // copying it twice per draw was the largest single cost on the render thread (T-058 profile).
+    void bind_consts(Consts &c, bool vertex, uint32_t used) {
+        if (!used || used > sm3::kMaxFloatConsts) used = sm3::kMaxFloatConsts;
+        ConstCopy &last = const_copy_[vertex ? 0 : 1];
+        // The copy made for an earlier draw still holds what this shader reads: nothing was set since, and it
+        // covered at least as many registers. Then only the encoder needs to know (once per pass).
+        if (!last.buf || last.dirty || used > last.used) {
+            const NSUInteger need = (sizeof(Consts) + 255) & ~(NSUInteger)255;
+            if (const_chunks_.empty() || const_off_ + need > const_chunks_.back().length) {
+                const_chunks_.push_back([dev_ newBufferWithLength:need * 512 options:MTLResourceStorageModeShared]);
+                const_off_ = 0;
+            }
+            id<MTLBuffer> b = const_chunks_.back();
+            uint8_t *dst = (uint8_t *)b.contents + const_off_;
+            if (used == sm3::kMaxFloatConsts) memcpy(dst, &c, sizeof(Consts));
+            else {
+                memcpy(dst, &c, (size_t)used * 16);
+                memcpy(dst + offsetof(Consts, i), &c.i, sizeof(Consts) - offsetof(Consts, i));
+            }
+            last = {b, const_off_, used, false, false};
+            const_off_ += need;
         }
-        id<MTLBuffer> b = const_chunks_.back();
-        memcpy((uint8_t *)b.contents + const_off_, &c, sizeof(Consts));
-        if (vertex) [enc_ setVertexBuffer:b offset:const_off_ atIndex:sm3::kConstBufferIndex];
-        else [enc_ setFragmentBuffer:b offset:const_off_ atIndex:sm3::kConstBufferIndex];
-        const_off_ += need;
+        if (last.on_encoder) return;
+        if (vertex) [enc_ setVertexBuffer:last.buf offset:last.off atIndex:sm3::kConstBufferIndex];
+        else [enc_ setFragmentBuffer:last.buf offset:last.off atIndex:sm3::kConstBufferIndex];
+        last.on_encoder = true;
     }
 
     // DrawIndexedPrimitive(Type, BaseVertexIndex, MinVertexIndex, NumVertices, StartIndex, PrimCount)
@@ -1282,12 +1303,12 @@ private:
             const auto &st = samp_[s.reg];
             [enc_ setFragmentSamplerState:sampler(st[1], st[2], st[3], st[5], st[6], st[7], st[10], is_shadow) atIndex:s.reg];
         }
-        vsc_.extra[0] = (float)(1.0 / vp.width), vsc_.extra[1] = (float)(-1.0 / vp.height), vsc_.extra[2] = vsc_.extra[3] = 0;
-        psc_.extra[0] = (rs_[24] & 0xFF) / 255.0f;
-        psc_.extra[1] = rs_[15] ? (float)rs_[25] : 0.0f;
-        psc_.extra[2] = psc_.extra[3] = 0;
-        bind_consts(vsc_, true);
-        bind_consts(psc_, false);
+        const float ve[4] = {(float)(1.0 / vp.width), (float)(-1.0 / vp.height), 0, 0};
+        const float pe[4] = {(rs_[24] & 0xFF) / 255.0f, rs_[15] ? (float)rs_[25] : 0.0f, 0, 0};
+        if (memcmp(vsc_.extra, ve, sizeof(ve))) memcpy(vsc_.extra, ve, sizeof(ve)), const_copy_[0].dirty = true;
+        if (memcmp(psc_.extra, pe, sizeof(pe))) memcpy(psc_.extra, pe, sizeof(pe)), const_copy_[1].dirty = true;
+        bind_consts(vsc_, true, vs.meta.uses_relative_consts ? 0 : vs.meta.float_consts_used);
+        bind_consts(psc_, false, ps.meta.uses_relative_consts ? 0 : ps.meta.float_consts_used);
 
         Buf &index = ib->second;
         index.used_gen = gen_;
@@ -1445,6 +1466,15 @@ private:
     std::map<int, id<MTLTexture>> fallback_;
     std::vector<id<MTLBuffer>> const_chunks_;
     NSUInteger const_off_ = 0;
+    // The last copy of each stage's constants (0 = vertex, 1 = pixel): where it is, how many float registers it
+    // holds, whether the game set a constant since, and whether the current pass's encoder already points at it.
+    struct ConstCopy {
+        id<MTLBuffer> buf = nil;
+        NSUInteger off = 0;
+        uint32_t used = 0;
+        bool dirty = true, on_encoder = false;
+    };
+    ConstCopy const_copy_[2];
     std::map<std::string, int> problems_;
     std::map<std::string, std::map<uint32_t, std::set<int>>> unrecorded_ids_;
 

@@ -49,6 +49,7 @@ There is no console command that saves (`savegame` is a script call): RE_NOTES "
 | `BO1_AUDIO_MUTE=1` | the real audio device and its clock, mastering volume 0: for timing checks (SDL's dummy / disk devices consume samples about 8% slower than real time, so anything timed against the sound drifts there) |
 | `BO1_FRAME_STATS=N` | one "frame stats:" line per N frames (300 for `1`): fps, frame time avg / p50 / p95 / p99 / max, time inside the renderer and its share, Direct3D calls per frame; plus a line of what was spent on shaders (and how many were compiled ahead), pipelines, GPU and drawable waits, texture uploads, and one "slow frame N: …" line with the same breakdown for every frame over 33.4 ms |
 | `BO1_SHADER_LOG=1` | one line for every shader compiled at its first use (not ahead, in the background), with the frames it was created and used in |
+| `BO1_PRECOMPILE=1` | compile every shader in the background when the game creates it (off by default: it slowed play, LOG 2026-10-07) |
 | `BO1_MOUSE_LOG=file` | window only: every mouse motion event (`ms motion xrel yrel x y relative`), every `SetCursorPos` (`ms warp x y`) and every switch of relative mouse mode; the run log gets one "mouse look: relative mouse mode on / off …" line per switch regardless |
 | `SDL_MOUSE_RELATIVE_SPEED_SCALE=f`, `SDL_MOUSE_RELATIVE_SYSTEM_SCALE=1` | SDL's own switches for mouse look: a speed factor, and the system acceleration curve (default: unscaled) |
 | `BO1_DEBUG_FRAME=N BO1_DEBUG_DIR=dir` | renderer dumps every pass of frame N; `tools/pass_dump.py dir` turns it into PNGs |
@@ -124,6 +125,7 @@ Design references: `docs/HOST_ABI.md` (guest/host calls), `docs/LIFTER.md`, `doc
   `g_mem + <guest address>` finds whoever clobbers a game variable.
 - **Renderer:** `BO1_DEBUG_FRAME` / `BO1_DEBUG_DIR` with `tools/pass_dump.py`; `scripts/replay_window.sh <menu|cuba|vorkuta|khe_sanh> [first_frame]`
   shows a recorded trace live in a window.
+- **Where the time goes:** `sample <pid> 10 -file out.txt` on a running `bo1_boot`, then `tools/sample_tree.py out.txt "MetalRenderer::device_call" 2` (callees merged over the report). A heavy scene without a hand: `BO1_CMDS="45000|loadgame <save>"` with a checkpoint save in `players/save/`.
 - **Steam:** `tools/steam_sites.py` lists the game's call sites; unknown methods trap with their slot number.
 - **Reading the game's code:** `tools/xref.py` (who references a string or an address, who calls a function, plain
   disassembly at a VA) and `tools/bink_sites.py --range LO HI` (annotated listing of whole functions).

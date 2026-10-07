@@ -181,7 +181,10 @@ void observe(uint32_t tag, Cpu *, const uint32_t *a, int words, uint32_t result)
         if (iface != IFACE_D3D9 || slot != 16 || (result & 0x80000000u)) return; // nothing to draw with before CreateDevice
         rhi::Options o;
         if (const char *d = getenv("BO1_D3D_DUMP")) o.dump_dir = d;
-        o.precompile = true; // the game creates a level's shaders while it loads: compile them then, not at first use
+        // BO1_PRECOMPILE=1: compile every shader in the background when the game creates it. Off by default: a
+        // level creates ~6,000 shaders and uses a few hundred, and compiling the rest next to the game cost more
+        // than it saved (renderer time +55% while the queue ran, first-use compiles waiting behind it; T-058).
+        if (const char *v = getenv("BO1_PRECOMPILE")) o.precompile = atoi(v) != 0;
         o.layer = win::WindowService::get().metal_layer(); // NULL when headless: frames are rendered, not shown
         try {
             g_renderer = rhi::make_metal_renderer(o);
