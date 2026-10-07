@@ -40,6 +40,11 @@ T = {1: "uint8_t", 2: "uint16_t", 4: "uint32_t"}
 ST = {1: "int8_t", 2: "int16_t", 4: "int32_t"}
 
 
+# The CRT's _setjmp3 (CONFIRMED by its body at this VA: stores ebp/ebx/edi/esi/esp/return address and the 'VC20'
+# cookie). A call to it also saves the host context, so that the matching longjmp — which ends in a jump to the
+# saved return address, not a function entry — can land after the call again (rt_setjmp_slot, docs/LIFTER.md A2).
+SETJMP = {0x00969EAC}
+
 # instructions on which the differential tests cannot trust the reference emulator (tests/diff/gen_vectors.py)
 SPECIAL = {"fyl2x", "fprem", "fprem1", "fsin", "fcos", "fsincos", "fptan", "f2xm1", "cpuid", "rdtsc"}
 
@@ -99,9 +104,44 @@ class Lifter:
                     ts = [t for t in (int(t, 16) for t in r["targets"].split(";")) if self.is_code(t)]
                     if ts:
                         self.tables[int(r["insn"], 16)] = ts
+        self.completed_tables = {}            # insn addr -> (targets Ghidra listed, targets in the image)
+        self.setjmp_sites = []                # call sites of SETJMP
+        self.complete_tables(sorted(a for a in self.funcs if a not in self.extra))
 
     def is_code(self, va):
         return any(a <= va < b for a, b in self.code)
+
+    def complete_tables(self, starts):
+        """Ghidra lists only part of some `jmp [idx*4 + table]` tables (7 in this image; at 0x00663218, in the
+        save-game reader, 1 of 4 targets — the missing cases trapped as TRAP_BAD_JUMP). The table is in the
+        image: take the run of pointers at `table` that point into the function the jump is in, stopping at the
+        next table. Ghidra's own targets are kept (tables addressed with a negative offset have no such run)."""
+        import bisect
+        sites = {}
+        for a in self.tables:
+            i = next(self.md.disasm(self.image[a - self.base: a - self.base + 16], a), None)
+            if i is None or i.mnemonic != "jmp":
+                continue
+            o = i.operands[0]
+            if o.type == X.X86_OP_MEM and not o.mem.base and o.mem.index and o.mem.scale == 4 and not o.mem.segment:
+                sites[a] = o.mem.disp & 0xFFFFFFFF
+        bases = sorted(set(sites.values()))
+        for a, t in sites.items():
+            k = bisect.bisect_right(starts, a)
+            lo, hi = starts[k - 1], starts[k] if k < len(starts) else 0xFFFFFFFF
+            k = bisect.bisect_right(bases, t)
+            end = bases[k] if k < len(bases) else 0xFFFFFFFF
+            run = []
+            while t < end and len(run) < 1024:
+                v = int.from_bytes(self.image[t - self.base: t - self.base + 4], "little")
+                if not lo <= v < hi:
+                    break
+                run.append(v)
+                t += 4
+            new = [v for v in dict.fromkeys(run) if v not in self.tables[a]]
+            if new:
+                self.completed_tables[a] = (len(set(self.tables[a])), len(set(self.tables[a]) | set(new)))
+                self.tables[a] = self.tables[a] + new
 
     # ---- operand helpers -----------------------------------------------------------------
     def rd_reg(self, reg):
@@ -367,6 +407,9 @@ class Lifter:
                 if t in self.funcs:
                     pre = "cpu->xfl = fl; " if t in self.fl_in else ""
                     post = " fl = cpu->xfl;" if t in self.fl_out else ""
+                    if t in SETJMP:
+                        self.setjmp_sites.append(i.address)
+                        post = f" if (_setjmp(*rt_setjmp_slot(cpu, 0x{ret:08x}u))) fl = cpu->xfl;"
                     return [f"{pre}PUSH32(0x{ret:08x}u); f_{t:08x}(cpu);{post}"]
                 return [f"PUSH32(0x{ret:08x}u); rt_dispatch(cpu, 0x{t:08x}u);"]
             return [f"{{ uint32_t t_ = {self.rd(ops[0])}; PUSH32(0x{ret:08x}u); rt_dispatch(cpu, t_); }}"]
@@ -618,6 +661,8 @@ def main() -> int:
             "blocks_added_by_repair": sum(m.get("ext", 0) for m in meta.values()),
             "locked_instructions_not_atomic": dict(L.locked_plain),
             "jump_tables_inferred": {f"0x{a:08x}": n for a, n in sorted(L.inferred_tables.items())},
+            "jump_tables_completed": {f"0x{a:08x}": list(n) for a, n in sorted(L.completed_tables.items())},
+            "setjmp_call_sites": [f"0x{a:08x}" for a in sorted(set(L.setjmp_sites))],
             "x87_decode_mismatches": dict(lift_fp.MISMATCH),
             "unlifted": unlifted,
             "blockers": dict(reasons.most_common()),

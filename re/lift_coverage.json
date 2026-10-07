@@ -1,16 +1,53 @@
 {
  "functions": 26304,
  "lifted": 25991,
- "instructions_lifted": 1876989,
+ "instructions_lifted": 1877119,
  "leaf_lifted": 5455,
- "functions_with_repaired_body": 4170,
- "blocks_added_by_repair": 33268,
+ "functions_with_repaired_body": 4173,
+ "blocks_added_by_repair": 33280,
  "locked_instructions_not_atomic": {
   "sub": 1,
   "sbb": 1,
   "adc": 1
  },
  "jump_tables_inferred": {},
+ "jump_tables_completed": {
+  "0x00568e01": [
+   3,
+   4
+  ],
+  "0x00663218": [
+   1,
+   4
+  ],
+  "0x007ef666": [
+   1,
+   3
+  ],
+  "0x008c4c7b": [
+   4,
+   5
+  ],
+  "0x009575c8": [
+   3,
+   4
+  ]
+ },
+ "setjmp_call_sites": [
+  "0x004069d0",
+  "0x00406a0c",
+  "0x00406a8c",
+  "0x00636a5b",
+  "0x006ebe0f",
+  "0x006ebe56",
+  "0x007a3c4d",
+  "0x007a3c6f",
+  "0x0082cc0d",
+  "0x008681ad",
+  "0x0087e2ba",
+  "0x008a8ded",
+  "0x008bd031"
+ ],
  "x87_decode_mismatches": {},
  "unlifted": {
   "0x0040c000": "int1",
@@ -447,8 +484,8 @@
   "aad": 3,
   "rcr": 3,
   "sldt": 3,
-  "register gs": 3,
   "register ds": 3,
+  "register gs": 3,
   "lds": 2,
   "loope": 2,
   "retf": 2,

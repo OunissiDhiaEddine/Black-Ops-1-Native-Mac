@@ -72,6 +72,24 @@ Indirect *jumps* copy the flags to `Cpu.xfl` first, because such an entry can be
 address and jumps elsewhere, or `longjmp`-style unwinding, breaks this; such functions must be
 listed and handled individually (T-044; C++ EH/SEH policy is ADR-012).
 
+*setjmp / longjmp (T-060).* The game leaves `Com_Error` — and with it every `disconnect` — through the CRT's
+`longjmp`, which restores the callee-saved registers and the stack pointer from the buffer and ends in
+`jmp [buf+0x14]`: a jump to the instruction after a `call _setjmp3`, which is no function entry. The lifter
+therefore emits, after each of the 13 calls of `_setjmp3` (`SETJMP` in `lift.py`),
+`if (_setjmp(*rt_setjmp_slot(cpu, <return address>))) fl = cpu->xfl;` — the guest routine has filled the guest
+buffer as always, and the host context of the lifted caller is kept in a slot keyed by that buffer
+(`src/runtime/runtime.c`). `rt_dispatch()` looks an unknown target up among the slots (return address and
+stack pointer must both match) and `_longjmp`s to the host context; the lifted caller continues after its call
+with the registers the guest `longjmp` restored. This relies on "host stack depth equals guest call depth"
+(below): the lifted caller's host frame is alive exactly as long as its guest frame. Host frames of shims in
+between are dropped without running C++ destructors, so a shim must not hold a lock while it calls guest code.
+
+*Jump tables (T-061).* Ghidra lists only part of some `jmp [idx*4 + table]` tables (5 in this image, among
+them the one at 0x00663218 in the save-game reader with 1 of its 4 targets). `Lifter.complete_tables()` adds
+the pointers that stand at the table address in the image, up to the next table and as long as they point
+into the function the jump is in (`re/lift_coverage.json` -> `jump_tables_completed`). A value outside the
+recovered cases still traps as TRAP_BAD_JUMP.
+
 **Host stack depth** equals guest call depth (one host frame per guest call). Guest threads get a
 host stack sized accordingly (T-045).
 

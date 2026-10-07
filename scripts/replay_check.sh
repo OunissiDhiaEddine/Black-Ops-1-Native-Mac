@@ -8,6 +8,7 @@ set -uo pipefail
 cd "$(dirname "$0")/.."
 THRESH="${1:-0.95}"
 bash scripts/build.sh replay >/dev/null || exit 2
+mkdir -p artifacts/replay
 status=0
 for dir in tests/golden/*/; do
   name=$(basename "$dir")

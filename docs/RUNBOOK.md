@@ -17,6 +17,17 @@ SDL_AUDIO_DRIVER=dummy BO1_KEYS="45000:0x20" BO1_CMDS="60000|devmap cuba" BO1_D3
 - Headless runs never reach the game's mouse code (it needs the foreground window) — mouse work needs the window and a hand.
 - Logs contain binary bytes: read them with `grep -a`.
 - `artifacts/boot/bo1_boot [--exe PATH] [--seconds N] [--steam-selftest]`; `--seconds 0` = no limit.
+- `scripts/map_sweep.sh [seconds] [map …]` loads campaign maps one per process (headless, silent, no movies) and
+  writes `artifacts/boot/sweep/summary.txt`: level started, start save written, frames presented, first stop.
+
+### Console commands that are useful in `BO1_CMDS`
+| Command | What it does here |
+|---|---|
+| `devmap <map>` | starts a mission (cuba, vorkuta, pentagon, flashpoint, khe_sanh, hue_city, kowloon, fullahead, creek_1, river, wmd_sr71, wmd, pow, rebirth, int_escape, underwaterbase, outro) |
+| `loadgame <name>` / `loadgame_continue` | loads `players/save/<name>.svg` / the newest save; every mission start writes `<map>.svg` |
+| `disconnect` | leaves the mission for the menu |
+| `r_mode 1024x768` then `vid_restart` | display-mode change = a Direct3D `Reset`. `vid_restart` alone does nothing: it acts only when a renderer setting changed |
+There is no console command that saves (`savegame` is a script call): RE_NOTES "Saves, disconnect and display restart".
 
 ### Switches (environment)
 | Switch | Effect |
@@ -25,7 +36,7 @@ SDL_AUDIO_DRIVER=dummy BO1_KEYS="45000:0x20" BO1_CMDS="60000|devmap cuba" BO1_D3
 | `BO1_D3D=null` | no rendering |
 | `BO1_D3D_DUMP=dir` | PNG of every 20th frame |
 | `BO1_KEYS="ms:vk,…"` | scripted key presses (ms after start : Windows virtual-key code) |
-| `BO1_CMDS="ms\|command;…"` | scripted console commands, e.g. `60000\|devmap cuba` |
+| `BO1_CMDS="ms\|command;…"` | scripted console commands, e.g. `60000\|devmap cuba`. `;` separates entries; several commands in one entry go on separate lines (`BO1_CMDS=$'127000\|disconnect\nloadgame cuba'`) |
 | `BO1_ARGS="…"` | extra arguments appended to the game's command line |
 | `BO1_BINK=off` / `BO1_AUDIO=off` | no movies / no sound |
 | `BO1_VERBOSE=0..3` | shim and game debug output in the log |
@@ -56,7 +67,14 @@ SDL_AUDIO_DRIVER=dummy BO1_KEYS="45000:0x20" BO1_CMDS="60000|devmap cuba" BO1_D3
 - Wine baseline (oracle only, ADR-007): `artifacts/wine/cx` (WineCX 24.0.7), prefix `artifacts/wineprefix-cx`,
   started with `scripts/run_baseline.sh`. Working copy of the game: `artifacts/game` (`reference/` stays read-only).
 - A worktree thread links its inputs from the main checkout (`artifacts/lifted`, `artifacts/game`, `artifacts/traces`,
-  `.venv`, `reference`, the golden PNGs) and keeps its own `build/` and `artifacts/boot/`.
+  `.venv`, `reference`, `re/ghidra_export`, the golden PNGs) and keeps its own `build/` and `artifacts/boot/`.
+  Two exceptions: a thread that writes saves or settings makes `artifacts/game` a folder of links with its own
+  `players/` (saves and `config.cfg` live there); a thread that changes the lifter or `src/runtime/lifted.h` works
+  on its own clone of the lifted code (`cp -cp` of `artifacts/lifted/*.c *.h *.json` and `obj/lifted_*.o`) and
+  regenerates the shared one when it merges.
+- **After a lifter change:** `.venv/bin/python tools/lifter/lift.py --out artifacts/lifted --stats re/lift_coverage.json`
+  rewrites only the chunks whose text changed; compile those (`scripts/difftest.sh` does it, and re-tests), then
+  `scripts/build_boot.sh`. A change of `src/runtime/lifted.h` makes `difftest.sh` recompile all 66 chunks (~4 min).
 
 ## Regression set
 | Command | Expected |
@@ -66,7 +84,10 @@ SDL_AUDIO_DRIVER=dummy BO1_KEYS="45000:0x20" BO1_CMDS="60000|devmap cuba" BO1_D3
 | `scripts/boot_try.sh 90` | `time limit reached (still running …)` |
 | the unattended run above | three `BinkOpen` / `BinkClose` pairs with sound-track sample counts and 0 dropped, `xaudio2: first xWMA voice … decoded with FFmpeg`, no `Com_ERROR`, no "host signal" |
 | `scripts/replay_check.sh` (renderer changes) | worst SSIM cuba 0.9994, khe_sanh 0.9984, menu 0.9997, vorkuta 0.9985; no "unrecorded" lines |
-| `scripts/difftest.sh 100000 2 5 all` (lifter changes; ~6 min) | 0 unexplained failures |
+| `REPORT=re/difftest_report_all.json scripts/difftest.sh 100000 2 5 all` (lifter changes; ~6 min, ~10 when `lifted.h` changed) | last line "functions failing: 9 (9 with a known-wrong reference, 0 unexplained)". Without `REPORT=` the summary overwrites the leaf-set report `re/difftest_report.json` |
+| saves: `BO1_BINK=off BO1_KEYS="35000:0x20" BO1_CMDS="50000\|devmap cuba;125000\|loadgame cuba"`, 200 s | `players\save\cuba.svg` written, "Save game build number: 152", "=== G_LoadGame ===", then frames again; no "guest stopped" |
+| leave and resume: `… BO1_CMDS=$'50000\|devmap cuba;127000\|disconnect\nloadgame cuba'`, 250 s | "Disconnecting: Disconnected from server", "Server: frontend", "Server: cuba", "=== G_LoadGame ===" |
+| display mode: `… BO1_CMDS="50000\|devmap cuba;125000\|r_mode 1024x768;127000\|vid_restart;175000\|r_mode 800x600;177000\|vid_restart"`, 220 s | two "d3d9(null): Reset …" lines, each followed by "Finished recovering lost device."; dumped frames change size; restore `players/config.cfg` afterwards if the run is cut short (it keeps the last `r_mode`) |
 
 ## How it fits together
 ```
@@ -80,11 +101,13 @@ src/platform/win32/*.cpp     kernel32, user32/gdi32, winsock, misc DLLs
                              mixer thread with guest state, xWMA via FFmpeg; RE_NOTES "XAudio2 as the game uses it"
    steam_local.cpp           Steam: local offline stand-in (ADR-015), table re/steam_abi.csv
    d3d9_null.cpp             guest-visible Direct3D objects and their lifetime, lock memory, capability answers
-   d3d9_live.cpp             watches every Direct3D call and feeds it to the renderer as a call record
+   d3d9_live.cpp             watches every Direct3D call and feeds it to the renderer as a call record; tells the
+                             window service the game's display mode after CreateDevice / Reset
    user32_headless.cpp       windows, messages, cursor (despite the name it also serves the real window)
 src/rhi + src/metal          renderer: Direct3D 9 call records in, Metal out (same code the trace replay uses)
 src/shaders/sm3_msl.cpp      SM3 bytecode -> MSL
-src/platform/window          SDL3 window on the process main thread, SDL events -> Win32 messages, virtual cursor /
+src/platform/window          SDL3 window on the process main thread (size / full screen follow the game's display
+                             mode), SDL events -> Win32 messages, virtual cursor /
                              relative mouse mode for mouse look; RE_NOTES "Mouse as the game uses it"
 tests/boot/main.cpp          entry point of bo1_boot; tests/boot/steam_selftest.cpp
 ```
@@ -98,6 +121,12 @@ Design references: `docs/HOST_ABI.md` (guest/host calls), `docs/LIFTER.md`, `doc
 - **Renderer:** `BO1_DEBUG_FRAME` / `BO1_DEBUG_DIR` with `tools/pass_dump.py`; `scripts/replay_window.sh <menu|cuba|vorkuta|khe_sanh> [first_frame]`
   shows a recorded trace live in a window.
 - **Steam:** `tools/steam_sites.py` lists the game's call sites; unknown methods trap with their slot number.
+- **Reading the game's code:** `tools/xref.py` (who references a string or an address, who calls a function, plain
+  disassembly at a VA) and `tools/bink_sites.py --range LO HI` (annotated listing of whole functions).
+- **"bad jump-table index at VA":** a `jmp [idx*4 + table]` whose cases the lifter does not know. Check the table in the
+  image against `re/ghidra_export/jumptables.csv`; `Lifter.complete_tables()` handles tables Ghidra cut short.
+- **"indirect target is not a function at VA":** the game jumped to an address that is no function entry. If the
+  instruction before VA is a call of `_setjmp3` (0x00969EAC) it is a `longjmp` — see docs/LIFTER.md A2.
 
 ## Things that cost time once (do not repeat)
 - **The sound engine must run at 48 kHz**: the game's effects write fixed 480-frame blocks; at 44.1 kHz they overwrite
@@ -109,4 +138,8 @@ Design references: `docs/HOST_ABI.md` (guest/host calls), `docs/LIFTER.md`, `doc
 - **Do not edit a shell script while it is running** (bash reads scripts incrementally; a capture run was lost).
 - **Traces only contain what the proxy recorded.** The replay prints "draw reads an unrecorded …" when a
   trace lacks data; trust that line before suspecting the renderer.
+- **Scripted commands wait for the message pump**: while a level loads, `BO1_CMDS` entries that fall due are held and
+  then run together — on a loaded machine a `loadgame` timed "after the load" can arrive before the start save exists.
+- **`git add -A` picks up the worktree's links** (`.venv`, `reference`, `re/ghidra_export` are links there and the
+  ignore patterns name directories): add paths explicitly.
 - **CSV files under `re/` have Windows line endings** (`platform_map.csv`, `symbols.csv`): edit them in binary mode.

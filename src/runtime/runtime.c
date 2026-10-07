@@ -1,5 +1,6 @@
 #include "runtime.h"
 
+#include <pthread.h>
 #include <stdio.h>
 #include <sys/mman.h>
 
@@ -61,6 +62,47 @@ void (*g_rt_host_call)(Cpu *cpu, uint32_t target);
 void (*g_rt_trap_handler)(Cpu *cpu, uint32_t addr, uint32_t code);
 int (*g_rt_unknown_target)(Cpu *cpu, uint32_t target);
 
+// ---- setjmp / longjmp ------------------------------------------------------------------------------------
+// One slot per guest jmp_buf (the game keeps one per thread and a few on the stack). A slot remembers where the
+// guest's _setjmp3 returned to (address and stack pointer) and the host context of the lifted function that
+// called it. That function's host frame lives exactly as long as its guest frame, so a longjmp the guest may
+// legally make always finds it. Host frames in between are dropped the way longjmp drops them: without running
+// C++ destructors — a shim that calls back into guest code must not hold a lock across the call.
+#define RT_SETJMP_SLOTS 64
+static struct SetjmpSlot {
+    uint32_t buf, ret, esp;
+    uint64_t seq; // 0 = never used; otherwise the order of use (the oldest slot is recycled)
+    jmp_buf host;
+} g_setjmp[RT_SETJMP_SLOTS];
+static uint64_t g_setjmp_seq;
+static pthread_mutex_t g_setjmp_mu = PTHREAD_MUTEX_INITIALIZER;
+
+jmp_buf *rt_setjmp_slot(Cpu *cpu, uint32_t ret) {
+    uint32_t buf = M32(cpu->esp); // _setjmp3(buf, ...) has just returned: its first argument is on top again
+    pthread_mutex_lock(&g_setjmp_mu);
+    struct SetjmpSlot *s = &g_setjmp[0];
+    for (unsigned i = 0; i < RT_SETJMP_SLOTS; i++) {
+        if (g_setjmp[i].seq && g_setjmp[i].buf == buf) {
+            s = &g_setjmp[i];
+            break;
+        }
+        if (g_setjmp[i].seq < s->seq) s = &g_setjmp[i];
+    }
+    s->buf = buf, s->ret = ret, s->esp = cpu->esp, s->seq = ++g_setjmp_seq;
+    pthread_mutex_unlock(&g_setjmp_mu);
+    return &s->host;
+}
+
+// The tail of the guest's longjmp: registers are restored, esp is what it was when _setjmp3 returned.
+static jmp_buf *setjmp_landing(Cpu *cpu, uint32_t target) {
+    struct SetjmpSlot *s = NULL;
+    pthread_mutex_lock(&g_setjmp_mu);
+    for (unsigned i = 0; i < RT_SETJMP_SLOTS; i++)
+        if (g_setjmp[i].seq && g_setjmp[i].ret == target && g_setjmp[i].esp == cpu->esp && (!s || g_setjmp[i].seq > s->seq)) s = &g_setjmp[i];
+    pthread_mutex_unlock(&g_setjmp_mu);
+    return s ? &s->host : NULL;
+}
+
 void rt_dispatch(Cpu *cpu, uint32_t target) {
     if (target >= RT_TRAMP_BASE && g_rt_host_call) {
         g_rt_host_call(cpu, target);
@@ -68,6 +110,8 @@ void rt_dispatch(Cpu *cpu, uint32_t target) {
     }
     LiftedFn fn = rt_lookup(target);
     if (!fn) {
+        jmp_buf *land = setjmp_landing(cpu, target);
+        if (land) _longjmp(*land, 1);
         if (g_rt_unknown_target && g_rt_unknown_target(cpu, target)) return;
         rt_trap(cpu, target, TRAP_NO_TARGET);
     }

@@ -1243,6 +1243,8 @@ private:
             layer_.drawableSize = CGSizeMake(t->w, t->h);
             next_present_ = SDL_GetTicksNS();
         }
+        if (layer_ && ((uint32_t)layer_.drawableSize.width != t->w || (uint32_t)layer_.drawableSize.height != t->h))
+            layer_.drawableSize = CGSizeMake(t->w, t->h); // the back buffer changed size (Reset / a new device)
         SDL_Event ev;
         while (!opts_.layer && SDL_PollEvent(&ev))
             if (ev.type == SDL_EVENT_QUIT || (ev.type == SDL_EVENT_KEY_DOWN && ev.key.key == SDLK_ESCAPE)) quit_ = true;

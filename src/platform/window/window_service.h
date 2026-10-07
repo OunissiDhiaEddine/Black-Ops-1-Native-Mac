@@ -27,6 +27,11 @@ public:
     // Creates the game window (one per process) with a w x h client area; blocks until it exists.
     bool create(uint32_t hwnd, const std::string &title, int w, int h);
     void set_title(const std::string &title);
+    // The game's display mode (told by the Direct3D layer after CreateDevice / Reset): the client area it
+    // renders, and whether it asked for full screen. The main thread makes the real window follow — windowed:
+    // that client size; full screen: the whole desktop, with the Metal layer scaling the back buffer. From
+    // then on mouse positions are reported in the game's client coordinates whatever size the real window has.
+    void set_display(int w, int h, bool fullscreen);
     void *metal_layer() const { return layer_; } // CAMetalLayer*, valid after create()
     bool has_window() const { return window_ != nullptr; }
     // enable(): the game's message queue is fed from here (set before the guest starts).
@@ -70,6 +75,9 @@ private:
     CreateRequest *create_ = nullptr;
     std::string new_title_;
     bool title_pending_ = false;
+    int disp_w_ = 0, disp_h_ = 0; // the game's client area (0 = not told yet: real window coordinates are used)
+    bool disp_full_ = false, disp_pending_ = false;
+    void to_game(float *x, float *y);   // real window coordinates -> the game's client coordinates (mu_ held)
     std::deque<Msg> queue_;
     SDL_Window *window_ = nullptr;
     void *layer_ = nullptr;

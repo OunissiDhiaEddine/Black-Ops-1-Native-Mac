@@ -431,6 +431,13 @@ SHIM(user32, MapVirtualKeyA, 2) { return 0; }
 SHIM(user32, LoadIconA, 2) { return 0x00030001; }
 SHIM(user32, LoadCursorA, 2) { return 0x00030002; }
 SHIM(user32, LoadImageA, 6) { return 0x00030003; }
+// (lpDevMode, dwFlags). The desktop's mode is never changed: full screen is the window service's borderless
+// full screen (WindowService::set_display), so "restore the desktop mode" (NULL) and a mode request both succeed.
+SHIM(user32, ChangeDisplaySettingsA, 2) {
+    if (a[0]) log("ChangeDisplaySettingsA(%ux%u, flags %x): the desktop mode is left alone", rd32(a[0] + 108), rd32(a[0] + 112), a[1]);
+    else log("ChangeDisplaySettingsA(NULL): nothing to restore");
+    return 0; // DISP_CHANGE_SUCCESSFUL
+}
 SHIM(user32, MessageBoxA, 4) {
     // Never blocks. The text is the interesting part: the game reports fatal errors this way.
     log("MessageBoxA(\"%s\": \"%s\", type %x) -> IDNO/IDOK", gstr(a[2]).c_str(), gstr(a[1]).c_str(), a[3]);
