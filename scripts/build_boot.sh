@@ -54,10 +54,12 @@ PY
 UNICORN="$(ls -d .venv/lib/python3*/site-packages/unicorn | head -1)"
 CXXFLAGS="-std=c++20 -O1 -g -Wall -Wextra -Werror -Wno-unused-parameter -ffp-contract=off -Isrc/runtime -Isrc/platform/win32 -Isrc/rhi -Itools/d3d9_proxy -Isrc/platform/window -I/opt/homebrew/include -I$LIFT -I$OUT/gen -I$UNICORN/include"
 CFLAGS="-std=c11 -O1 -g -Wall -Werror -ffp-contract=off -Isrc/runtime -I$LIFT"
+# an object is rebuilt when its source or ANY header it may include is newer (the window and renderer headers
+# too: a stale object with an old class layout still links and then misbehaves — it cost a window on 2026-10-07)
 pids=()
 for c in src/runtime/guest_os.cpp src/platform/win32/*.cpp tests/boot/main.cpp tests/boot/steam_selftest.cpp; do
   o="$OUT/obj/$(basename "$c" .cpp).o"
-  if [ ! -f "$o" ] || [ "$c" -nt "$o" ] || [ -n "$(find src/runtime src/platform/win32 -name '*.h' -newer "$o" | head -1)" ] \
+  if [ ! -f "$o" ] || [ "$c" -nt "$o" ] || [ -n "$(find src/runtime src/platform/win32 src/platform/window src/rhi -name '*.h' -newer "$o" | head -1)" ] \
      || [ "$OUT/gen/import_abi.inc" -nt "$o" -a "$c" = src/runtime/guest_os.cpp ]; then
     clang++ $CXXFLAGS -c "$c" -o "$o" &
     pids+=($!)

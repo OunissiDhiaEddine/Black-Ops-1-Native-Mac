@@ -221,3 +221,10 @@ Entry template:
 - Did: `WindowService` logs one line per switch of relative mouse mode to the run log (re-centre calls, motion events, total movement while looking) and, with `BO1_MOUSE_LOG=file`, every motion event and every `SetCursorPos`; runbook rows for it and for SDL's two relative-mouse hints (SDL 3.4 default: relative motion is NOT scaled by the system acceleration curve — `SDL_hints.h`). Started `BO1_AUDIO=off BO1_MOUSE_LOG=artifacts/boot/mouse_look.log scripts/run_native.sh` in a terminal tab for the user (silent: 5 am local).
 - Evidence: `build/test_win_messages`, `build/test_window_service` -> "all checks passed"; the window is up (`CreateWindowExA … d3d9: Metal renderer attached` in `artifacts/boot/native_run.log`).
 - Not verified yet: the fix by hand — waiting for the user.
+### 2026-10-07 05:08 — T-057 — the test window did not open: stale objects after a header change; build script fixed
+- User: "no window has opened". The process ran and "presented" frames, but owned no window (`artifacts/bin/winlist_all`, new helper: the game's windows on all Spaces).
+- Cause: last night's mouse change (653eef6) added members to `WindowService` / `InputState` (`src/platform/window/*.h`); `scripts/build_boot.sh` only rebuilt objects for newer headers under `src/runtime` and `src/platform/win32`, so `user32_headless.o` and `main.o` kept the old class layout and read `wants_window()` from the wrong offset -> no real window, no error. Never noticed because the windowed build was not run after that change (only unit tests, which CMake builds correctly).
+- Did: `build_boot.sh` also watches `src/platform/window` and `src/rhi` headers; rebuilt; restarted the silent test window.
+- Evidence: `artifacts/boot/native_run.log`: "window: 800x600 client area for hwnd 00010100"; `winlist_all`: `bo1_boot 1 0 320 92 800 632` (on screen).
+- Lesson: after touching a header outside `src/platform/win32`, the boot build was silently wrong — and "unit tests pass" was not evidence for the windowed build. Run the real thing before telling the user it is ready.
+
