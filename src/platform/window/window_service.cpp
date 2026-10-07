@@ -12,7 +12,7 @@ WindowService &WindowService::get() {
 }
 
 bool WindowService::run(const std::atomic<bool> &done) {
-    if (!SDL_Init(SDL_INIT_VIDEO)) {
+    if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMEPAD)) {
         SDL_Log("SDL_Init failed: %s", SDL_GetError());
         std::lock_guard<std::mutex> lk(mu_);
         if (create_) create_->done = true, create_->ok = false;
@@ -29,6 +29,17 @@ bool WindowService::run(const std::atomic<bool> &done) {
         do {
             if (ev.type == SDL_EVENT_WINDOW_FOCUS_GAINED) focused_ = true;
             if (ev.type == SDL_EVENT_WINDOW_FOCUS_LOST) focused_ = false;
+            // game controller: the first one that shows up is "controller 0"; a later one takes over when it leaves
+            if (ev.type == SDL_EVENT_GAMEPAD_ADDED && !pad_.load()) {
+                SDL_Gamepad *g = SDL_OpenGamepad(ev.gdevice.which);
+                pad_ = g;
+                SDL_Log("gamepad: %s connected", g ? SDL_GetGamepadName(g) : "(could not be opened)");
+            } else if (ev.type == SDL_EVENT_GAMEPAD_REMOVED && pad_.load() && SDL_GetGamepadID(pad_.load()) == ev.gdevice.which) {
+                SDL_Log("gamepad: disconnected");
+                SDL_CloseGamepad(pad_.exchange(nullptr));
+            } else if (ev.type >= SDL_EVENT_GAMEPAD_AXIS_MOTION && ev.type <= SDL_EVENT_GAMEPAD_BUTTON_UP) {
+                pad_packet_++;
+            }
             batch.clear();
             {
                 std::lock_guard<std::mutex> lk(mu_);
@@ -124,6 +135,35 @@ void WindowService::cursor(int32_t *x, int32_t *y) {
     std::lock_guard<std::mutex> lk(mu_);
     *x = input_.x;
     *y = input_.y;
+}
+
+bool WindowService::gamepad(PadState *out) {
+    SDL_Gamepad *g = pad_.load();
+    if (!g) return false;
+    static const struct { SDL_GamepadButton b; uint16_t bit; } kMap[] = {
+        {SDL_GAMEPAD_BUTTON_DPAD_UP, 0x0001}, {SDL_GAMEPAD_BUTTON_DPAD_DOWN, 0x0002}, {SDL_GAMEPAD_BUTTON_DPAD_LEFT, 0x0004},
+        {SDL_GAMEPAD_BUTTON_DPAD_RIGHT, 0x0008}, {SDL_GAMEPAD_BUTTON_START, 0x0010}, {SDL_GAMEPAD_BUTTON_BACK, 0x0020},
+        {SDL_GAMEPAD_BUTTON_LEFT_STICK, 0x0040}, {SDL_GAMEPAD_BUTTON_RIGHT_STICK, 0x0080}, {SDL_GAMEPAD_BUTTON_LEFT_SHOULDER, 0x0100},
+        {SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER, 0x0200}, {SDL_GAMEPAD_BUTTON_SOUTH, 0x1000}, {SDL_GAMEPAD_BUTTON_EAST, 0x2000},
+        {SDL_GAMEPAD_BUTTON_WEST, 0x4000}, {SDL_GAMEPAD_BUTTON_NORTH, 0x8000},
+    };
+    uint16_t buttons = 0;
+    for (const auto &m : kMap)
+        if (SDL_GetGamepadButton(g, m.b)) buttons |= m.bit;
+    auto flip = [](int16_t v) { return (int16_t)(v == -32768 ? 32767 : -v); }; // SDL: down is positive; XInput: up
+    out->packet = pad_packet_.load();
+    out->buttons = buttons;
+    out->left_trigger = (uint8_t)(SDL_GetGamepadAxis(g, SDL_GAMEPAD_AXIS_LEFT_TRIGGER) >> 7);
+    out->right_trigger = (uint8_t)(SDL_GetGamepadAxis(g, SDL_GAMEPAD_AXIS_RIGHT_TRIGGER) >> 7);
+    out->lx = SDL_GetGamepadAxis(g, SDL_GAMEPAD_AXIS_LEFTX);
+    out->ly = flip(SDL_GetGamepadAxis(g, SDL_GAMEPAD_AXIS_LEFTY));
+    out->rx = SDL_GetGamepadAxis(g, SDL_GAMEPAD_AXIS_RIGHTX);
+    out->ry = flip(SDL_GetGamepadAxis(g, SDL_GAMEPAD_AXIS_RIGHTY));
+    return true;
+}
+
+void WindowService::rumble(uint16_t low, uint16_t high) {
+    if (SDL_Gamepad *g = pad_.load()) SDL_RumbleGamepad(g, low, high, 1000);
 }
 
 void WindowService::warp(int32_t x, int32_t y) {
