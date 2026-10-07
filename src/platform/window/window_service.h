@@ -6,6 +6,7 @@
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
+#include <cstdio>
 #include <deque>
 #include <mutex>
 #include <string>
@@ -70,6 +71,11 @@ private:
     InputState input_;
     std::chrono::steady_clock::time_point last_warp_{};
     std::atomic<bool> relative_on_{false}; // what SDL was last told (main thread writes)
+    // BO1_MOUSE_LOG=file: every mouse motion event and every SetCursorPos, for judging mouse look from a real
+    // hand ("ms kind a b ..." per line; kinds: motion, warp, relative)
+    FILE *mouse_log_ = nullptr;
+    uint64_t look_events_ = 0, look_warps_ = 0;
+    double look_dx_ = 0, look_dy_ = 0;
     std::atomic<bool> focused_{false}, running_{false}, enabled_{false}, wants_window_{false};
 };
 

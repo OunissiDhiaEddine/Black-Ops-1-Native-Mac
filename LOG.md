@@ -1,15 +1,15 @@
 # LOG
 
 ## STATE  (OVERWRITE this block at every checkpoint — it is the resume point)
-- **Date/time:** 2026-10-06 23:31 (wall clock) — first session after the hand-over (the work is now run as a Claude project; one thread per piece of work; the user allows worktrees / a branch per task for parallel threads). Newcomer: read `CLAUDE.md`, this block, `TASKS.md` (NOW + OPEN table); commands are in `docs/RUNBOOK.md`.
+- **Date/time:** 2026-10-07 05:09 (wall clock) — first session after the hand-over (the work is now run as a Claude project; one thread per piece of work; the user allows worktrees / a branch per task for parallel threads). Newcomer: read `CLAUDE.md`, this block, `TASKS.md` (NOW + OPEN table); commands are in `docs/RUNBOOK.md`.
 - **Phase / task:** P5 (integration). The native arm64 build boots through Metal to the title screen, the main menu and into the first mission (cuba) — no Wine — with video (T-054), sound incl. movies (T-053, confirmed by the user's ears) and freed Direct3D objects (T-059). The user played it in the window on 2026-10-06. NOW: T-057 — mouse look fixed in code, waiting for the user to confirm by hand.
 - **Run / build / switches / regression commands, machine, debugging aids:** `docs/RUNBOOK.md` (this block holds status only — see `CLAUDE.md`). Quick start: `scripts/run_native.sh` (window; Ctrl-C to stop).
 - **What works natively:** start-up, Steam stand-in (ADR-015), file system (46,399 files from the IWDs), fastfile loading, worker threads, sockets, window + message queue (keyboard, mouse position / buttons from SDL), Direct3D 9 -> Metal live (`d3d9_live.cpp` on top of `d3d9_null.cpp`), main loop, menu, mission load and the opening cutscene of cuba, Bink video on FFmpeg (`bink_ffmpeg.cpp`: files and in-memory movies, looping), sound (`xaudio2_faudio.cpp`: XAudio2 2.7 on FAudio 26.10, the game's own effects and callbacks on a mixer thread with guest state, xWMA through FFmpeg, engine fixed at 48 kHz), mouse look (`SetCursorPos` -> virtual cursor + SDL relative mouse mode; unit-tested, not yet confirmed by hand).
 - **What does not exist yet:** a check of the movies' A/V sync, gamepad (XInput shim is a stub), saves (untested), real keyboard/mouse in the window (wired, only scripted input verified — needs the user at the keyboard), `Com_Error` recovery (non-local jump at 0x004069D5 / 0x00406A91 unknown to the lifter, ADR-012), performance work (nothing measured yet). Direct3D objects are freed since T-059; `Reset` and device destruction are written but have never been called by the game (untested).
-- **Next exact step:** the user tries mouse look in `scripts/run_native.sh` (trackpad, then a mouse). If it still feels wrong: log the per-frame deltas (`GetCursorPos` result minus the last `SetCursorPos`) for a slow constant swipe and compare with SDL's `xrel` — a remaining curve would be macOS's own trackpad acceleration inside SDL's relative mode (then look at `SDL_HINT_MOUSE_RELATIVE_SYSTEM_SCALE` / raw input). If it is fine: T-058 — frame time on the live path (menu, cuba), first profile.
+- **Next exact step:** mouse look is confirmed by the user (trackpad). Left in T-057: a real mouse, key repeat, focus changes, gamepad (XInput shim is a stub; SDL gamepad -> `XInputGetState`). Otherwise T-058 — frame time on the live path (menu, cuba), first profile.
 - **Regression set:** all green at this checkpoint (commands and expected results in `docs/RUNBOOK.md`); `scripts/difftest.sh` not re-run today (lifter untouched).
 - **Files in flight:** none. `main` plus one worktree branch per parallel thread under `.claude/worktrees/` (`git worktree list`; each has its own `build/` and `artifacts/boot/` and merges into `main` when done); no stashes, no git remote. Kept as evidence: `artifacts/boot/native_*.png`, `artifacts/boot/soak_run.log`. Left alone (earlier agents): `artifacts/wip/` (two files), `artifacts/boot/last_run_v2.log`, `stats_run.log`. Log entries of P0–P4 now live in `docs/LOG_ARCHIVE.md`.
-- **Open questions for the user:** does mouse look feel right now (trackpad / real mouse)? Does the pointer come back in the pause menu and after Cmd-Tab?
+- **Open questions for the user:** none pending. (A real mouse and a gamepad are untested; ask when they have one at hand.)
 - **Reference copy / decisions:** user owns BO1 (stated 2026-10-05); `reference/` read-only; working copy `artifacts/game`. ADR-004/005/006/008/009/011/012/013/015 in force; ADR-010 superseded as default by ADR-015; ADR-014 withdrawn. Windows PC: last resort only (user).
 
 ---
@@ -215,3 +215,21 @@ Entry template:
 - Added to the runbook from the code (were documented nowhere): `BO1_ARGS`, `BO1_CPUS`, `BO1_NO_NET`, `BO1_GAME_DIR`, `BO1_HOME_DIR`, `BO1_DEBUG_FRAME` / `BO1_DEBUG_DIR`.
 - Evidence: every `BO1_*` switch in the runbook has a `getenv` in `src/` or `tests/boot/` (grep); every script it names exists in `scripts/`; `grep -rn "HANDOFF_STATUS\|AGENTS.md"` outside the append-only log entries, `docs/LOG_ARCHIVE.md` and two ADR texts finds only the pointer file and `CLAUDE.md`'s mention of it. No code changed, nothing built or run.
 - Not touched: `docs/DECISIONS.md`, `docs/RE_NOTES.md`, `docs/LOG_ARCHIVE.md`, older log entries (they still say `AGENTS.md` / `HANDOFF_STATUS.md`; the pointer file covers the first).
+
+### 2026-10-07 05:05 — T-057 — mouse-look diagnostics; silent test window started for the user
+- User (project chat): "Okey lets do the trackpad thing".
+- Did: `WindowService` logs one line per switch of relative mouse mode to the run log (re-centre calls, motion events, total movement while looking) and, with `BO1_MOUSE_LOG=file`, every motion event and every `SetCursorPos`; runbook rows for it and for SDL's two relative-mouse hints (SDL 3.4 default: relative motion is NOT scaled by the system acceleration curve — `SDL_hints.h`). Started `BO1_AUDIO=off BO1_MOUSE_LOG=artifacts/boot/mouse_look.log scripts/run_native.sh` in a terminal tab for the user (silent: 5 am local).
+- Evidence: `build/test_win_messages`, `build/test_window_service` -> "all checks passed"; the window is up (`CreateWindowExA … d3d9: Metal renderer attached` in `artifacts/boot/native_run.log`).
+- Not verified yet: the fix by hand — waiting for the user.
+### 2026-10-07 05:08 — T-057 — the test window did not open: stale objects after a header change; build script fixed
+- User: "no window has opened". The process ran and "presented" frames, but owned no window (`artifacts/bin/winlist_all`, new helper: the game's windows on all Spaces).
+- Cause: last night's mouse change (653eef6) added members to `WindowService` / `InputState` (`src/platform/window/*.h`); `scripts/build_boot.sh` only rebuilt objects for newer headers under `src/runtime` and `src/platform/win32`, so `user32_headless.o` and `main.o` kept the old class layout and read `wants_window()` from the wrong offset -> no real window, no error. Never noticed because the windowed build was not run after that change (only unit tests, which CMake builds correctly).
+- Did: `build_boot.sh` also watches `src/platform/window` and `src/rhi` headers; rebuilt; restarted the silent test window.
+- Evidence: `artifacts/boot/native_run.log`: "window: 800x600 client area for hwnd 00010100"; `winlist_all`: `bo1_boot 1 0 320 92 800 632` (on screen).
+- Lesson: after touching a header outside `src/platform/win32`, the boot build was silently wrong — and "unit tests pass" was not evidence for the windowed build. Run the real thing before telling the user it is ready.
+
+
+### 2026-10-07 05:09 — T-057 — mouse look confirmed by the user
+- User, after playing in the test window: "perfect the mouse works fabulous but there is no sound" (no sound = the test window was started with `BO1_AUDIO=off` on purpose; told them).
+- Evidence: `artifacts/boot/mouse_look.log`: 109 `SetCursorPos` re-centre calls, relative mouse mode switched on 2 times; the "mouse look: relative mouse mode on / off …" lines in `artifacts/boot/native_run.log`.
+- Open in T-057: real mouse, key repeat, focus changes, gamepad.
