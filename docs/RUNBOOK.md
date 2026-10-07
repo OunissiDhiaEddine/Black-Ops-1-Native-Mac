@@ -84,7 +84,7 @@ There is no console command that saves (`savegame` is a script call): RE_NOTES "
 | `scripts/boot_try.sh 90` | `time limit reached (still running …)` |
 | the unattended run above | three `BinkOpen` / `BinkClose` pairs with sound-track sample counts and 0 dropped, `xaudio2: first xWMA voice … decoded with FFmpeg`, no `Com_ERROR`, no "host signal" |
 | `scripts/replay_check.sh` (renderer changes) | worst SSIM cuba 0.9994, khe_sanh 0.9984, menu 0.9997, vorkuta 0.9985; no "unrecorded" lines |
-| `scripts/difftest.sh 100000 2 5 all` (lifter changes; ~6 min) | 0 unexplained failures |
+| `REPORT=re/difftest_report_all.json scripts/difftest.sh 100000 2 5 all` (lifter changes; ~6 min, ~10 when `lifted.h` changed) | last line "functions failing: 9 (9 with a known-wrong reference, 0 unexplained)". Without `REPORT=` the summary overwrites the leaf-set report `re/difftest_report.json` |
 | saves: `BO1_BINK=off BO1_KEYS="35000:0x20" BO1_CMDS="50000\|devmap cuba;125000\|loadgame cuba"`, 200 s | `players\save\cuba.svg` written, "Save game build number: 152", "=== G_LoadGame ===", then frames again; no "guest stopped" |
 | leave and resume: `… BO1_CMDS=$'50000\|devmap cuba;127000\|disconnect\nloadgame cuba'`, 250 s | "Disconnecting: Disconnected from server", "Server: frontend", "Server: cuba", "=== G_LoadGame ===" |
 | display mode: `… BO1_CMDS="50000\|devmap cuba;125000\|r_mode 1024x768;127000\|vid_restart;175000\|r_mode 800x600;177000\|vid_restart"`, 220 s | two "d3d9(null): Reset …" lines, each followed by "Finished recovering lost device."; dumped frames change size; restore `players/config.cfg` afterwards if the run is cut short (it keeps the last `r_mode`) |
@@ -101,11 +101,13 @@ src/platform/win32/*.cpp     kernel32, user32/gdi32, winsock, misc DLLs
                              mixer thread with guest state, xWMA via FFmpeg; RE_NOTES "XAudio2 as the game uses it"
    steam_local.cpp           Steam: local offline stand-in (ADR-015), table re/steam_abi.csv
    d3d9_null.cpp             guest-visible Direct3D objects and their lifetime, lock memory, capability answers
-   d3d9_live.cpp             watches every Direct3D call and feeds it to the renderer as a call record
+   d3d9_live.cpp             watches every Direct3D call and feeds it to the renderer as a call record; tells the
+                             window service the game's display mode after CreateDevice / Reset
    user32_headless.cpp       windows, messages, cursor (despite the name it also serves the real window)
 src/rhi + src/metal          renderer: Direct3D 9 call records in, Metal out (same code the trace replay uses)
 src/shaders/sm3_msl.cpp      SM3 bytecode -> MSL
-src/platform/window          SDL3 window on the process main thread, SDL events -> Win32 messages, virtual cursor /
+src/platform/window          SDL3 window on the process main thread (size / full screen follow the game's display
+                             mode), SDL events -> Win32 messages, virtual cursor /
                              relative mouse mode for mouse look; RE_NOTES "Mouse as the game uses it"
 tests/boot/main.cpp          entry point of bo1_boot; tests/boot/steam_selftest.cpp
 ```

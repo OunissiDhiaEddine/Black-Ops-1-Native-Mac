@@ -131,3 +131,5 @@ addr,name,kind,confidence,notes
 0x03963478,r_resetRequested,data,CONFIRMED,"byte: set by 0x006B7D60, read and cleared in R_PresentAndPumpMessages, which then resets the device"
 0x006B89C0,R_RecoverLostDevice,func,LIKELY,"prints 'Recovering lost device...'; R_ResetDevice, R_ReloadWorld, cinematic and DB recovery; single caller 0x006EB3F2"
 0x006B86C0,R_ResetDevice,func,LIKELY,"present parameters (0x006B67B0), IDirect3DDevice9::Reset, SetWindowPos, R_InitRenderResources; announced by 'R_ResetDevice()...' in its only caller"
+0x004C9B60,Sys_Error,func,LIKELY,"fatal error: critical section 0xD, suspends the other threads (0x0056C440), vsnprintf of the message, restores the display (0x00601DF0), error dialog (0x005ACC60) with a message loop, exit. Format string = first argument"
+0x0056C440,Sys_SuspendOtherThreads,func,CONFIRMED,"SuspendThread on every entry of the thread table 0x0251CADC (handles) / 0x0251CA98 (ids) except the caller; only call site of the SuspendThread import; called only by 0x004C9B60. Name is mine"
