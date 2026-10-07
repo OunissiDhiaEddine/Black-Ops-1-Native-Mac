@@ -395,7 +395,21 @@ SHIM(user32, GetCursorPos, 1) {
     wr32(a[0] + 4, (uint32_t)(kScreenH / 2));
     return 1;
 }
-SHIM(user32, SetCursorPos, 2) { return 1; }
+SHIM(user32, SetCursorPos, 2) {
+    // (x, y) in screen coordinates. The game's mouse look (0x00867840) reads the cursor, takes the distance
+    // from where it last put it and re-centres it with this call (0x005B7700): ignoring the call turns every
+    // offset from the centre into a constant turn rate. The window service keeps the game's cursor.
+    win::WindowService &ws = win::WindowService::get();
+    if (ws.enabled()) {
+        int32_t ox = 0, oy = 0;
+        {
+            std::lock_guard<std::mutex> lk(g_mu);
+            if (!g_windows.empty()) ox = g_windows.begin()->second.x, oy = g_windows.begin()->second.y;
+        }
+        ws.warp((int32_t)a[0] - ox, (int32_t)a[1] - oy);
+    }
+    return 1;
+}
 SHIM(user32, ScreenToClient, 2) {
     std::lock_guard<std::mutex> lk(g_mu);
     auto it = g_windows.find(a[0]);

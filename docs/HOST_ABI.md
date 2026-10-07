@@ -13,7 +13,7 @@ facts in `docs/RE_NOTES.md` (tagged there) or marked as a design choice. Address
 
 ## 1. Guest memory (ADR-003)
 - One 4 GiB reservation; guest address `a` is host `arena_base + a`. `guest_to_host()` /
-  `host_to_guest()` are the only conversions (AGENTS.md conventions).
+  `host_to_guest()` are the only conversions (CLAUDE.md conventions).
 - Fixed mappings: the image at `0x00400000–0x04677000` (sections from the PE; `.data` is 238,592 B
   on disk but 61.8 MB virtual, so the tail is zero-filled); a 64 KiB guard at 0; nothing else fixed.
 - Everything dynamic (heaps, `VirtualAlloc`, stacks, TEBs, COM stubs) comes from the arena

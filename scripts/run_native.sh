@@ -2,7 +2,7 @@
 # Runs the native arm64 build of the game in a window (Metal renderer, no Wine).
 #   scripts/run_native.sh [seconds]        default: until the game exits or Ctrl-C
 # Log: artifacts/boot/native_run.log. Useful environment:
-#   BO1_KEYS="35000:0x20"           scripted key presses (ms after start : Windows virtual-key code)
+#   BO1_KEYS="45000:0x20"           scripted key presses (ms after start : Windows virtual-key code)
 #   BO1_CMDS="60000|devmap cuba"    scripted console commands
 #   BO1_D3D_DUMP=dir                PNG of every 20th frame
 #   BO1_VERBOSE=1                   shim and game debug output in the log

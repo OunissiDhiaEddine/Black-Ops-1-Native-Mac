@@ -113,3 +113,7 @@ addr,name,kind,confidence,notes
 0x0330B318,g_xaudio2,data,CONFIRMED,"IXAudio2 * of the sound driver"
 0x0330B748,g_xaMasterVoice,data,CONFIRMED,"IXAudio2MasteringVoice *; its details at 0x0330B74C (flags, channels, rate)"
 0x03322E1C,g_xaSubmixStage1,data,CONFIRMED,"IXAudio2SubmixVoice * (4 ch, stage 1); stage 2 is 0x033174E0, stage 3 is 0x0330B758"
+0x00867840,IN_MouseMove,func,LIKELY,"per frame while the game window is in front: GetCursorPos, delta from the previous position (0x0276C0B8/BC), handler 0x0041EE50, re-centre through 0x005B7700 when the game uses the mouse for looking. Engine name is a guess"
+0x005B7700,IN_RecenterMouse,func,CONFIRMED,"GetWindowRect of the game window, SetCursorPos to its centre, centre stored at 0x0276C0AC / 0x0276C0A0. Name is mine"
+0x008677D0,IN_ClampCursorToWindow,func,CONFIRMED,"esi = POINT*: clamps it into the window rectangle and SetCursorPos when it was outside. Name is mine"
+0x027706BC,g_hwnd,data,CONFIRMED,"the game window handle (compared with GetForegroundWindow at 0x00867849, passed to GetWindowRect / ScreenToClient)"

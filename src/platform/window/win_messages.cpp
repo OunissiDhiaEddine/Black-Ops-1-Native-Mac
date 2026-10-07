@@ -82,15 +82,28 @@ size_t translate(const SDL_Event &ev, uint32_t hwnd, InputState &st, std::vector
             if (*p >= 0x20 && *p < 0x7F) push(WM_CHAR, *p, 1); // ASCII only: the game's console and menus are ASCII
         break;
     case SDL_EVENT_MOUSE_MOTION:
-        st.x = (int32_t)ev.motion.x;
-        st.y = (int32_t)ev.motion.y;
+        if (st.relative) {
+            st.fx += ev.motion.xrel;
+            st.fy += ev.motion.yrel;
+            int32_t dx = (int32_t)st.fx, dy = (int32_t)st.fy; // whole steps now, the rest with the next event
+            st.fx -= (float)dx;
+            st.fy -= (float)dy;
+            if (!dx && !dy) break;
+            st.x += dx;
+            st.y += dy;
+        } else {
+            st.x = (int32_t)ev.motion.x;
+            st.y = (int32_t)ev.motion.y;
+        }
         push(WM_MOUSEMOVE, st.mouse_keys, pack_xy(st.x, st.y));
         break;
     case SDL_EVENT_MOUSE_BUTTON_DOWN:
     case SDL_EVENT_MOUSE_BUTTON_UP: {
         bool down = ev.type == SDL_EVENT_MOUSE_BUTTON_DOWN;
-        st.x = (int32_t)ev.button.x;
-        st.y = (int32_t)ev.button.y;
+        if (!st.relative) { // in mouse look the real pointer is parked; the virtual cursor stays where it is
+            st.x = (int32_t)ev.button.x;
+            st.y = (int32_t)ev.button.y;
+        }
         uint32_t bit = 0, msg = 0, hi = 0;
         switch (ev.button.button) {
         case SDL_BUTTON_LEFT: bit = MK_LBUTTON, msg = down ? WM_LBUTTONDOWN : WM_LBUTTONUP; break;
@@ -118,6 +131,7 @@ size_t translate(const SDL_Event &ev, uint32_t hwnd, InputState &st, std::vector
     case SDL_EVENT_WINDOW_FOCUS_LOST:
         st.mouse_keys = 0;
         st.alt = false;
+        st.relative = false;
         push(WM_KILLFOCUS, 0, 0);
         push(WM_ACTIVATE, 0, 0); // WA_INACTIVE
         push(WM_ACTIVATEAPP, 0, 0);
