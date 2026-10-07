@@ -35,6 +35,7 @@ SDL_AUDIO_DRIVER=dummy BO1_KEYS="45000:0x20" BO1_CMDS="60000|devmap cuba" BO1_D3
 | `BO1_NO_NET=1` | sockets exist but carry no traffic |
 | `BO1_CPUS=n` | processor count reported to the game |
 | `BO1_GAME_DIR`, `BO1_HOME_DIR` | the guest's `C:\bo1` (default `artifacts/game`) and home (default `artifacts/boot/home`) |
+| `BO1_FRAME_STATS=N` | one "frame stats:" line per N frames (300 for `1`): fps, frame time avg / p50 / p95 / p99 / max, time inside the renderer and its share, Direct3D calls per frame |
 | `BO1_MOUSE_LOG=file` | window only: every mouse motion event (`ms motion xrel yrel x y relative`), every `SetCursorPos` (`ms warp x y`) and every switch of relative mouse mode; the run log gets one "mouse look: relative mouse mode on / off …" line per switch regardless |
 | `SDL_MOUSE_RELATIVE_SPEED_SCALE=f`, `SDL_MOUSE_RELATIVE_SYSTEM_SCALE=1` | SDL's own switches for mouse look: a speed factor, and the system acceleration curve (default: unscaled) |
 | `BO1_DEBUG_FRAME=N BO1_DEBUG_DIR=dir` | renderer dumps every pass of frame N; `tools/pass_dump.py dir` turns it into PNGs |

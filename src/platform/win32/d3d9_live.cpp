@@ -8,6 +8,8 @@
 //
 //   BO1_D3D=null      keep the null device only (nothing is rendered; the old headless boot)
 //   BO1_D3D_DUMP=dir  write the back buffer of every 20th frame as PNG into dir
+#include <chrono>
+#include <algorithm>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -100,6 +102,49 @@ bool finish_lock(Rec &rec, uint32_t obj, uint32_t sub) {
     if (has_data) rec.add(kData, g_mem + d.data_ptr, d.size);
     return true;
 }
+
+// BO1_FRAME_STATS=N (N frames per line, default 300 for "1"): frame-time statistics of the live path (T-058).
+struct FrameStats {
+    bool on = false;
+    size_t window = 300;
+    std::chrono::steady_clock::time_point last{};
+    std::vector<double> frame_ms, render_ms;
+    double renderer_ms = 0;
+    uint64_t calls = 0, calls_sum = 0;
+    FrameStats() {
+        if (const char *v = getenv("BO1_FRAME_STATS")) {
+            on = true;
+            int n = atoi(v);
+            if (n > 1) window = (size_t)n;
+        }
+    }
+    static double pct(std::vector<double> v, double p) {
+        std::sort(v.begin(), v.end());
+        return v[(size_t)((double)(v.size() - 1) * p)];
+    }
+    void frame_done(std::chrono::steady_clock::time_point now) {
+        if (last.time_since_epoch().count()) {
+            frame_ms.push_back(std::chrono::duration<double, std::milli>(now - last).count());
+            render_ms.push_back(renderer_ms);
+            calls_sum += calls;
+        }
+        last = now;
+        renderer_ms = 0;
+        calls = 0;
+        if (frame_ms.size() < window) return;
+        double sum = 0, rsum = 0;
+        for (double x : frame_ms) sum += x;
+        for (double x : render_ms) rsum += x;
+        double n = (double)frame_ms.size();
+        log("frame stats: frame %d, %.1f fps; frame ms avg %.2f p50 %.2f p95 %.2f p99 %.2f max %.1f; renderer ms avg %.2f p95 %.2f (%.0f%% of the frame); %.0f calls/frame",
+            g_frame, 1000.0 * n / sum, sum / n, pct(frame_ms, 0.5), pct(frame_ms, 0.95), pct(frame_ms, 0.99), pct(frame_ms, 1.0), rsum / n,
+            pct(render_ms, 0.95), 100.0 * rsum / sum, (double)calls_sum / n);
+        frame_ms.clear();
+        render_ms.clear();
+        calls_sum = 0;
+    }
+};
+static FrameStats g_stats;
 
 void observe(uint32_t tag, Cpu *, const uint32_t *a, int words, uint32_t result) {
     unsigned iface = tag >> 16, slot = tag & 0xFFFF;
@@ -207,8 +252,19 @@ void observe(uint32_t tag, Cpu *, const uint32_t *a, int words, uint32_t result)
     default: break; // Release is not forwarded: see on_destroy
     }
     if (!send) return;
+    if (!g_stats.on) {
+        g_renderer->call(rec.r, g_frame);
+        if (present) g_renderer->end_frame(++g_frame);
+        return;
+    }
+    // BO1_FRAME_STATS: time between Presents (what the player sees) and how much of it the renderer took
+    auto t0 = std::chrono::steady_clock::now();
     g_renderer->call(rec.r, g_frame);
     if (present) g_renderer->end_frame(++g_frame);
+    auto t1 = std::chrono::steady_clock::now();
+    g_stats.renderer_ms += std::chrono::duration<double, std::milli>(t1 - t0).count();
+    g_stats.calls++;
+    if (present) g_stats.frame_done(t1);
 }
 
 // An object is gone for good (d3d9_null.cpp, "object lifetime"). The renderer is told with the record the
