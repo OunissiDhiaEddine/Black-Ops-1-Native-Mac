@@ -157,10 +157,11 @@ struct FrameStats {
         log("frame stats: frame %d, %.1f fps; frame ms avg %.2f p50 %.2f p95 %.2f p99 %.2f max %.1f; renderer ms avg %.2f p95 %.2f (%.0f%% of the frame); %.0f calls/frame",
             g_frame, 1000.0 * n / sum, sum / n, pct(frame_ms, 0.5), pct(frame_ms, 0.95), pct(frame_ms, 0.99), pct(frame_ms, 1.0), rsum / n,
             pct(render_ms, 0.95), 100.0 * rsum / sum, (double)calls_sum / n);
-        log("frame stats: in these %zu frames: %zu slow (> 33.4 ms); shaders %.1f ms (%llu functions), pipelines %.1f ms (%llu), GPU wait %.1f ms, drawable wait %.1f ms, "
+        log("frame stats: in these %zu frames: %zu slow (> 33.4 ms); shaders %.1f ms (%llu functions, %llu compiled ahead), pipelines %.1f ms (%llu), GPU wait %.1f ms, drawable wait %.1f ms, "
             "texture uploads %.1f ms (%llu, %.1f MiB)",
             frame_ms.size(), slow, (double)(w.ns_translate + w.ns_compile - at_window.ns_translate - at_window.ns_compile) / 1e6,
-            (unsigned long long)(w.functions - at_window.functions), (double)(w.ns_pipeline - at_window.ns_pipeline) / 1e6,
+            (unsigned long long)(w.functions - at_window.functions), (unsigned long long)(w.precompiled - at_window.precompiled),
+            (double)(w.ns_pipeline - at_window.ns_pipeline) / 1e6,
             (unsigned long long)(w.pipelines - at_window.pipelines), (double)(w.ns_gpu_wait - at_window.ns_gpu_wait) / 1e6,
             (double)(w.ns_drawable - at_window.ns_drawable) / 1e6, (double)(w.ns_upload - at_window.ns_upload) / 1e6, (unsigned long long)(w.uploads - at_window.uploads),
             (double)(w.upload_bytes - at_window.upload_bytes) / 1048576.0);
@@ -180,6 +181,7 @@ void observe(uint32_t tag, Cpu *, const uint32_t *a, int words, uint32_t result)
         if (iface != IFACE_D3D9 || slot != 16 || (result & 0x80000000u)) return; // nothing to draw with before CreateDevice
         rhi::Options o;
         if (const char *d = getenv("BO1_D3D_DUMP")) o.dump_dir = d;
+        o.precompile = true; // the game creates a level's shaders while it loads: compile them then, not at first use
         o.layer = win::WindowService::get().metal_layer(); // NULL when headless: frames are rendered, not shown
         try {
             g_renderer = rhi::make_metal_renderer(o);
