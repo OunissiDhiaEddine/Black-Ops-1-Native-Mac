@@ -34,6 +34,7 @@ struct HostStream;
 HostStream *xaudio2_stream_open(uint32_t channels, uint32_t rate);
 bool xaudio2_stream_queue(HostStream *h, const int16_t *pcm, size_t samples);
 void xaudio2_stream_volume(HostStream *h, float volume);
+uint64_t xaudio2_stream_played(HostStream *h);
 void xaudio2_stream_play(HostStream *h, bool play);
 void xaudio2_stream_close(HostStream *h);
 
@@ -87,6 +88,10 @@ struct Movie {
     uint64_t advanced = 0;
     uint32_t shown = 0, skipped = 0;
     std::vector<Track> tracks;
+    // sound against picture (T-053 check): at every shown frame, seconds of sound already played minus the
+    // frame's own time. Positive = sound ahead of the picture.
+    double sync_sum = 0, sync_min = 1e9, sync_max = -1e9;
+    uint32_t sync_n = 0;
     AVFrame *aframe = nullptr;
     std::vector<int16_t> pcm;
 };
@@ -306,6 +311,14 @@ void movie_present(Movie *m) {
     if (m->alpha) copy_plane(set + 3 * PLANE_SIZE, f->data[3], f->linesize[3], yw, yh, fw, fh);
     wr32(m->fb + FB_FRAMENUM, (uint32_t)m->set);
     m->shown++;
+    for (const Track &t : m->tracks) {
+        if (!t.out || t.volume <= 0.0f || !t.dec || t.dec->sample_rate <= 0) continue;
+        double d = (double)xaudio2_stream_played(t.out) / t.dec->sample_rate - (double)(m->decoded - 1) * frame_seconds(m);
+        m->sync_sum += d, m->sync_n++;
+        if (d < m->sync_min) m->sync_min = d;
+        if (d > m->sync_max) m->sync_max = d;
+        break; // one track is enough: they are queued together
+    }
 }
 
 bool bink_enabled() {
@@ -354,6 +367,9 @@ SHIM_NAMED(binkw32, BinkClose, "_BinkClose@4", 1) {
         for (const Track &t : m->tracks)
             if (t.samples || t.dropped) tr += " track " + std::to_string(t.id) + ": " + std::to_string(t.samples) + " samples (" + std::to_string(t.dropped) + " dropped)";
         log("BinkClose(%s): %u frames shown, %u skipped;%s", m->name.c_str(), m->shown, m->skipped, tr.empty() ? " no sound played" : tr.c_str());
+        if (m->sync_n)
+            log("BinkClose(%s): sound minus picture at %u frames: avg %+.0f ms, min %+.0f ms, max %+.0f ms", m->name.c_str(), m->sync_n,
+                1000 * m->sync_sum / m->sync_n, 1000 * m->sync_min, 1000 * m->sync_max);
         g_movies.erase(a[0]);
         movie_free(m);
         heap_free(a[0]);

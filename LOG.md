@@ -288,3 +288,9 @@ Entry template:
 - So CONFIRMED by hand: window resize / full screen on a mode change (`WindowService::set_display`), checkpoint saves and Resume, controller in the same session. Did: removed the block in `scripts/run_native.sh` that forced `r_fullscreen 0` / `r_mode 800x600` before every start (the saved mode is used again). `TASKS.md`: T-061 done except the end of mission 1; T-058's windowed measurement is free to start; frame drops noted (LIKELY first-use shader / pipeline compiles — not measured).
 - Open: T-062 (asked the user whether the Wine reference may be run in a window to compare); mouse-pointer accuracy in full screen was not mentioned.
 
+
+### 2026-10-07 07:46 — P5 leftover — movie sound against picture measured: in sync
+- Did: `bink_ffmpeg.cpp` compares, at every shown frame, the seconds of sound the engine has played (`xaudio2_stream_played`) with the frame's own time and prints avg / min / max at `BinkClose`. `BO1_AUDIO_MUTE=1` (real device, mastering volume 0) so the check can run unattended and silent on the real audio clock.
+- Evidence (`BO1_AUDIO_MUTE=1 BO1_KEYS="45000:0x20" BO1_CMDS="60000|devmap cuba" bo1_boot --seconds 125`, `artifacts/boot/avsync_run.log`): `treyarch.bik` sound minus picture avg -55 ms, min -83 ms, max 0 ms over 586 frames (sound slightly late); `cuba_load.bik` avg +15 ms, min -10 ms, max +77 ms over 1,405 frames. No drift over 47 s. Usual tolerance for lip-sync is about +45 / -125 ms; the +77 ms peak is during loading stalls of a movie without speech on screen.
+- Trap for the unwary: the same measurement with `SDL_AUDIO_DRIVER=dummy` shows the sound falling behind by up to 2.7 s — that is the dummy device consuming samples slower than real time, not the game (the disk-driver captures of last night were also ~8% short of the run time for the same reason).
+- Not included: the output device's own latency (a few tens of ms more lag), and nobody compared lips and voice by eye.

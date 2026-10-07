@@ -692,6 +692,10 @@ uint32_t x_create_mastering_voice(Cpu *, const uint32_t *a) {
     log("IXAudio2::CreateMasteringVoice(%u ch, %u Hz, device %u) -> %#x (%u ch, %u Hz)", a[2], a[3], a[5], hr, d.InputChannels, d.InputSampleRate);
     wr32(a[1], hr == 0 && v ? voice_new(v, KIND_MASTER, nullptr) : 0);
     if (hr == 0 && v) g_live_engine = engine(a[0]);
+    // BO1_AUDIO_MUTE=1: the real output device and its clock, but nothing audible (the game never sets the
+    // mastering voice's volume itself, re/xaudio2_usage.csv). For timing checks that SDL's dummy / disk
+    // devices cannot give: those consume samples slower than real time.
+    if (hr == 0 && v && getenv("BO1_AUDIO_MUTE")) FAudioVoice_SetVolume(v, 0.0f, 0);
     return hr;
 }
 uint32_t x_start_engine(Cpu *, const uint32_t *a) { return FAudio_StartEngine(engine(a[0])); }
@@ -960,6 +964,13 @@ bool xaudio2_stream_queue(HostStream *h, const int16_t *pcm, size_t samples) {
         return false;
     }
     return true;
+}
+// Samples the engine has played from this stream so far (frames, not bytes).
+uint64_t xaudio2_stream_played(HostStream *h) {
+    if (!h) return 0;
+    FAudioVoiceState st{};
+    FAudioSourceVoice_GetState(h->voice, &st, 0);
+    return st.SamplesPlayed;
 }
 void xaudio2_stream_volume(HostStream *h, float volume) {
     if (h) FAudioVoice_SetVolume(h->voice, volume, 0);
