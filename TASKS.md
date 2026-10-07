@@ -1,7 +1,7 @@
 # TASKS
 Status: TODO · NOW · WAITING (on the user) · PARKED · DONE · BLOCKED. Only ONE task is NOW at a time. Mark DONE only with an Evidence line.
-Update this file at every checkpoint (see AGENTS.md rule 2).
-Layout: open work is listed once, in **OPEN** (in the order it is planned). The phase sections below are the record of finished work with its evidence. Summary for a newcomer: `docs/HANDOFF_STATUS.md`.
+Update this file at every checkpoint (see CLAUDE.md rule 2).
+Layout: open work is listed once, in **OPEN** (in the order it is planned). The phase sections below are the record of finished work with its evidence. How to run, build and test: `docs/RUNBOOK.md`.
 
 ## NOW
 - **T-057** (P5) Input with a human. User's test 2026-10-06 (window, trackpad): keyboard works, sound "great", mission 1 loads; the mouse had an "acceleration" problem on the trackpad; a real mouse is untested.

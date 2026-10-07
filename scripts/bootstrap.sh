@@ -8,4 +8,4 @@ for d in re tools src/runtime src/platform src/rhi src/metal src/shaders src/lif
          tests/golden tests/diff tests/replay; do touch "$d/.gitkeep"; done
 [ -d .git ] || git init -q
 git add -A && git commit -qm "P0/scaffold: initial project structure" || true
-echo "Bootstrapped. Next: put your BO1 install in ./reference/ and tell the agent: 'Read AGENTS.md and start.'"
+echo "Bootstrapped. Next: put your BO1 install in ./reference/ and tell the agent: 'Read CLAUDE.md and start.'"
