@@ -300,6 +300,7 @@ private:
         auto it = pipeline_users_.find(id);
         if (it == pipeline_users_.end()) return;
         for (const std::string &key : it->second) pipelines_.erase(key);
+        last_pipeline_.value = nil;
         pipeline_users_.erase(it);
     }
     static uint32_t out_id(const Record &r) {
@@ -793,6 +794,18 @@ private:
     }
     // Cache key for the per-draw state caches: the values themselves, not text (formatting them was 18% of the
     // render thread in the first profile, T-058).
+    // The last key a state lookup was made with and what it returned: consecutive draws mostly ask for the same
+    // pipeline / depth state / sampler, and building and hashing the string key was ~20% of a draw (T-058).
+    template <size_t N> struct Last {
+        uint64_t key[N];
+        id value = nil;
+        bool same(const uint64_t (&k)[N]) const { return value && !memcmp(key, k, sizeof(key)); }
+        id set(const uint64_t (&k)[N], id v) {
+            memcpy(key, k, sizeof(key));
+            return value = v;
+        }
+    };
+    static std::string bin_key(const uint64_t *v, size_t n) { return std::string(reinterpret_cast<const char *>(v), n * sizeof(uint64_t)); }
     static std::string bin_key(std::initializer_list<uint64_t> v) {
         return std::string(reinterpret_cast<const char *>(v.begin()), v.size() * sizeof(uint64_t));
     }
@@ -1090,11 +1103,13 @@ private:
 
     id<MTLRenderPipelineState> pipeline(Shader &vs, Shader &ps, id<MTLFunction> vf, id<MTLFunction> pf, const std::vector<Elem> &decl) {
         bool blend = rs_[27] != 0, sep = rs_[206] != 0;
-        std::string key = bin_key({cur_vs_, cur_ps_, (uint64_t)(uintptr_t)(__bridge void *)pf, cur_decl_, (uint64_t)pass_color_, (uint64_t)pass_depth_, blend,
-                                   rs_[19], rs_[20], rs_[171], sep, rs_[207], rs_[208], rs_[209], rs_[168], streams_[0].stride, streams_[1].stride,
-                                   streams_[2].stride, streams_[3].stride});
+        const uint64_t k[19] = {cur_vs_, cur_ps_, (uint64_t)(uintptr_t)(__bridge void *)pf, cur_decl_, (uint64_t)pass_color_, (uint64_t)pass_depth_, blend,
+                                rs_[19], rs_[20], rs_[171], sep, rs_[207], rs_[208], rs_[209], rs_[168], streams_[0].stride, streams_[1].stride,
+                                streams_[2].stride, streams_[3].stride};
+        if (last_pipeline_.same(k)) return last_pipeline_.value;
+        std::string key = bin_key(k, 19);
         auto it = pipelines_.find(key);
-        if (it != pipelines_.end()) return it->second;
+        if (it != pipelines_.end()) return last_pipeline_.set(k, it->second);
         (void)ps;
         MTLRenderPipelineDescriptor *d = [MTLRenderPipelineDescriptor new];
         d.vertexFunction = vf;
@@ -1155,10 +1170,11 @@ private:
 
     id<MTLDepthStencilState> depth_state() {
         bool z = rs_[7] != 0, stencil = rs_[52] != 0, two = rs_[185] != 0;
-        std::string key = bin_key({z, rs_[14], rs_[23], stencil, rs_[53], rs_[54], rs_[55], rs_[56], rs_[58], rs_[59], two, rs_[186], rs_[187], rs_[188],
-                                   rs_[189]});
+        const uint64_t k[15] = {z, rs_[14], rs_[23], stencil, rs_[53], rs_[54], rs_[55], rs_[56], rs_[58], rs_[59], two, rs_[186], rs_[187], rs_[188], rs_[189]};
+        if (last_depth_.same(k)) return last_depth_.value;
+        std::string key = bin_key(k, 15);
         auto it = depth_states_.find(key);
-        if (it != depth_states_.end()) return it->second;
+        if (it != depth_states_.end()) return last_depth_.set(k, it->second);
         MTLDepthStencilDescriptor *d = [MTLDepthStencilDescriptor new];
         d.depthCompareFunction = z ? (MTLCompareFunction)(std::clamp<uint32_t>(rs_[23], 1, 8) - 1) : MTLCompareFunctionAlways;
         d.depthWriteEnabled = z && rs_[14];
@@ -1180,9 +1196,12 @@ private:
     }
 
     id<MTLSamplerState> sampler(uint32_t u, uint32_t v, uint32_t w, uint32_t mag, uint32_t min, uint32_t mip, uint32_t aniso, bool compare) {
-        std::string key = bin_key({u, v, w, mag, min, mip, aniso, compare});
+        const uint64_t k[8] = {u, v, w, mag, min, mip, aniso, compare};
+        Last<8> &last = last_sampler_[(u * 31 + v * 7 + mag * 5 + min * 3 + mip + aniso + compare) & 7];
+        if (last.same(k)) return last.value;
+        std::string key = bin_key(k, 8);
         auto it = samplers_.find(key);
-        if (it != samplers_.end()) return it->second;
+        if (it != samplers_.end()) return last.set(k, it->second);
         auto addr = [](uint32_t a) {
             switch (a) {
             case 2: return MTLSamplerAddressModeMirrorRepeat;
@@ -1475,6 +1494,9 @@ private:
         bool dirty = true, on_encoder = false;
     };
     ConstCopy const_copy_[2];
+    Last<19> last_pipeline_;
+    Last<15> last_depth_;
+    Last<8> last_sampler_[8];
     std::map<std::string, int> problems_;
     std::map<std::string, std::map<uint32_t, std::set<int>>> unrecorded_ids_;
 

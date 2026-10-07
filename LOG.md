@@ -338,3 +338,8 @@ Entry template:
 - Ideas not done: compile at first use on another thread and leave the draw out until it is ready (no stall, but an object appears a moment late, and a draw that is made only once — into a kept render target — would be lost: needs a rule for those); keep a list of the shaders a level really used and compile only those at its next load (helps only when Metal's own cache was lost).
 - NOT measured: the window after this change (the user's fights ran at 29–48 fps with 20,000–31,000 calls; by the headless ratio they should gain roughly a quarter of the renderer's share).
 
+
+### 2026-10-07 08:58 — T-058 part 2 — state lookups remembered; renderer 6.58 -> 3.82 ms per frame in the checkpoint scene
+- Did: the last pipeline / depth-state / sampler lookup is remembered with its inputs (`Last<N>` in `metal_renderer.mm`; 8 slots for samplers) and returned without building and hashing the string key when the inputs repeat; the pipeline memo is dropped when a shader or declaration it used is destroyed.
+- Evidence: `artifacts/boot/t058b_memo.log` — `loadgame cuba-2`, ~10,900 calls per frame: renderer avg 3.82 ms, p95 4.2 (was 4.68 after the constant-copy change, 6.58 before both: -42% in total), 62.5 fps at the cap; `scripts/replay_check.sh` 0.9994 / 0.9984 / 0.9997 / 0.9985, `re/replay_check.json` unchanged.
+- NOT measured: the window and the 20,000–31,000-call fights (headless ratio only).
