@@ -55,7 +55,7 @@ There is no console command that saves (`savegame` is a script call): RE_NOTES "
 ## Build
 - `scripts/build.sh` — CMake/Ninja: shader translator, Metal renderer library, window library, replay tool, unit tests.
 - `scripts/build_lifted.sh` — lift the image and compile only the chunks that changed (objects are renamed into place, so a parallel thread never links a half-written file); then `scripts/build_boot.sh`. A change of `src/runtime/lifted.h` recompiles all 67 chunks (~4 min at `JOBS=2`).
-- `scripts/build_lifted.sh --a2-check` + `BO1_LIFT=artifacts/lifted_a2 scripts/build_boot.sh` -> `artifacts/boot/bo1_boot_a2`: audit build whose every `ret` reports (`[A2] …` on stderr) when it is about to return somewhere else than the function was entered with (docs/LIFTER.md, assumption A2). ~4 min, ~900 MB; delete `artifacts/lifted_a2` afterwards.
+- `scripts/build_lifted.sh --a2-check` + `BO1_LIFT=artifacts/lifted_a2 scripts/build_boot.sh` -> `artifacts/boot/bo1_boot_a2`: audit build whose every `ret` reports (`[A2] …` on stderr) when it is about to return somewhere else than the function was entered with (docs/LIFTER.md, assumption A2). ~4 min, ~400 MB; delete `artifacts/lifted_a2` afterwards.
 - `scripts/build_boot.sh` — the runtime `artifacts/boot/bo1_boot` (not in CMake: it links the lifted objects in
   `artifacts/lifted/obj`, which come from `scripts/difftest.sh` / the lifter). Links Homebrew's SDL3, FFmpeg
   (libavformat / libavcodec / libavutil) and FAudio.
