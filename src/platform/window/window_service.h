@@ -26,6 +26,9 @@ public:
     // Creates the game window (one per process) with a w x h client area; blocks until it exists.
     bool create(uint32_t hwnd, const std::string &title, int w, int h);
     void set_title(const std::string &title);
+    // New client-area size (the game's SetWindowPos after a display-mode change); applied by the main thread.
+    void resize(int w, int h);
+    uint32_t hwnd() const { return hwnd_; } // the guest window the real one stands for (0 = none)
     void *metal_layer() const { return layer_; } // CAMetalLayer*, valid after create()
     bool has_window() const { return window_ != nullptr; }
     // enable(): the game's message queue is fed from here (set before the guest starts).
@@ -59,6 +62,7 @@ private:
     CreateRequest *create_ = nullptr;
     std::string new_title_;
     bool title_pending_ = false;
+    int new_w_ = 0, new_h_ = 0; // pending resize() (0 = none)
     std::deque<Msg> queue_;
     SDL_Window *window_ = nullptr;
     void *layer_ = nullptr;

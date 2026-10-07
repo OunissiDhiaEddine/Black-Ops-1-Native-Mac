@@ -46,6 +46,14 @@ void WindowService::serve_requests() {
         SDL_SetWindowTitle(window_, new_title_.c_str());
         title_pending_ = false;
     }
+    if (new_w_ && window_) {
+        SDL_Window *w = window_;
+        int nw = new_w_, nh = new_h_;
+        new_w_ = new_h_ = 0;
+        lk.unlock();
+        SDL_SetWindowSize(w, nw, nh);
+        lk.lock();
+    }
     if (window_) { // mouse look: follow what the game's SetCursorPos calls ask for
         bool want = input_.relative && focused_ &&
                     std::chrono::steady_clock::now() - last_warp_ < std::chrono::milliseconds(kRelativeHoldMs);
@@ -89,6 +97,11 @@ void WindowService::set_title(const std::string &title) {
     std::lock_guard<std::mutex> lk(mu_);
     new_title_ = title;
     title_pending_ = true;
+}
+
+void WindowService::resize(int w, int h) {
+    std::lock_guard<std::mutex> lk(mu_);
+    new_w_ = w, new_h_ = h;
 }
 
 void WindowService::cursor(int32_t *x, int32_t *y) {
