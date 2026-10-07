@@ -111,6 +111,8 @@ struct FrameStats {
     std::vector<double> frame_ms, render_ms;
     double renderer_ms = 0;
     uint64_t calls = 0, calls_sum = 0;
+    rhi::Renderer::Work at_frame{}, at_window{}; // the renderer's totals at the start of the frame / of the window
+    size_t slow = 0;
     FrameStats() {
         if (const char *v = getenv("BO1_FRAME_STATS")) {
             on = true;
@@ -122,12 +124,28 @@ struct FrameStats {
         std::sort(v.begin(), v.end());
         return v[(size_t)((double)(v.size() - 1) * p)];
     }
-    void frame_done(std::chrono::steady_clock::time_point now) {
+    void frame_done(std::chrono::steady_clock::time_point now, const rhi::Renderer::Work &w) {
         if (last.time_since_epoch().count()) {
-            frame_ms.push_back(std::chrono::duration<double, std::milli>(now - last).count());
+            double ms = std::chrono::duration<double, std::milli>(now - last).count();
+            frame_ms.push_back(ms);
             render_ms.push_back(renderer_ms);
             calls_sum += calls;
+            // A frame that took more than two 60 Hz periods says what it spent: inside the renderer, and there on
+            // shader translation / MSL compile / pipeline creation / waiting for the GPU / texture uploads.
+            if (ms > 33.4) {
+                slow++;
+                log("slow frame %d: %.1f ms, game %.1f ms, renderer %.1f ms (shaders %.1f + %.1f ms for %llu functions, pipelines %.1f ms for %llu, "
+                    "GPU wait %.1f ms, drawable wait %.1f ms, texture uploads %.1f ms for %llu / %.1f MiB); %llu calls",
+                    g_frame, ms, ms - renderer_ms, renderer_ms, (double)(w.ns_translate - at_frame.ns_translate) / 1e6,
+                    (double)(w.ns_compile - at_frame.ns_compile) / 1e6, (unsigned long long)(w.functions - at_frame.functions),
+                    (double)(w.ns_pipeline - at_frame.ns_pipeline) / 1e6, (unsigned long long)(w.pipelines - at_frame.pipelines),
+                    (double)(w.ns_gpu_wait - at_frame.ns_gpu_wait) / 1e6, (double)(w.ns_drawable - at_frame.ns_drawable) / 1e6,
+                    (double)(w.ns_upload - at_frame.ns_upload) / 1e6,
+                    (unsigned long long)(w.uploads - at_frame.uploads), (double)(w.upload_bytes - at_frame.upload_bytes) / 1048576.0,
+                    (unsigned long long)calls);
+            }
         }
+        at_frame = w;
         last = now;
         renderer_ms = 0;
         calls = 0;
@@ -139,6 +157,15 @@ struct FrameStats {
         log("frame stats: frame %d, %.1f fps; frame ms avg %.2f p50 %.2f p95 %.2f p99 %.2f max %.1f; renderer ms avg %.2f p95 %.2f (%.0f%% of the frame); %.0f calls/frame",
             g_frame, 1000.0 * n / sum, sum / n, pct(frame_ms, 0.5), pct(frame_ms, 0.95), pct(frame_ms, 0.99), pct(frame_ms, 1.0), rsum / n,
             pct(render_ms, 0.95), 100.0 * rsum / sum, (double)calls_sum / n);
+        log("frame stats: in these %zu frames: %zu slow (> 33.4 ms); shaders %.1f ms (%llu functions), pipelines %.1f ms (%llu), GPU wait %.1f ms, drawable wait %.1f ms, "
+            "texture uploads %.1f ms (%llu, %.1f MiB)",
+            frame_ms.size(), slow, (double)(w.ns_translate + w.ns_compile - at_window.ns_translate - at_window.ns_compile) / 1e6,
+            (unsigned long long)(w.functions - at_window.functions), (double)(w.ns_pipeline - at_window.ns_pipeline) / 1e6,
+            (unsigned long long)(w.pipelines - at_window.pipelines), (double)(w.ns_gpu_wait - at_window.ns_gpu_wait) / 1e6,
+            (double)(w.ns_drawable - at_window.ns_drawable) / 1e6, (double)(w.ns_upload - at_window.ns_upload) / 1e6, (unsigned long long)(w.uploads - at_window.uploads),
+            (double)(w.upload_bytes - at_window.upload_bytes) / 1048576.0);
+        at_window = w;
+        slow = 0;
         frame_ms.clear();
         render_ms.clear();
         calls_sum = 0;
@@ -270,7 +297,7 @@ void observe(uint32_t tag, Cpu *, const uint32_t *a, int words, uint32_t result)
     auto t1 = std::chrono::steady_clock::now();
     g_stats.renderer_ms += std::chrono::duration<double, std::milli>(t1 - t0).count();
     g_stats.calls++;
-    if (present) g_stats.frame_done(t1);
+    if (present && g_stats.on) g_stats.frame_done(t1, g_renderer->work());
 }
 
 // An object is gone for good (d3d9_null.cpp, "object lifetime"). The renderer is told with the record the

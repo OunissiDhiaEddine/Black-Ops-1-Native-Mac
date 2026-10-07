@@ -27,6 +27,15 @@ public:
     virtual void end_frame(int frame) = 0;
     // Human-readable summary at the end of the run; returns the number of problems found.
     virtual int report() = 0;
+    // Running totals of the work that makes single frames slow (T-058): nanoseconds spent translating shaders,
+    // compiling MSL, creating pipelines, waiting for the GPU, uploading textures, waiting for a drawable; then counts of shader
+    // functions compiled, pipelines created, texture uploads and bytes uploaded.
+    struct Work {
+        uint64_t ns_translate = 0, ns_compile = 0, ns_pipeline = 0, ns_gpu_wait = 0, ns_upload = 0;
+        uint64_t ns_drawable = 0; // waiting for the window's next drawable (vsync / compositor)
+        uint64_t functions = 0, pipelines = 0, uploads = 0, upload_bytes = 0;
+    };
+    virtual Work work() { return {}; }
     // True once the user closed the window (or pressed Escape).
     virtual bool wants_quit() { return false; }
 };

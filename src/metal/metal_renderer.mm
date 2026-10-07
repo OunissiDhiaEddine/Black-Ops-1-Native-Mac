@@ -224,7 +224,11 @@ public:
                 bool dump = !opts_.dump_dir.empty() && frame >= opts_.first_frame && frame % 20 == 0;
                 id<MTLCommandBuffer> mine = cmd_;
                 flush(dump);
-                if (!dump && prev_frame_cmd_) [prev_frame_cmd_ waitUntilCompleted];
+                if (!dump && prev_frame_cmd_) {
+                    auto t0 = std::chrono::steady_clock::now();
+                    [prev_frame_cmd_ waitUntilCompleted];
+                    ns_gpu_wait_ += since(t0);
+                }
                 prev_frame_cmd_ = dump ? nil : mine;
                 frames_rendered_++;
                 if (dump) dump_backbuffer(frame);
@@ -233,6 +237,9 @@ public:
         }
     }
     bool wants_quit() override { return quit_; }
+    Work work() override {
+        return {ns_translate_, ns_library_, ns_pipeline_, ns_gpu_wait_, ns_upload_, ns_drawable_, functions_compiled_, pipelines_created_, uploads_, upload_bytes_};
+    }
 
     int report() override {
         flush(true);
@@ -532,8 +539,11 @@ private:
         if (d.has_rect) region = MTLRegionMake3D(d.left, d.top, t->volume ? d.front : 0, d.right - d.left, d.bottom - d.top, t->volume ? d.back - d.front : 1);
         else region = MTLRegionMake3D(0, 0, 0, d.width, d.height, t->volume ? d.depth : 1);
         if (level >= t->levels) return;
+        auto t0 = std::chrono::steady_clock::now();
         [t->tex replaceRegion:region mipmapLevel:level slice:t->cube ? face : 0 withBytes:data->data.data()
                   bytesPerRow:d.pitch bytesPerImage:t->volume ? d.slice_pitch : 0];
+        ns_upload_ += since(t0);
+        uploads_++, upload_bytes_ += data->data.size();
     }
 
     // ---- command buffer / pass management ---------------------------------------------------
@@ -678,7 +688,11 @@ private:
         end_pass();
         if (cmd_) {
             [cmd_ commit];
-            if (wait) [cmd_ waitUntilCompleted];
+            if (wait) {
+                auto t0 = std::chrono::steady_clock::now();
+                [cmd_ waitUntilCompleted];
+                ns_gpu_wait_ += since(t0);
+            }
             cmd_ = nil;
         }
         gen_++;
@@ -1042,6 +1056,7 @@ private:
         auto t0 = std::chrono::steady_clock::now();
         id<MTLRenderPipelineState> p = [dev_ newRenderPipelineStateWithDescriptor:d error:&err];
         ns_pipeline_ += since(t0);
+        pipelines_created_++;
         if (!p) problem(std::string("pipeline: ") + (err ? [[err.localizedDescription componentsSeparatedByString:@"\n"][0] UTF8String] : "?"));
         for (uint32_t id : {cur_vs_, cur_ps_, cur_decl_}) pipeline_users_[id].push_back(key);
         return pipelines_[key] = p;
@@ -1248,7 +1263,9 @@ private:
         SDL_Event ev;
         while (!opts_.layer && SDL_PollEvent(&ev))
             if (ev.type == SDL_EVENT_QUIT || (ev.type == SDL_EVENT_KEY_DOWN && ev.key.key == SDLK_ESCAPE)) quit_ = true;
+        auto t_drawable = std::chrono::steady_clock::now();
         id<CAMetalDrawable> drawable = [layer_ nextDrawable];
+        ns_drawable_ += since(t_drawable);
         if (drawable && drawable.texture.pixelFormat == t->tex.pixelFormat && drawable.texture.width == t->w && drawable.texture.height == t->h) {
             id<MTLCommandBuffer> cb = [queue_ commandBuffer];
             id<MTLBlitCommandEncoder> blit = [cb blitCommandEncoder];
@@ -1322,6 +1339,7 @@ private:
     uint64_t draws_ = 0, draws_skipped_ = 0;
     size_t functions_compiled_ = 0;
     uint64_t ns_translate_ = 0, ns_library_ = 0, ns_pipeline_ = 0; // where shader start-up time goes (T-036)
+    uint64_t ns_drawable_ = 0, ns_gpu_wait_ = 0, ns_upload_ = 0, pipelines_created_ = 0, uploads_ = 0, upload_bytes_ = 0; // Work (T-058)
     static uint64_t since(std::chrono::steady_clock::time_point t0) {
         return (uint64_t)std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - t0).count();
     }
