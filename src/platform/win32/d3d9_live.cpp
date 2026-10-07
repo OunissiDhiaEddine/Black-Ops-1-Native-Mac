@@ -132,11 +132,17 @@ void observe(uint32_t tag, Cpu *, const uint32_t *a, int words, uint32_t result)
     };
     switch (iface) {
     case IFACE_D3D9:
-        if (slot == 16) rec.add(kPP, g_mem + a[5], 56), send = true; // CreateDevice: D3DPRESENT_PARAMETERS
+        if (slot == 16) { // CreateDevice: D3DPRESENT_PARAMETERS
+            rec.add(kPP, g_mem + a[5], 56), send = true;
+            if (ok) win::WindowService::get().set_display((int)rd32(a[5]), (int)rd32(a[5] + 4), rd32(a[5] + 32) == 0);
+        }
         break;
     case IFACE_DEVICE:
         switch (slot) {
-        case 16: rec.add(kPP, g_mem + a[1], 56), send = true; break; // Reset: D3DPRESENT_PARAMETERS
+        case 16: // Reset: D3DPRESENT_PARAMETERS (BackBufferWidth, Height at +0 / +4, Windowed at +32)
+            rec.add(kPP, g_mem + a[1], 56), send = true;
+            if (ok) win::WindowService::get().set_display((int)rd32(a[1]), (int)rd32(a[1] + 4), rd32(a[1] + 32) == 0);
+            break;
         case 17: present = send = true; break;                       // Present
         case 18: out(a[4]); break;                                   // GetBackBuffer
         case 23: out(a[7]); break;                                   // CreateTexture

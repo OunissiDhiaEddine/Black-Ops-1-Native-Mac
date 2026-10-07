@@ -49,6 +49,9 @@ bool WindowService::run(const std::atomic<bool> &done) {
                         fprintf(mouse_log_, "%llu motion %.3f %.3f %.1f %.1f %d\n", (unsigned long long)SDL_GetTicks(), ev.motion.xrel, ev.motion.yrel,
                                 ev.motion.x, ev.motion.y, input_.relative ? 1 : 0);
                 }
+                if (ev.type == SDL_EVENT_MOUSE_MOTION) to_game(&ev.motion.x, &ev.motion.y);
+                else if (ev.type == SDL_EVENT_MOUSE_BUTTON_DOWN || ev.type == SDL_EVENT_MOUSE_BUTTON_UP) to_game(&ev.button.x, &ev.button.y);
+                else if (ev.type == SDL_EVENT_MOUSE_WHEEL) to_game(&ev.wheel.mouse_x, &ev.wheel.mouse_y);
                 translate(ev, hwnd_, input_, batch);
                 for (const Msg &m : batch) queue_.push_back(m);
             }
@@ -64,12 +67,19 @@ void WindowService::serve_requests() {
         SDL_SetWindowTitle(window_, new_title_.c_str());
         title_pending_ = false;
     }
-    if (new_w_ && window_) {
+    if (disp_pending_ && window_) {
         SDL_Window *w = window_;
-        int nw = new_w_, nh = new_h_;
-        new_w_ = new_h_ = 0;
+        int dw = disp_w_, dh = disp_h_;
+        bool full = disp_full_;
+        disp_pending_ = false;
         lk.unlock();
-        SDL_SetWindowSize(w, nw, nh);
+        bool was = (SDL_GetWindowFlags(w) & SDL_WINDOW_FULLSCREEN) != 0;
+        if (was != full) {
+            SDL_SetWindowFullscreen(w, full); // no exclusive mode: the desktop's own full screen
+            SDL_SyncWindow(w);                // the switch is animated; the size below needs it finished
+        }
+        if (!full) SDL_SetWindowSize(w, dw, dh);
+        SDL_Log("window: display mode %dx%d %s", dw, dh, full ? "full screen" : "windowed");
         lk.lock();
     }
     if (window_) { // mouse look: follow what the game's SetCursorPos calls ask for
@@ -79,6 +89,8 @@ void WindowService::serve_requests() {
         if (want != relative_on_) {
             SDL_Window *w = window_;
             float x = (float)input_.x, y = (float)input_.y;
+            int ww = 0, wh = 0;
+            if (disp_w_ && SDL_GetWindowSize(w, &ww, &wh) && ww > 0 && wh > 0) x = x * (float)ww / (float)disp_w_, y = y * (float)wh / (float)disp_h_;
             lk.unlock();
             bool ok = SDL_SetWindowRelativeMouseMode(w, want);
             if (!want) SDL_WarpMouseInWindow(w, x, y); // the pointer reappears where the game last put its cursor
@@ -126,9 +138,17 @@ void WindowService::set_title(const std::string &title) {
     title_pending_ = true;
 }
 
-void WindowService::resize(int w, int h) {
+void WindowService::set_display(int w, int h, bool fullscreen) {
+    if (w <= 0 || h <= 0) return;
     std::lock_guard<std::mutex> lk(mu_);
-    new_w_ = w, new_h_ = h;
+    disp_w_ = w, disp_h_ = h, disp_full_ = fullscreen, disp_pending_ = true;
+}
+
+void WindowService::to_game(float *x, float *y) {
+    int ww = 0, wh = 0;
+    if (!disp_w_ || !window_ || !SDL_GetWindowSize(window_, &ww, &wh) || ww <= 0 || wh <= 0) return;
+    *x = *x * (float)disp_w_ / (float)ww;
+    *y = *y * (float)disp_h_ / (float)wh;
 }
 
 void WindowService::cursor(int32_t *x, int32_t *y) {

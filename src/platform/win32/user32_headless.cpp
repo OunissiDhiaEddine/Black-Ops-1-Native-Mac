@@ -182,43 +182,20 @@ SHIM(user32, IsWindow, 1) {
     std::lock_guard<std::mutex> lk(g_mu);
     return g_windows.count(a[0]) ? 1 : 0;
 }
-// The game gave its window a new outer size (display-mode change: R_ResetDevice, VA 0x006B87C9): the real
-// window follows with the client area that outer size stands for.
-static void resize_real_window(uint32_t hwnd, uint32_t style, int32_t w, int32_t h) {
-    win::WindowService &ws = win::WindowService::get();
-    if (!ws.has_window() || ws.hwnd() != hwnd) return;
-    uint32_t rc = heap_alloc(16, true);
-    adjust_rect(rc, style, false);
-    int cw = w - ((int32_t)rd32(rc + 8) - (int32_t)rd32(rc)), ch = h - ((int32_t)rd32(rc + 12) - (int32_t)rd32(rc + 4));
-    heap_free(rc);
-    if (cw < 64 || ch < 64) return;
-    ws.resize(cw, ch);
-    log("window: resized to a %dx%d client area", cw, ch);
-}
 SHIM(user32, SetWindowPos, 7) {
     // (hWnd, hWndInsertAfter, X, Y, cx, cy, uFlags)
-    uint32_t style;
-    {
-        std::lock_guard<std::mutex> lk(g_mu);
-        auto it = g_windows.find(a[0]);
-        if (it == g_windows.end()) return 0;
-        if (!(a[6] & 2)) it->second.x = (int32_t)a[2], it->second.y = (int32_t)a[3]; // !SWP_NOMOVE
-        if (!(a[6] & 1)) it->second.w = (int32_t)a[4], it->second.h = (int32_t)a[5]; // !SWP_NOSIZE
-        style = it->second.style;
-    }
-    if (!(a[6] & 1)) resize_real_window(a[0], style, (int32_t)a[4], (int32_t)a[5]);
+    std::lock_guard<std::mutex> lk(g_mu);
+    auto it = g_windows.find(a[0]);
+    if (it == g_windows.end()) return 0;
+    if (!(a[6] & 2)) it->second.x = (int32_t)a[2], it->second.y = (int32_t)a[3]; // !SWP_NOMOVE
+    if (!(a[6] & 1)) it->second.w = (int32_t)a[4], it->second.h = (int32_t)a[5]; // !SWP_NOSIZE
     return 1;
 }
 SHIM(user32, MoveWindow, 6) {
-    uint32_t style;
-    {
-        std::lock_guard<std::mutex> lk(g_mu);
-        auto it = g_windows.find(a[0]);
-        if (it == g_windows.end()) return 0;
-        it->second.x = (int32_t)a[1], it->second.y = (int32_t)a[2], it->second.w = (int32_t)a[3], it->second.h = (int32_t)a[4];
-        style = it->second.style;
-    }
-    resize_real_window(a[0], style, (int32_t)a[3], (int32_t)a[4]);
+    std::lock_guard<std::mutex> lk(g_mu);
+    auto it = g_windows.find(a[0]);
+    if (it == g_windows.end()) return 0;
+    it->second.x = (int32_t)a[1], it->second.y = (int32_t)a[2], it->second.w = (int32_t)a[3], it->second.h = (int32_t)a[4];
     return 1;
 }
 SHIM(user32, GetWindowRect, 2) {
