@@ -33,6 +33,21 @@
    4
   ]
  },
+ "setjmp_call_sites": [
+  "0x004069d0",
+  "0x00406a0c",
+  "0x00406a8c",
+  "0x00636a5b",
+  "0x006ebe0f",
+  "0x006ebe56",
+  "0x007a3c4d",
+  "0x007a3c6f",
+  "0x0082cc0d",
+  "0x008681ad",
+  "0x0087e2ba",
+  "0x008a8ded",
+  "0x008bd031"
+ ],
  "x87_decode_mismatches": {},
  "unlifted": {
   "0x0040c000": "int1",

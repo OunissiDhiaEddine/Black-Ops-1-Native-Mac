@@ -2,6 +2,7 @@
 // translation unit and by the runtime. Semantics follow the Intel SDM; anything "undefined" there
 // is given a fixed value so that the lifted code is deterministic.
 #pragma once
+#include <setjmp.h>
 #include <stdint.h>
 #include <string.h>
 
@@ -64,6 +65,11 @@ typedef uint64_t __attribute__((aligned(1), may_alias)) u64a;
 typedef void (*LiftedFn)(Cpu *);
 void rt_dispatch(Cpu *cpu, uint32_t target);                      // indirect call / jump
 void rt_trap(Cpu *cpu, uint32_t addr, uint32_t code) __attribute__((noreturn));
+// setjmp / longjmp (LIFTER.md A2): emitted after every call of the guest's _setjmp3 as
+//   if (_setjmp(*rt_setjmp_slot(cpu, <return address>))) fl = cpu->xfl;
+// The guest longjmp restores the guest registers itself and ends in `jmp [saved return address]`;
+// rt_dispatch() recognises that target and returns here through the host context saved in the slot.
+jmp_buf *rt_setjmp_slot(Cpu *cpu, uint32_t ret);
 void rt_cpuid(Cpu *cpu);                                          // fixed feature set, see runtime.c
 void rt_rdtsc(Cpu *cpu);
 enum { TRAP_INT3 = 1, TRAP_BAD_JUMP = 2, TRAP_DIV = 3, TRAP_UNSUPPORTED = 4, TRAP_NO_TARGET = 5, TRAP_TIMEOUT = 6, TRAP_FALLTHROUGH = 7,

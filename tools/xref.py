@@ -4,6 +4,8 @@
   .venv/bin/python tools/xref.py 0x009abdd0 0x00a2887c     -> every place whose bytes hold that VA
   .venv/bin/python tools/xref.py -s "savegame request"      -> the same for every string that contains the text
   .venv/bin/python tools/xref.py -c 0x0049B930              -> direct calls / jumps (E8 / E9) to that function
+  .venv/bin/python tools/xref.py -d 0x005B52A0 [bytes]      -> plain disassembly from that VA (default 160 bytes;
+                                                               for code that is not a Ghidra function)
 
 Method: byte search for the little-endian VA over all sections (code operands and data tables, e.g. the
 command table that pairs a name with its handler), and a rel32 scan of .text for -c. Functions come from
@@ -52,6 +54,19 @@ def main() -> int:
                 return f"{ins.address:08x}  {ins.mnemonic} {ins.op_str}"
         return "(not on an instruction)"
 
+    if args[0] == "-d":
+        va, n = int(args[1], 16), int(args[2], 0) if len(args) > 2 else 160
+        off = va - text[1]
+        for ins in md.disasm(text[2][off : off + n], va):
+            t = ""
+            if ins.mnemonic in ("call", "jmp", "push", "mov") and "0x" in ins.op_str:
+                try:
+                    v = int(ins.op_str.split("0x")[-1].rstrip("]"), 16)
+                    t = f"   ; {names[v]}" if v in names else ""
+                except ValueError:
+                    pass
+            print(f"{ins.address:08x}  {ins.mnemonic:8s} {ins.op_str}{t}")
+        return 0
     targets, mode = [], "ref"
     it = iter(args)
     for a in it:

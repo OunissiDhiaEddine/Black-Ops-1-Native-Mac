@@ -40,6 +40,11 @@ T = {1: "uint8_t", 2: "uint16_t", 4: "uint32_t"}
 ST = {1: "int8_t", 2: "int16_t", 4: "int32_t"}
 
 
+# The CRT's _setjmp3 (CONFIRMED by its body at this VA: stores ebp/ebx/edi/esi/esp/return address and the 'VC20'
+# cookie). A call to it also saves the host context, so that the matching longjmp — which ends in a jump to the
+# saved return address, not a function entry — can land after the call again (rt_setjmp_slot, docs/LIFTER.md A2).
+SETJMP = {0x00969EAC}
+
 # instructions on which the differential tests cannot trust the reference emulator (tests/diff/gen_vectors.py)
 SPECIAL = {"fyl2x", "fprem", "fprem1", "fsin", "fcos", "fsincos", "fptan", "f2xm1", "cpuid", "rdtsc"}
 
@@ -100,6 +105,7 @@ class Lifter:
                     if ts:
                         self.tables[int(r["insn"], 16)] = ts
         self.completed_tables = {}            # insn addr -> (targets Ghidra listed, targets in the image)
+        self.setjmp_sites = []                # call sites of SETJMP
         self.complete_tables(sorted(a for a in self.funcs if a not in self.extra))
 
     def is_code(self, va):
@@ -401,6 +407,9 @@ class Lifter:
                 if t in self.funcs:
                     pre = "cpu->xfl = fl; " if t in self.fl_in else ""
                     post = " fl = cpu->xfl;" if t in self.fl_out else ""
+                    if t in SETJMP:
+                        self.setjmp_sites.append(i.address)
+                        post = f" if (_setjmp(*rt_setjmp_slot(cpu, 0x{ret:08x}u))) fl = cpu->xfl;"
                     return [f"{pre}PUSH32(0x{ret:08x}u); f_{t:08x}(cpu);{post}"]
                 return [f"PUSH32(0x{ret:08x}u); rt_dispatch(cpu, 0x{t:08x}u);"]
             return [f"{{ uint32_t t_ = {self.rd(ops[0])}; PUSH32(0x{ret:08x}u); rt_dispatch(cpu, t_); }}"]
@@ -653,6 +662,7 @@ def main() -> int:
             "locked_instructions_not_atomic": dict(L.locked_plain),
             "jump_tables_inferred": {f"0x{a:08x}": n for a, n in sorted(L.inferred_tables.items())},
             "jump_tables_completed": {f"0x{a:08x}": list(n) for a, n in sorted(L.completed_tables.items())},
+            "setjmp_call_sites": [f"0x{a:08x}" for a in sorted(set(L.setjmp_sites))],
             "x87_decode_mismatches": dict(lift_fp.MISMATCH),
             "unlifted": unlifted,
             "blockers": dict(reasons.most_common()),
