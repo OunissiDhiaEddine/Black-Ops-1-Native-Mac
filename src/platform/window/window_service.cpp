@@ -20,6 +20,7 @@ bool WindowService::run(const std::atomic<bool> &done) {
         return false;
     }
     running_ = true;
+    if (const char *path = getenv("BO1_MOUSE_LOG")) mouse_log_ = fopen(path, "w");
     std::vector<Msg> batch;
     while (!done.load()) {
         serve_requests();
@@ -31,6 +32,12 @@ bool WindowService::run(const std::atomic<bool> &done) {
             batch.clear();
             {
                 std::lock_guard<std::mutex> lk(mu_);
+                if (ev.type == SDL_EVENT_MOUSE_MOTION) {
+                    if (input_.relative) look_events_++, look_dx_ += ev.motion.xrel, look_dy_ += ev.motion.yrel;
+                    if (mouse_log_)
+                        fprintf(mouse_log_, "%llu motion %.3f %.3f %.1f %.1f %d\n", (unsigned long long)SDL_GetTicks(), ev.motion.xrel, ev.motion.yrel,
+                                ev.motion.x, ev.motion.y, input_.relative ? 1 : 0);
+                }
                 translate(ev, hwnd_, input_, batch);
                 for (const Msg &m : batch) queue_.push_back(m);
             }
@@ -54,10 +61,19 @@ void WindowService::serve_requests() {
             SDL_Window *w = window_;
             float x = (float)input_.x, y = (float)input_.y;
             lk.unlock();
-            SDL_SetWindowRelativeMouseMode(w, want);
+            bool ok = SDL_SetWindowRelativeMouseMode(w, want);
             if (!want) SDL_WarpMouseInWindow(w, x, y); // the pointer reappears where the game last put its cursor
             lk.lock();
             relative_on_ = want;
+            // one line per switch in the run log: how much the hand moved while the game was looking around
+            if (want) {
+                SDL_Log("mouse look: relative mouse mode on%s", ok ? "" : " (SDL refused)");
+                look_events_ = look_warps_ = 0, look_dx_ = look_dy_ = 0;
+            } else {
+                SDL_Log("mouse look: relative mouse mode off after %llu re-centre calls, %llu motion events, total movement %.0f / %.0f",
+                        (unsigned long long)look_warps_, (unsigned long long)look_events_, look_dx_, look_dy_);
+            }
+            if (mouse_log_) fprintf(mouse_log_, "%llu relative %d\n", (unsigned long long)SDL_GetTicks(), want ? 1 : 0), fflush(mouse_log_);
         }
     }
     if (!create_ || create_->done) return;
@@ -101,6 +117,8 @@ void WindowService::warp(int32_t x, int32_t y) {
     std::lock_guard<std::mutex> lk(mu_);
     input_.x = x;
     input_.y = y; // the fractions in fx / fy stay: the game calls this every frame and slow movement lives in them
+    look_warps_++;
+    if (mouse_log_) fprintf(mouse_log_, "%llu warp %d %d\n", (unsigned long long)SDL_GetTicks(), x, y);
     last_warp_ = std::chrono::steady_clock::now();
     if (focused_ || !window_) input_.relative = true; // without a window (tests, scripted runs) the cursor is always virtual
 }
