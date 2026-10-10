@@ -15,10 +15,10 @@ if [ "${1:-}" = status ]; then
   echo "$DIR: $(count metallib) libraries, $(count metal) sources waiting, $(count failed) failed, $(du -sh "$DIR/" | cut -f1)"
   exit 0
 fi
-xcrun -sdk macosx -f metal >/dev/null 2>&1 || { echo "Apple's Metal compiler is not installed (xcodebuild -downloadComponent MetalToolchain)"; exit 1; }
-find "$DIR/" -maxdepth 1 -name "*.tmp*" -mmin +10 -delete
 todo=$(count metal)
 [ "$todo" = 0 ] && { echo "shader cache: nothing to compile ($(count metallib) libraries)"; exit 0; }
+xcrun -sdk macosx -f metal >/dev/null 2>&1 || { echo "Apple's Metal compiler is not installed (xcodebuild -downloadComponent MetalToolchain)"; exit 1; }
+find "$DIR/" -maxdepth 1 -name "*.tmp*" -mmin +10 -delete
 echo "shader cache: compiling $todo shaders ($(count metallib) libraries so far)"
 start=$(date +%s)
 export DIR

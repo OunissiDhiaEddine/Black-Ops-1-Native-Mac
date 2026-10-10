@@ -79,8 +79,11 @@ There is no console command that saves (`savegame` is a script call): RE_NOTES "
   every shader it had to compile itself and of every shader a level creates when it loads (~5,500 per level).
 - `scripts/shader_cache.sh` compiles the waiting sources with Apple's offline compiler (`xcrun metal`, part of
   Xcode's Metal toolchain) at low priority, `JOBS=3` at a time: 0.3–0.7 CPU-seconds per shader, so a level's first
-  load means 10–30 minutes once. `scripts/run_native.sh` runs it when the game exits (Ctrl-C is fine: it goes on
-  next time); `scripts/shader_cache.sh status` counts libraries and waiting sources.
+  load means 10–30 minutes once. `scripts/run_native.sh` runs it NEXT TO the game, every 5 s while there are
+  sources waiting (`BO1_CACHE_JOBS`, default 2 compilers; 0 = not while playing), and once more when the game
+  exits (Ctrl-C is fine: it goes on next time); `scripts/shader_cache.sh status` counts libraries and waiting
+  sources. While it compiles next to the heaviest scene the frame rate holds and single frames get up to ~5 ms
+  longer (T-069). `BO1_HEADLESS=1 scripts/run_native.sh 100` runs the same script without a window.
 - The directory belongs to the main folder; a worktree links it like its other inputs. Deleting it is harmless.
   After a change of the shader translator the keys change: old libraries are simply never asked for again
   (delete the directory now and then).
