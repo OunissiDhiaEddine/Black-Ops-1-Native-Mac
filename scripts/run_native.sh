@@ -17,3 +17,6 @@ echo "log: artifacts/boot/native_run.log"
 BO1_WINDOW=1 BO1_VERBOSE="${BO1_VERBOSE:-1}" artifacts/boot/bo1_boot --seconds "${1:-0}" > artifacts/boot/native_run.log 2>&1
 echo "exit code $?"
 tail -5 artifacts/boot/native_run.log | cut -c1-200
+# Shader cache: compile what this session met for the first time, so that the next one does not stall on it.
+# A level's first load leaves ~5,500 shaders (about 10 minutes at low priority); Ctrl-C is fine, it continues next time.
+scripts/shader_cache.sh

@@ -49,6 +49,9 @@ There is no console command that saves (`savegame` is a script call): RE_NOTES "
 | `BO1_NATIVE=off` | every hand-written replacement (`src/native`) runs its lifted original instead: A/B measurements and bisecting (docs/LIFTER.md §8) |
 | `BO1_AUDIO_MUTE=1` | the real audio device and its clock, mastering volume 0: for timing checks (SDL's dummy / disk devices consume samples about 8% slower than real time, so anything timed against the sound drifts there) |
 | `BO1_FRAME_STATS=N` | one "frame stats:" line per N frames (300 for `1`): fps, frame time avg / p50 / p95 / p99 / max, time inside the renderer and its share (state setters are not timed: see "Where the time goes"), Direct3D calls per frame; plus a line of what was spent on shaders (and how many were compiled ahead), pipelines, GPU and drawable waits, texture uploads, and one "slow frame N: …" line with the same breakdown for every frame over 33.4 ms |
+| `BO1_GPU_PASSES=N` | in frame N every pass (and every `StretchRect`) is committed on its own and prints "gpu pass …" with the GPU's time for it, its draw count and its target: which passes cost what at a resolution. The first line of the report covers everything before that frame: skip it |
+| `BO1_SHADER_CACHE=dir` / `off` | the shader cache's directory (default `artifacts/shader_cache`, see "Shader cache" below) / no cache: every shader is compiled in the game at its first use, as before T-067 |
+| `BO1_SHADER_CACHE_ALL=0` | the cache takes only the shaders a session used, not every shader a level creates: a few hundred to compile instead of ~5,500, and a shader never met before still stalls once |
 | `BO1_SHADER_LOG=1` | one line for every shader compiled at its first use (not ahead, in the background), with the frames it was created and used in |
 | `BO1_PRECOMPILE=1` | compile every shader in the background when the game creates it (off by default: it slowed play, LOG 2026-10-07) |
 | `BO1_MOUSE_LOG=file` | window only: every mouse motion event (`ms motion xrel yrel x y relative`), every `SetCursorPos` (`ms warp x y`) and every switch of relative mouse mode; the run log gets one "mouse look: relative mouse mode on / off …" line per switch regardless |
@@ -66,6 +69,22 @@ There is no console command that saves (`savegame` is a script call): RE_NOTES "
 - The lifted C code is generated (`tools/lifter/`), lives in `artifacts/lifted/` and is never edited or committed.
 - `scripts/doctor.sh` reports which tools are present; `scripts/setup_venv.sh` creates `.venv`.
 
+### Shader cache (T-067)
+- What stalls a frame at a shader's first use is compiling its MSL (130–340 ms each when Metal has never seen it).
+  `artifacts/shader_cache/` holds Metal libraries compiled outside the game, named by the hash of the MSL text; the
+  renderer loads one in ~0.15 ms instead of compiling. Pipelines are still created at first use: 7–12 ms each the
+  first time ever a cached library is used on the machine (a level's first frame: ~240 of them), then nothing, in
+  any folder — which is why there is no pipeline archive (T-068).
+- The game never compiles in the background and never leaves a draw out. It leaves the source (`<key>.metal`) of
+  every shader it had to compile itself and of every shader a level creates when it loads (~5,500 per level).
+- `scripts/shader_cache.sh` compiles the waiting sources with Apple's offline compiler (`xcrun metal`, part of
+  Xcode's Metal toolchain) at low priority, `JOBS=3` at a time: 0.3–0.7 CPU-seconds per shader, so a level's first
+  load means 10–30 minutes once. `scripts/run_native.sh` runs it when the game exits (Ctrl-C is fine: it goes on
+  next time); `scripts/shader_cache.sh status` counts libraries and waiting sources.
+- The directory belongs to the main folder; a worktree links it like its other inputs. Deleting it is harmless.
+  After a change of the shader translator the keys change: old libraries are simply never asked for again
+  (delete the directory now and then).
+
 ### Machine and toolchain (as of 2026-10-06)
 - Apple M1 (arm64, **16 KiB pages**), 8 GB RAM, macOS 27.0.1, Xcode 27.0.
 - Homebrew: cmake, ninja, ffmpeg, sdl3 3.4.18, faudio 26.10, mingw-w64, ghidra, openjdk@21, sevenzip.
@@ -73,7 +92,7 @@ There is no console command that saves (`savegame` is a script call): RE_NOTES "
 - `.venv`: pefile, capstone, lief, unicorn, numpy, pillow.
 - Wine baseline (oracle only, ADR-007): `artifacts/wine/cx` (WineCX 24.0.7), prefix `artifacts/wineprefix-cx`,
   started with `scripts/run_baseline.sh`. Working copy of the game: `artifacts/game` (`reference/` stays read-only).
-- A worktree thread links its inputs from the main checkout (`artifacts/lifted`, `artifacts/game`, `artifacts/traces`,
+- A worktree thread links its inputs from the main checkout (`artifacts/lifted`, `artifacts/game`, `artifacts/traces`, `artifacts/shader_cache`,
   `.venv`, `reference`, `re/ghidra_export`, the golden PNGs) and keeps its own `build/` and `artifacts/boot/`.
   Two exceptions: a thread that writes saves or settings makes `artifacts/game` a folder of links with its own
   `players/` (saves and `config.cfg` live there); a thread that changes the lifter or `src/runtime/lifted.h` works
@@ -136,7 +155,7 @@ Design references: `docs/HOST_ABI.md` (guest/host calls), `docs/LIFTER.md`, `doc
 - **Renderer:** `BO1_DEBUG_FRAME` / `BO1_DEBUG_DIR` with `tools/pass_dump.py`; `scripts/replay_window.sh <menu|cuba|vorkuta|khe_sanh> [first_frame]`
   shows a recorded trace live in a window.
 - **Where the time goes:** `sample <pid> 10 -file out.txt` on a running `bo1_boot`, then `tools/sample_tree.py out.txt "MetalRenderer::draw_indexed" 3` (callees merged over the report). A heavy scene without a hand: `BO1_CMDS="45000|loadgame <save>"` with a checkpoint save in `players/save/`.
-  `scripts/perf_scene.sh <tag>` does both for the two checkpoint saves `cuba-1` (street fight, ~31,000 Direct3D calls per frame) and `cuba-2` (~15,000): frame statistics in `artifacts/boot/<tag>.log`, two profiles next to it; `BIN=<other bo1_boot>` measures another build on the same saves. Expected on the M1 at 800x600 (2026-10-10): renderer 3.8 ms per frame in `cuba-1`, 2.5 ms in `cuba-2`, 62.5 fps in both. The profiler slows the game while it samples (those windows show it). "renderer ms" times draws, buffer writes and everything that goes as a record; the state setters (most of the calls) are counted but not timed since 2026-10-10, so numbers in older logs are 0.6–1.8 ms higher for the clock reads alone.
+  `scripts/perf_scene.sh <tag>` does both for the two checkpoint saves `cuba-1` (street fight, ~31,000 Direct3D calls per frame) and `cuba-2` (~15,000): frame statistics in `artifacts/boot/<tag>.log`, two profiles next to it; `BIN=<other bo1_boot>` measures another build on the same saves. Expected on the M1 at 800x600 (2026-10-10): renderer 3.8 ms per frame in `cuba-1`, 2.5 ms in `cuba-2`, 62.5 fps in both. The profiler slows the game while it samples (those windows show it). "GPU busy" in the second statistics line is the GPU's own time for the frames' command buffers (the budget is 16.7 ms per frame = 5,000 ms per 300 frames; expected 2026-10-10: ~3,000 ms in `cuba-1` at a true 2560x1600, ~2,500 ms at 1280x800); it rises when anything else uses the GPU. "renderer ms" times draws, buffer writes and everything that goes as a record; the state setters (most of the calls) are counted but not timed since 2026-10-10, so numbers in older logs are 0.6–1.8 ms higher for the clock reads alone.
 - **Steam:** `tools/steam_sites.py` lists the game's call sites; unknown methods trap with their slot number.
 - **Reading the game's code:** `tools/xref.py` (who references a string or an address, who calls a function, plain
   disassembly at a VA) and `tools/bink_sites.py --range LO HI` (annotated listing of whole functions).
@@ -163,5 +182,12 @@ Design references: `docs/HOST_ABI.md` (guest/host calls), `docs/LIFTER.md`, `doc
   worktree compiled the menu's 271 shader functions again (50 s of stalls), and the main folder's build stalled 36 s
   on a scene that had only ever been played from a worktree. A rebuild in the same folder kept its shaders. So: run a
   measurement twice in a new folder, and expect the user's first visit of a scene from a folder to hitch once.
+- **A windowed mode larger than the desktop is not what it says**: with `r_fullscreen 0` the game creates the device at
+  the desktop's size (`r_mode 2560x1600` -> "CreateDevice 1440x900"). To measure a resolution, set `r_fullscreen 1`
+  (headless runs accept it) and read the "CreateDevice" line (`BO1_VERBOSE=1`).
+- **Other programs distort a measurement, the GPU's too**: on 2026-10-10 one run "showed" the menu at 43 fps with the
+  renderer waiting 8–14 ms per frame for the GPU, while a system photo-analysis job, Spotlight and an editor were
+  busy; the same scene held 60 fps an hour later. Check `uptime` and `ps -Ao pcpu,comm -r | head` first, do not
+  dump frames (`BO1_D3D_DUMP`) in a timed run, and repeat a surprising result before writing it down.
 - **Withdrawn work is kept as patches** in `docs/patches/` (apply with `git apply` on the commit named in the log entry of 2026-10-07): the stall-free shader compile and the alternative setjmp / longjmp implementation.
 - **CSV files under `re/` have Windows line endings** (`platform_map.csv`, `symbols.csv`): edit them in binary mode.
