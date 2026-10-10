@@ -70,8 +70,9 @@ There is no console command that saves (`savegame` is a script call): RE_NOTES "
 ### Shader cache (T-067)
 - What stalls a frame at a shader's first use is compiling its MSL (130–340 ms each when Metal has never seen it).
   `artifacts/shader_cache/` holds Metal libraries compiled outside the game, named by the hash of the MSL text; the
-  renderer loads one in ~0.15 ms instead of compiling. Pipelines are still created at first use (~7 ms each the
-  first time in a folder).
+  renderer loads one in ~0.15 ms instead of compiling. Pipelines are still created at first use: 7–12 ms each the
+  first time ever a cached library is used on the machine (a level's first frame: ~240 of them), then nothing, in
+  any folder — which is why there is no pipeline archive (T-068).
 - The game never compiles in the background and never leaves a draw out. It leaves the source (`<key>.metal`) of
   every shader it had to compile itself and of every shader a level creates when it loads (~5,500 per level).
 - `scripts/shader_cache.sh` compiles the waiting sources with Apple's offline compiler (`xcrun metal`, part of
