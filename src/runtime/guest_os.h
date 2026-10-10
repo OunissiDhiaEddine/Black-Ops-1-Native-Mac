@@ -128,6 +128,8 @@ uint32_t com_new(uint32_t vtable, uint32_t extra);
 // runs after each call. Used to hand the game's Direct3D calls to the renderer (d3d9_live.cpp).
 using ComObserver = void (*)(uint32_t tag, Cpu *cpu, const uint32_t *a, int words, uint32_t result);
 void com_observe(const std::string &iface, uint32_t tag_base, ComObserver fn);
+// One method of such an interface gets an observer of its own (the calls a frame consists of: P6).
+void com_observe_slot(const std::string &iface, uint32_t slot, uint32_t tag, ComObserver fn);
 enum : uint32_t { COM_VTBL = 0, COM_REFS = 4, COM_DATA = 8 };
 void imports_report(); // call statistics (BO1_IMPORT_STATS=1)
 

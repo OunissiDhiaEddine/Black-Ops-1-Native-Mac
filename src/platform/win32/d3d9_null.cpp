@@ -174,6 +174,9 @@ static void unbound(uint32_t o) {
     else if (!is_bound(t)) destroy_object(t);
 }
 static void bind(uint32_t &slot, uint32_t o) {
+    // Most calls bind what is bound already (the game makes them once per draw). The slots are only written by
+    // device calls, which the game makes from one thread at a time (the device is not D3DCREATE_MULTITHREADED).
+    if (slot == o) return;
     std::lock_guard<std::recursive_mutex> lk(g_obj_mu);
     uint32_t old = slot;
     slot = o;

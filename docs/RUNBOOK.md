@@ -47,7 +47,7 @@ There is no console command that saves (`savegame` is a script call): RE_NOTES "
 | `BO1_CPUS=n` | processor count reported to the game |
 | `BO1_GAME_DIR`, `BO1_HOME_DIR` | the guest's `C:\bo1` (default `artifacts/game`) and home (default `artifacts/boot/home`) |
 | `BO1_AUDIO_MUTE=1` | the real audio device and its clock, mastering volume 0: for timing checks (SDL's dummy / disk devices consume samples about 8% slower than real time, so anything timed against the sound drifts there) |
-| `BO1_FRAME_STATS=N` | one "frame stats:" line per N frames (300 for `1`): fps, frame time avg / p50 / p95 / p99 / max, time inside the renderer and its share, Direct3D calls per frame; plus a line of what was spent on shaders (and how many were compiled ahead), pipelines, GPU and drawable waits, texture uploads, and one "slow frame N: …" line with the same breakdown for every frame over 33.4 ms |
+| `BO1_FRAME_STATS=N` | one "frame stats:" line per N frames (300 for `1`): fps, frame time avg / p50 / p95 / p99 / max, time inside the renderer and its share (state setters are not timed: see "Where the time goes"), Direct3D calls per frame; plus a line of what was spent on shaders (and how many were compiled ahead), pipelines, GPU and drawable waits, texture uploads, and one "slow frame N: …" line with the same breakdown for every frame over 33.4 ms |
 | `BO1_SHADER_LOG=1` | one line for every shader compiled at its first use (not ahead, in the background), with the frames it was created and used in |
 | `BO1_PRECOMPILE=1` | compile every shader in the background when the game creates it (off by default: it slowed play, LOG 2026-10-07) |
 | `BO1_MOUSE_LOG=file` | window only: every mouse motion event (`ms motion xrel yrel x y relative`), every `SetCursorPos` (`ms warp x y`) and every switch of relative mouse mode; the run log gets one "mouse look: relative mouse mode on / off …" line per switch regardless |
@@ -106,10 +106,14 @@ src/platform/win32/*.cpp     kernel32, user32/gdi32, winsock, misc DLLs
                              mixer thread with guest state, xWMA via FFmpeg; RE_NOTES "XAudio2 as the game uses it"
    steam_local.cpp           Steam: local offline stand-in (ADR-015), table re/steam_abi.csv
    d3d9_null.cpp             guest-visible Direct3D objects and their lifetime, lock memory, capability answers
-   d3d9_live.cpp             watches every Direct3D call and feeds it to the renderer as a call record; tells the
-                             window service the game's display mode after CreateDevice / Reset
+   d3d9_live.cpp             watches every Direct3D call and feeds it to the renderer: the calls a frame consists
+                             of (state setters, constants, buffer locks, draws) straight into the renderer's typed
+                             functions, the rest as a call record; tells the window service the game's display
+                             mode after CreateDevice / Reset
    user32_headless.cpp       windows, messages, cursor (despite the name it also serves the real window)
-src/rhi + src/metal          renderer: Direct3D 9 call records in, Metal out (same code the trace replay uses)
+src/rhi + src/metal          renderer: Direct3D 9 calls in (typed functions and call records; a record of a typed
+                             call is decoded into the same function, so the trace replay runs the same code),
+                             Metal out. A draw tells Metal only the state that changed since the draw before.
 src/shaders/sm3_msl.cpp      SM3 bytecode -> MSL
 src/platform/window          SDL3 window on the process main thread (size / full screen follow the game's display
                              mode), SDL events -> Win32 messages, virtual cursor /
@@ -125,7 +129,8 @@ Design references: `docs/HOST_ABI.md` (guest/host calls), `docs/LIFTER.md`, `doc
   `g_mem + <guest address>` finds whoever clobbers a game variable.
 - **Renderer:** `BO1_DEBUG_FRAME` / `BO1_DEBUG_DIR` with `tools/pass_dump.py`; `scripts/replay_window.sh <menu|cuba|vorkuta|khe_sanh> [first_frame]`
   shows a recorded trace live in a window.
-- **Where the time goes:** `sample <pid> 10 -file out.txt` on a running `bo1_boot`, then `tools/sample_tree.py out.txt "MetalRenderer::device_call" 2` (callees merged over the report). A heavy scene without a hand: `BO1_CMDS="45000|loadgame <save>"` with a checkpoint save in `players/save/`.
+- **Where the time goes:** `sample <pid> 10 -file out.txt` on a running `bo1_boot`, then `tools/sample_tree.py out.txt "MetalRenderer::draw_indexed" 3` (callees merged over the report). A heavy scene without a hand: `BO1_CMDS="45000|loadgame <save>"` with a checkpoint save in `players/save/`.
+  `scripts/perf_scene.sh <tag>` does both for the two checkpoint saves `cuba-1` (street fight, ~31,000 Direct3D calls per frame) and `cuba-2` (~15,000): frame statistics in `artifacts/boot/<tag>.log`, two profiles next to it; `BIN=<other bo1_boot>` measures another build on the same saves. Expected on the M1 at 800x600 (2026-10-10): renderer 3.8 ms per frame in `cuba-1`, 2.5 ms in `cuba-2`, 62.5 fps in both. The profiler slows the game while it samples (those windows show it). "renderer ms" times draws, buffer writes and everything that goes as a record; the state setters (most of the calls) are counted but not timed since 2026-10-10, so numbers in older logs are 0.6–1.8 ms higher for the clock reads alone.
 - **Steam:** `tools/steam_sites.py` lists the game's call sites; unknown methods trap with their slot number.
 - **Reading the game's code:** `tools/xref.py` (who references a string or an address, who calls a function, plain
   disassembly at a VA) and `tools/bink_sites.py --range LO HI` (annotated listing of whole functions).
@@ -148,5 +153,9 @@ Design references: `docs/HOST_ABI.md` (guest/host calls), `docs/LIFTER.md`, `doc
   then run together — on a loaded machine a `loadgame` timed "after the load" can arrive before the start save exists.
 - **`git add -A` picks up the worktree's links** (`.venv`, `reference`, `re/ghidra_export` are links there and the
   ignore patterns name directories): add paths explicitly.
+- **Compiled shaders are remembered per folder, not per machine** (LIKELY; seen 2026-10-10): the first run from a new
+  worktree compiled the menu's 271 shader functions again (50 s of stalls), and the main folder's build stalled 36 s
+  on a scene that had only ever been played from a worktree. A rebuild in the same folder kept its shaders. So: run a
+  measurement twice in a new folder, and expect the user's first visit of a scene from a folder to hitch once.
 - **Withdrawn work is kept as patches** in `docs/patches/` (apply with `git apply` on the commit named in the log entry of 2026-10-07): the stall-free shader compile and the alternative setjmp / longjmp implementation.
 - **CSV files under `re/` have Windows line endings** (`platform_map.csv`, `symbols.csv`): edit them in binary mode.

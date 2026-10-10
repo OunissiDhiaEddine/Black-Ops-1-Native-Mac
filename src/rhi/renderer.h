@@ -27,6 +27,28 @@ public:
     virtual void call(const trace::Record &r, int frame) = 0;
     // After the Present that ends `frame` (1-based).
     virtual void end_frame(int frame) = 0;
+
+    // ---- draw submission (P6) ----------------------------------------------------------------------------
+    // The calls a frame consists of (20,000-31,000 per frame in a fight), typed: each means what the Direct3D 9
+    // device method of the same name means, without a record around it. `call()` decodes a record of one of
+    // these into the same function, so the trace replay and the live game run the same code. Object arguments
+    // are object ids, as in a record. A renderer that does not draw may leave them empty.
+    virtual void set_render_state(uint32_t /*state*/, uint32_t /*value*/) {}
+    virtual void set_texture(uint32_t /*stage*/, uint32_t /*texture*/) {}
+    virtual void set_sampler_state(uint32_t /*stage*/, uint32_t /*type*/, uint32_t /*value*/) {}
+    virtual void set_vertex_declaration(uint32_t /*decl*/) {}
+    virtual void set_shader(bool /*vertex*/, uint32_t /*shader*/) {}
+    // `count` float4 registers from register `start`.
+    virtual void set_shader_constants(bool /*vertex*/, uint32_t /*start*/, const void * /*data*/, uint32_t /*count*/) {}
+    virtual void set_stream_source(uint32_t /*stream*/, uint32_t /*buffer*/, uint32_t /*offset*/, uint32_t /*stride*/) {}
+    virtual void set_indices(uint32_t /*buffer*/) {}
+    // DrawIndexedPrimitive(Type, BaseVertexIndex, MinVertexIndex, NumVertices, StartIndex, PrimitiveCount)
+    virtual void draw_indexed(uint32_t /*type*/, int32_t /*base_vertex*/, uint32_t /*min_index*/, uint32_t /*num_vertices*/,
+                              uint32_t /*start_index*/, uint32_t /*prim_count*/) {}
+    // Unlock of a vertex / index buffer that was locked with `lock_flags` at `offset`: `size` bytes the game
+    // wrote there (`data` may be null: a read-only lock, or nothing to hand over).
+    virtual void write_buffer(uint32_t /*buffer*/, uint32_t /*lock_flags*/, uint32_t /*offset*/, const void * /*data*/, uint32_t /*size*/) {}
+
     // Human-readable summary at the end of the run; returns the number of problems found.
     virtual int report() = 0;
     // Running totals of the work that makes single frames slow (T-058): nanoseconds spent translating shaders,

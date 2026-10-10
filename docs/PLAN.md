@@ -82,6 +82,7 @@ Lifted game + `src/platform` + Metal backend -> main menu -> mission 1. Triage c
 
 ## P6 — Strangler fig (only where it pays)
 Replace lifted modules with clean 64-bit C++ in `src/native/`, in priority order: (1) renderer front-end / draw submission (cut D3D9-shaped overhead, batch for Metal), (2) memory allocator, (3) file system + fastfile loading, (4) sound, (5) UI/menus, (6) whatever profiling shows is hot. Each replacement keeps diff-test + golden-frame suites green. Stop when perf and maintainability goals are met — full purity is optional.
+**Status:** started 2026-10-10 with item 1. Its host half is done (T-063: the path from the game's Direct3D calls to Metal); its guest half — the game's own lifted submission functions — is T-064. Open work: the OPEN table of `TASKS.md`.
 
 ## P7 — Metal optimization
 Profile with Instruments + Metal frame capture. Candidates: PSO + shader library cache at startup, argument buffers / fewer encoder switches, persistent mapped buffers (unified memory), triple buffering + frame pacing (ProMotion), tile memory where passes allow, MetalFX upscaling option, async texture streaming, fewer CPU->GPU copies.

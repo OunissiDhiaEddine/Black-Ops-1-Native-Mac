@@ -53,7 +53,8 @@ PY
 
 # libunicorn (x86 interpreter for the emulated steam_api.dll, ADR-010) comes with the Python package in the venv
 UNICORN="$(ls -d .venv/lib/python3*/site-packages/unicorn | head -1)"
-CXXFLAGS="-std=c++20 -O1 -g -Wall -Wextra -Werror -Wno-unused-parameter -ffp-contract=off -Isrc/runtime -Isrc/platform/win32 -Isrc/rhi -Itools/d3d9_proxy -Isrc/platform/window -I/opt/homebrew/include -I$LIFT -I$OUT/gen -I$UNICORN/include"
+# -O2: the Direct3D shims sit on the path of every draw call (P6); the lifted code has its own flags (scripts/build_lifted.sh)
+CXXFLAGS="-std=c++20 -O2 -g -Wall -Wextra -Werror -Wno-unused-parameter -ffp-contract=off -Isrc/runtime -Isrc/platform/win32 -Isrc/rhi -Itools/d3d9_proxy -Isrc/platform/window -I/opt/homebrew/include -I$LIFT -I$OUT/gen -I$UNICORN/include"
 CFLAGS="-std=c11 -O1 -g -Wall -Werror -ffp-contract=off -Isrc/runtime -I$LIFT"
 # an object is rebuilt when its source or ANY header it may include is newer (the window and renderer headers
 # too: a stale object with an old class layout still links and then misbehaves — it cost a window on 2026-10-07)

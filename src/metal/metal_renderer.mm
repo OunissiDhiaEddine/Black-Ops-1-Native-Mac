@@ -2,8 +2,9 @@
 // the back buffer for frames inside the window. D3D9 semantics live here (ADR-004 proposal a):
 // state is tracked exactly as the device would, and translated to Metal objects at draw time.
 //
-// Not a performance design: constants are re-uploaded per draw and hazards are resolved by
-// flushing. Correctness first; src/metal gets the real implementation.
+// Draw submission (P6): the calls a frame consists of arrive typed (renderer.h, "draw submission"), device
+// state lives in flat arrays, and a draw tells the encoder only what differs from what it was last told
+// (`Applied`). Hazards (a resource rewritten after a draw used it) are still resolved by flushing.
 #import <CoreGraphics/CoreGraphics.h>
 #import <Foundation/Foundation.h>
 #import <ImageIO/ImageIO.h>
@@ -85,6 +86,7 @@ struct Tex {
     id<MTLTexture> view = nil; // what shaders sample: `tex`, or a swizzled view of a render target
     uint32_t fmt = 0, w = 0, h = 0, d = 1, levels = 1;
     bool cube = false, volume = false, depth = false, null_target = false;
+    MTLTextureType type() const { return cube ? MTLTextureTypeCube : volume ? MTLTextureType3D : MTLTextureType2D; }
     bool unrecorded = false; // the game's latest write to it is not in the trace (LockDesc.dumped == 0 or 3)
     uint64_t used_gen = 0;
 };
@@ -141,6 +143,19 @@ struct Elem {
 struct Stream {
     uint32_t vb = 0, offset = 0, stride = 0;
 };
+// Key of the state-object caches (pipelines, depth-stencil states, samplers): the values themselves, hashed in
+// place (text keys were 18% of the render thread in the first profile, heap-allocated ones ~5% later; T-058, P6).
+template <size_t N> struct Key {
+    uint64_t v[N];
+    bool operator==(const Key &o) const { return !memcmp(v, o.v, sizeof(v)); }
+};
+template <size_t N> struct KeyHash {
+    size_t operator()(const Key<N> &k) const {
+        uint64_t h = 0x9E3779B97F4A7C15ull;
+        for (uint64_t x : k.v) h = (h ^ x) * 0x100000001B3ull, h ^= h >> 29;
+        return (size_t)h;
+    }
+};
 
 const char *kInternalShaders = R"(
 #include <metal_stdlib>
@@ -174,6 +189,9 @@ public:
         dummy_vb_ = [dev_ newBufferWithLength:64 options:MTLResourceStorageModeShared];
         float one[4] = {0, 0, 0, 1};
         memcpy(dummy_vb_.contents, one, sizeof(one));
+        for (unsigned st : {27, 19, 20, 171, 206, 207, 208, 209, 168}) rs_dirty_[st] |= kDirtyPipeline;        // blending, write mask
+        for (unsigned st : {7, 14, 23, 52, 53, 54, 55, 56, 58, 59, 185, 186, 187, 188, 189}) rs_dirty_[st] |= kDirtyDepth; // depth / stencil
+        rs_dirty_[174] |= kDirtyViewport;                                                                       // SCISSORTESTENABLE
         reset_state();
         if (!opts_.dump_dir.empty())
             [NSFileManager.defaultManager createDirectoryAtPath:@(opts_.dump_dir.c_str()) withIntermediateDirectories:YES attributes:nil error:nil];
@@ -200,20 +218,20 @@ public:
             case IFACE_TEXTURE:
                 if (r.slot == 18) out_surface(r, r.arg(0), r.arg(1), 0);
                 else if (r.slot == 20) upload_texture(r, r.arg(0), r.arg(1), 0);
-                else if (r.slot == 2) released(r, textures_);
+                else if (r.slot == 2 && released(r, textures_)) tex_dirty_ = 0xFFFF;
                 break;
             case IFACE_CUBE:
                 if (r.slot == 18) out_surface(r, r.arg(0), r.arg(2), r.arg(1));
                 else if (r.slot == 20) upload_texture(r, r.arg(0), r.arg(2), r.arg(1));
-                else if (r.slot == 2) released(r, textures_);
+                else if (r.slot == 2 && released(r, textures_)) tex_dirty_ = 0xFFFF;
                 break;
             case IFACE_VOLUME:
                 if (r.slot == 20) upload_texture(r, r.arg(0), r.arg(1), 0);
-                else if (r.slot == 2) released(r, textures_);
+                else if (r.slot == 2 && released(r, textures_)) tex_dirty_ = 0xFFFF;
                 break;
             case IFACE_VB: case IFACE_IB:
                 if (r.slot == 12) upload_buffer(r);
-                else if (r.slot == 2) released(r, buffers_);
+                else if (r.slot == 2 && released(r, buffers_)) buffers_changed();
                 break;
             case IFACE_SURFACE:
                 if (r.slot == 14) {
@@ -221,7 +239,7 @@ public:
                     if (it != surfaces_.end()) upload_texture(r, it->second.tex, it->second.level, it->second.face);
                 } else if (r.slot == 2 && r.has_result() && r.result == 0) {
                     auto it = surfaces_.find(r.arg(0));
-                    if (it != surfaces_.end() && it->second.tex == r.arg(0)) textures_.erase(r.arg(0)); // standalone
+                    if (it != surfaces_.end() && it->second.tex == r.arg(0)) textures_.erase(r.arg(0)), tex_dirty_ = 0xFFFF; // standalone
                     surfaces_.erase(r.arg(0));
                 }
                 break;
@@ -233,6 +251,7 @@ public:
     }
 
     void end_frame(int frame) override {
+        frame_ = frame + 1; // typed calls carry no frame number: they belong to the frame after the last Present
         @autoreleasepool {
             if (rendering(frame)) {
                 // The frame's work is submitted; the CPU only waits for the GPU when it reads the picture back
@@ -247,6 +266,13 @@ public:
                     ns_gpu_wait_ += since(t0);
                 }
                 prev_frame_cmd_ = dump ? nil : mine;
+                // Every command buffer of the frame before this one has completed now (they complete in the order
+                // they were committed, and the last of them was just waited for, or this frame's was): its
+                // constant chunks are free to be written again. This frame's wait one more frame.
+                for (id<MTLBuffer> b : chunks_prev_)
+                    if (chunks_free_.size() < kMaxFreeChunks) chunks_free_.push_back(b);
+                chunks_prev_ = std::move(chunks_frame_);
+                chunks_frame_.clear();
                 frames_rendered_++;
                 if (dump) dump_backbuffer(frame);
                 if (opts_.window || opts_.layer) present_to_window(frame);
@@ -265,7 +291,7 @@ public:
                ns_pipeline_ / 1e6);
         if (opts_.precompile) printf("precompiled shader functions used: %llu of %zu\n", (unsigned long long)precompiled_used_, functions_compiled_);
         printf("metal backend: %d frames rendered, %llu draws executed, %llu skipped; %zu pipelines, %zu shader functions compiled\n",
-               frames_rendered_, (unsigned long long)draws_, (unsigned long long)draws_skipped_, pipelines_.size(), functions_compiled_);
+               frames_rendered_, (unsigned long long)draws_, (unsigned long long)draws_skipped_, pipelines_.size() + internal_pipelines_.size(), functions_compiled_);
         for (auto &[k, n] : problems_) printf("  %8d  %s\n", n, k.c_str());
         for (auto &[kind, ids] : unrecorded_ids_) { // object id, number of frames affected, first and last such frame
             printf("  unrecorded %s (%zu):", kind.c_str(), ids.size());
@@ -296,12 +322,19 @@ private:
         return true;
     }
     // Pipelines are cached under the ids of their shaders and vertex declaration: they go with any of the three.
+    // (Called whenever a shader or declaration is destroyed: what the bound ids mean has to be looked up again.)
     void drop_pipelines(uint32_t id) {
+        dirty_ |= kDirtyObjects | kDirtyFunctions | kDirtyPipeline;
         auto it = pipeline_users_.find(id);
         if (it == pipeline_users_.end()) return;
-        for (const std::string &key : it->second) pipelines_.erase(key);
+        for (const Key<19> &key : it->second) pipelines_.erase(key);
         last_pipeline_.value = nil;
         pipeline_users_.erase(it);
+    }
+    // A buffer was created or destroyed: the buffers remembered for the bound streams / indices may be stale.
+    void buffers_changed() {
+        stream_dirty_ = 0xFFFF;
+        ib_dirty_ = true;
     }
     static uint32_t out_id(const Record &r) {
         const Blob *b = r.blob(kOut);
@@ -314,7 +347,10 @@ private:
     }
 
     void reset_state() {
-        rs_.clear();
+        rs_.fill(0);
+        dirty_ = kDirtyAll;
+        tex_dirty_ = samp_dirty_ = stream_dirty_ = 0xFFFF;
+        ib_dirty_ = true;
         rs_[7] = 0; rs_[14] = 1; rs_[23] = 4; rs_[15] = 0; rs_[25] = 8; rs_[24] = 0; rs_[19] = 2; rs_[20] = 1;
         rs_[22] = 3; rs_[27] = 0; rs_[52] = 0; rs_[53] = 1; rs_[54] = 1; rs_[55] = 1; rs_[56] = 8; rs_[57] = 0;
         rs_[58] = 0xFFFFFFFF; rs_[59] = 0xFFFFFFFF; rs_[168] = 0xF; rs_[171] = 1; rs_[174] = 0; rs_[175] = 0;
@@ -339,6 +375,8 @@ private:
         t.tex = [dev_ newTextureWithDescriptor:d];
         t.view = t.tex;
         textures_[kBackBufferTex] = t;
+        tex_dirty_ = 0xFFFF;
+        dirty_ |= kDirtyViewport;
         rt_ = {kBackBufferTex, 0, 0};
         have_rt_ = true;
         ds_ = {};
@@ -350,6 +388,7 @@ private:
     void create_texture(uint32_t id, MTLTextureType type, uint32_t w, uint32_t h, uint32_t depth, uint32_t levels,
                         uint32_t usage, uint32_t fmt) {
         if (!id) return;
+        tex_dirty_ = 0xFFFF; // the id may be one a stage already has bound
         Tex t;
         t.fmt = fmt, t.w = w, t.h = h, t.d = depth;
         t.cube = type == MTLTextureTypeCube, t.volume = type == MTLTextureType3D, t.depth = is_depth(fmt);
@@ -399,6 +438,7 @@ private:
             reset_state();
             bound_tex_.fill(0);
             streams_.fill({});
+            stream_mask_ = 0;
             cur_vs_ = cur_ps_ = cur_decl_ = cur_ib_ = 0;
             break;
         case 18: out_surface(r, kBackBufferTex, 0, 0); break;
@@ -412,6 +452,7 @@ private:
                 if (r.slot == 27) b.index_fmt = r.arg(3);
                 b.buf = [dev_ newBufferWithLength:std::max<uint32_t>(b.size, 16) options:MTLResourceStorageModeShared];
                 buffers_[id] = b;
+                buffers_changed();
             }
             break;
         case 28: case 29: // CreateRenderTarget / CreateDepthStencilSurface: a standalone surface
@@ -433,6 +474,7 @@ private:
                         uint32_t w = std::max(1u, t->w >> rt_.level), h = std::max(1u, t->h >> rt_.level);
                         viewport_ = {0, 0, (double)w, (double)h, 0, 1};
                         scissor_ = {0, 0, w, h};
+                        dirty_ |= kDirtyViewport;
                     }
                 } else if (r.arg(2))
                     problem("SetRenderTarget: unknown surface");
@@ -454,6 +496,7 @@ private:
                 memcpy(v, b->data.data(), 16);
                 memcpy(z, b->data.data() + 16, 8);
                 viewport_ = {(double)v[0], (double)v[1], (double)v[2], (double)v[3], z[0], z[1]};
+                dirty_ |= kDirtyViewport;
             }
             break;
         case 75:
@@ -461,12 +504,13 @@ private:
                 int32_t v[4];
                 memcpy(v, b->data.data(), 16);
                 scissor_ = {(NSUInteger)std::max(v[0], 0), (NSUInteger)std::max(v[1], 0), (NSUInteger)std::max(v[2] - v[0], 0), (NSUInteger)std::max(v[3] - v[1], 0)};
+                dirty_ |= kDirtyViewport;
             }
             break;
-        case 57: rs_[r.arg(1)] = r.arg(2); break;
-        case 65: if (r.arg(1) < 16) bound_tex_[r.arg(1)] = r.arg(2); break;
-        case 69: if (r.arg(1) < 16 && r.arg(2) < 14) samp_[r.arg(1)][r.arg(2)] = r.arg(3); break;
-        case 82: draw(r); break;
+        case 57: set_render_state(r.arg(1), r.arg(2)); break;
+        case 65: set_texture(r.arg(1), r.arg(2)); break;
+        case 69: set_sampler_state(r.arg(1), r.arg(2), r.arg(3)); break;
+        case 82: draw_indexed(r.arg(1), (int32_t)r.arg(2), r.arg(3), r.arg(4), r.arg(5), r.arg(6)); break;
         case 86:
             if (uint32_t id = out_id(r)) {
                 std::vector<Elem> el;
@@ -478,9 +522,10 @@ private:
                         el.push_back(e);
                     }
                 decls_[id] = std::move(el);
+                dirty_ |= kDirtyObjects | kDirtyPipeline;
             }
             break;
-        case 87: cur_decl_ = r.arg(1); break;
+        case 87: set_vertex_declaration(r.arg(1)); break;
         case 91: case 106:
             if (uint32_t id = out_id(r)) {
                 Shader s;
@@ -492,20 +537,16 @@ private:
                 s.created_frame = frame_;
                 if (opts_.precompile && !s.code.empty()) precompile(s);
                 shaders_[id] = std::move(s);
+                dirty_ |= kDirtyObjects | kDirtyFunctions | kDirtyPipeline;
             }
             break;
-        case 92: cur_vs_ = r.arg(1); break;
-        case 107: cur_ps_ = r.arg(1); break;
+        case 92: set_shader(true, r.arg(1)); break;
+        case 107: set_shader(false, r.arg(1)); break;
         case 94: case 109:
-            if (const Blob *b = r.blob(kData)) {
-                Consts &c = r.slot == 94 ? vsc_ : psc_;
-                uint32_t start = r.arg(1), bytes = (uint32_t)b->data.size();
-                if (start < sm3::kMaxFloatConsts) memcpy(c.c[start], b->data.data(), std::min<size_t>(bytes, (sm3::kMaxFloatConsts - start) * 16));
-                const_copy_[r.slot == 94 ? 0 : 1].dirty = true;
-            }
+            if (const Blob *b = r.blob(kData)) set_shader_constants(r.slot == 94, r.arg(1), b->data.data(), (uint32_t)(b->data.size() / 16));
             break;
-        case 100: if (r.arg(1) < 16) streams_[r.arg(1)] = {r.arg(2), r.arg(3), r.arg(4)}; break;
-        case 104: cur_ib_ = r.arg(1); break;
+        case 100: set_stream_source(r.arg(1), r.arg(2), r.arg(3), r.arg(4)); break;
+        case 104: set_indices(r.arg(1)); break;
         default: break;
         }
     }
@@ -517,30 +558,38 @@ private:
 
     // ---- uploads ---------------------------------------------------------------------------
     void upload_buffer(const Record &r) {
-        auto it = buffers_.find(r.arg(0));
         const Blob *lb = r.blob(kLock), *data = r.blob(kData);
-        if (it == buffers_.end() || !lb || lb->data.size() != sizeof(LockDesc)) return;
+        if (!lb || lb->data.size() != sizeof(LockDesc)) return;
         LockDesc d;
         memcpy(&d, lb->data.data(), sizeof(d));
-        Buf &b = it->second;
-        bool discard = d.lock_flags & 0x2000, nooverwrite = d.lock_flags & 0x1000;
         if (debug_log_ && getenv("BO1_DEBUG_UPLOADS") && (uint32_t)strtoul(getenv("BO1_DEBUG_UPLOADS"), nullptr, 16) == r.arg(0))
             fprintf(debug_log_, "upload frame=%d buf=%08x flags=%x offset=%u size=%u dumped=%u data=%zu\n", frame_, r.arg(0), d.lock_flags, d.offset, d.size, d.dumped, data ? data->data.size() : 0);
+        buffer_written(r.arg(0), d.lock_flags, d.offset, d.size, d.dumped, data ? data->data.data() : nullptr, data ? data->data.size() : 0);
+    }
+    // The game unlocked a buffer: `n` bytes at `data` are what it wrote at `offset` (none: nothing was handed
+    // over). `lock_size` / `dumped` describe the lock as the trace does (LockDesc; dumped 3 = written, not recorded).
+    void buffer_written(uint32_t id, uint32_t lock_flags, uint32_t offset, uint32_t lock_size, uint32_t dumped, const void *data, size_t n) {
+        auto it = buffers_.find(id);
+        if (it == buffers_.end()) return;
+        Buf &b = it->second;
+        bool discard = lock_flags & 0x2000, nooverwrite = lock_flags & 0x1000;
         if (discard) { // fresh storage: earlier draws keep the old contents
             b.buf = [dev_ newBufferWithLength:std::max<uint32_t>(b.size, 16) options:MTLResourceStorageModeShared];
             b.used_gen = 0;
             b.unrecorded.clear();
         } else if (!nooverwrite && b.used_gen == gen_ && data) {
-            flush(true);
+            @autoreleasepool {
+                flush(true);
+            }
         }
-        if (d.dumped == 3) b.mark(d.offset, d.size ? std::min<uint64_t>((uint64_t)d.offset + d.size, b.size) : b.size, true);
-        if (!data || data->data.empty()) return;
-        if ((uint64_t)d.offset + data->data.size() > b.size) {
+        if (dumped == 3) b.mark(offset, lock_size ? std::min<uint64_t>((uint64_t)offset + lock_size, b.size) : b.size, true);
+        if (!data || !n) return;
+        if ((uint64_t)offset + n > b.size) {
             problem("buffer upload out of range");
             return;
         }
-        b.mark(d.offset, d.offset + (uint32_t)data->data.size(), false);
-        memcpy((uint8_t *)b.buf.contents + d.offset, data->data.data(), data->data.size());
+        if (!b.unrecorded.empty()) b.mark(offset, offset + (uint32_t)n, false);
+        memcpy((uint8_t *)b.buf.contents + offset, data, n);
     }
 
     void upload_texture(const Record &r, uint32_t tex_id, uint32_t level, uint32_t face) {
@@ -556,6 +605,7 @@ private:
             return;
         }
         if (level == 0) t->unrecorded = false;
+        tex_dirty_ = 0xFFFF; // `unrecorded` is remembered per stage
         if (t->used_gen == gen_) flush(true); // an earlier draw in this command buffer samples it
         MTLRegion region;
         if (d.has_rect) region = MTLRegionMake3D(d.left, d.top, t->volume ? d.front : 0, d.right - d.left, d.bottom - d.top, t->volume ? d.back - d.front : 1);
@@ -598,8 +648,7 @@ private:
             cmd_ = nil;
         }
         gen_++;
-        const_chunks_.clear();
-        const_off_ = 0;
+        retire_const_chunks();
         const_copy_[0] = const_copy_[1] = {};
         int n = debug_pass_++;
         fprintf(debug_log_, "%s %d:", kind, n);
@@ -663,11 +712,11 @@ private:
             fclose(f);
         }
     }
-    void debug_draw(const Record &r, Shader &vs, Shader &ps, uint32_t shadow) {
+    void debug_draw(uint32_t prim_count, int32_t base_vertex, uint32_t start_index, Shader &vs, Shader &ps, uint32_t shadow) {
         debug_shader(cur_vs_, vs, 0);
         debug_shader(cur_ps_, ps, shadow);
         fprintf(debug_log_, "  draw vs=%08x ps=%08x shadow=%x prims=%u vp=%g,%g,%gx%g z=%g..%g zen=%u zw=%u zf=%u ab=%u src=%u dst=%u sep=%u srca=%u dsta=%u at=%u/%u/%u cw=%x cull=%u st=%u sc=%u", cur_vs_, cur_ps_, shadow,
-                r.arg(6), viewport_.originX, viewport_.originY, viewport_.width, viewport_.height, viewport_.znear, viewport_.zfar, rs_[7], rs_[14], rs_[23], rs_[27], rs_[19], rs_[20],
+                prim_count, viewport_.originX, viewport_.originY, viewport_.width, viewport_.height, viewport_.znear, viewport_.zfar, rs_[7], rs_[14], rs_[23], rs_[27], rs_[19], rs_[20],
                 rs_[206], rs_[207], rs_[208], rs_[15], rs_[25], rs_[24], rs_[168], rs_[22], rs_[52], rs_[174]);
         for (const sm3::SamplerDecl &s : ps.meta.samplers) {
             const Tex *t = tex(bound_tex_[s.reg]);
@@ -679,19 +728,19 @@ private:
             fprintf(debug_log_, " stencil[func=%u ref=%u mask=%x wmask=%x fail=%u zfail=%u pass=%u two=%u ccw=%u/%u/%u/%u]", rs_[56], rs_[57], rs_[58], rs_[59], rs_[53], rs_[54], rs_[55],
                     rs_[185], rs_[189], rs_[186], rs_[187], rs_[188]);
         fprintf(debug_log_, "\n");
-        if (r.arg(6) > 2) return; // quads: also show where the vertices are and the constants that place them
+        if (prim_count > 2) return; // quads: also show where the vertices are and the constants that place them
         auto ib = buffers_.find(cur_ib_);
         auto di = decls_.find(cur_decl_);
         if (ib == buffers_.end() || di == decls_.end()) return;
         bool i32 = ib->second.index_fmt == FMT_INDEX32;
-        fprintf(debug_log_, "    scissor=%lu,%lu,%lux%lu base=%d decl:", (unsigned long)scissor_.x, (unsigned long)scissor_.y, (unsigned long)scissor_.width, (unsigned long)scissor_.height, (int32_t)r.arg(2));
+        fprintf(debug_log_, "    scissor=%lu,%lu,%lux%lu base=%d decl:", (unsigned long)scissor_.x, (unsigned long)scissor_.y, (unsigned long)scissor_.width, (unsigned long)scissor_.height, base_vertex);
         for (const Elem &e : di->second) fprintf(debug_log_, " [s%u+%u t%u u%u.%u]", e.stream, e.offset, e.type, e.usage, e.uidx);
         fprintf(debug_log_, "\n");
-        for (uint32_t k = 0; k < r.arg(6) * 3; k++) {
-            size_t off = (size_t)(r.arg(5) + k) * (i32 ? 4 : 2);
+        for (uint32_t k = 0; k < prim_count * 3; k++) {
+            size_t off = (size_t)(start_index + k) * (i32 ? 4 : 2);
             if (off + 4 > ib->second.size) break;
             uint32_t idx = i32 ? *(const uint32_t *)((const uint8_t *)ib->second.buf.contents + off) : *(const uint16_t *)((const uint8_t *)ib->second.buf.contents + off);
-            idx += r.arg(2);
+            idx += (uint32_t)base_vertex;
             fprintf(debug_log_, "    i%u=%u", k, idx);
             for (const Elem &e : di->second) {
                 if (e.usage != 0 || e.stream >= 16) continue;
@@ -707,6 +756,15 @@ private:
         }
         for (int c = 0; c < 8; c++) fprintf(debug_log_, "    vs c%d = %g %g %g %g\n", c, vsc_.c[c][0], vsc_.c[c][1], vsc_.c[c][2], vsc_.c[c][3]);
     }
+    // Constant chunks (bind_consts) are kept and used again instead of being allocated for every command buffer:
+    // a fight needs ~20 of them (2.3 MiB each) per frame, and fresh memory costs a page fault per 16 KiB.
+    // A chunk may be written again once the GPU is done with the command buffers that read it; end_frame
+    // knows when that is.
+    void retire_const_chunks() {
+        for (id<MTLBuffer> b : const_chunks_) chunks_frame_.push_back(b);
+        const_chunks_.clear();
+        const_off_ = 0;
+    }
     void flush(bool wait) {
         end_pass();
         if (cmd_) {
@@ -719,8 +777,7 @@ private:
             cmd_ = nil;
         }
         gen_++;
-        const_chunks_.clear();
-        const_off_ = 0;
+        retire_const_chunks();
         const_copy_[0] = const_copy_[1] = {};
     }
     id<MTLTexture> target_texture(const Surface &s, Tex **out = nullptr) {
@@ -756,6 +813,13 @@ private:
         ensure_cmd();
         enc_ = [cmd_ renderCommandEncoderWithDescriptor:p];
         const_copy_[0].on_encoder = const_copy_[1].on_encoder = false;
+        // A new encoder knows nothing: every stage is looked at again (which also marks its texture as used by
+        // this command buffer), the pipeline depends on the pass's formats, the scissor on its size.
+        ap_ = {};
+        tex_dirty_ = samp_dirty_ = 0xFFFF;
+        dirty_ |= kDirtyPipeline | kDirtyViewport;
+        [enc_ setFrontFacingWinding:MTLWindingClockwise];
+        [enc_ setVertexBuffer:dummy_vb_ offset:0 atIndex:16];
         pass_color_ = color ? color.pixelFormat : MTLPixelFormatInvalid;
         pass_depth_ = depth ? depth.pixelFormat : MTLPixelFormatInvalid;
         pass_w_ = color ? std::max<NSUInteger>(1, color.width >> rt_.level) : std::max<NSUInteger>(1, depth.width >> ds_.level);
@@ -767,8 +831,8 @@ private:
 
     id<MTLRenderPipelineState> internal_pipeline(const char *fs, uint32_t write_mask, bool blit) {
         std::string key = fmt_key("int:%s:%lu:%lu:%u", fs, (unsigned long)pass_color_, (unsigned long)pass_depth_, write_mask);
-        auto it = pipelines_.find(key);
-        if (it != pipelines_.end()) return it->second;
+        auto it = internal_pipelines_.find(key);
+        if (it != internal_pipelines_.end()) return it->second;
         MTLRenderPipelineDescriptor *d = [MTLRenderPipelineDescriptor new];
         d.vertexFunction = [internal_ newFunctionWithName:@"fs_vs"];
         d.fragmentFunction = [internal_ newFunctionWithName:@(fs)];
@@ -781,7 +845,7 @@ private:
         NSError *err = nil;
         id<MTLRenderPipelineState> p = [dev_ newRenderPipelineStateWithDescriptor:d error:&err];
         if (!p) problem(std::string("internal pipeline: ") + (err ? err.localizedDescription.UTF8String : "?"));
-        pipelines_[key] = p;
+        internal_pipelines_[key] = p;
         return p;
     }
     static MTLColorWriteMask mtl_write_mask(uint32_t d3d) { // D3DCOLORWRITEENABLE: R=1 G=2 B=4 A=8
@@ -792,23 +856,17 @@ private:
         if (d3d & 8) m |= MTLColorWriteMaskAlpha;
         return m;
     }
-    // Cache key for the per-draw state caches: the values themselves, not text (formatting them was 18% of the
-    // render thread in the first profile, T-058).
-    // The last key a state lookup was made with and what it returned: consecutive draws mostly ask for the same
-    // pipeline / depth state / sampler, and building and hashing the string key was ~20% of a draw (T-058).
+    // The last key a state lookup was made with and what it returned: consecutive lookups mostly ask for the same
+    // pipeline / depth state / sampler (T-058).
     template <size_t N> struct Last {
-        uint64_t key[N];
+        Key<N> key;
         id value = nil;
-        bool same(const uint64_t (&k)[N]) const { return value && !memcmp(key, k, sizeof(key)); }
-        id set(const uint64_t (&k)[N], id v) {
-            memcpy(key, k, sizeof(key));
+        bool same(const Key<N> &k) const { return value && key == k; }
+        id set(const Key<N> &k, id v) {
+            key = k;
             return value = v;
         }
     };
-    static std::string bin_key(const uint64_t *v, size_t n) { return std::string(reinterpret_cast<const char *>(v), n * sizeof(uint64_t)); }
-    static std::string bin_key(std::initializer_list<uint64_t> v) {
-        return std::string(reinterpret_cast<const char *>(v.begin()), v.size() * sizeof(uint64_t));
-    }
     static std::string fmt_key(const char *f, ...) {
         char buf[512];
         va_list ap;
@@ -852,8 +910,7 @@ private:
         bool want_depth = (flags & 2) && pass_depth_ != MTLPixelFormatInvalid, want_stencil = (flags & 4) && pass_depth_ != MTLPixelFormatInvalid;
         id<MTLRenderPipelineState> p = internal_pipeline("clear_fs", want_color ? 0xF : 0, false);
         if (!p) return;
-        std::string dk = fmt_key("clr:%d:%d", want_depth, want_stencil);
-        id<MTLDepthStencilState> dss = depth_states_[dk];
+        id<MTLDepthStencilState> dss = clear_depth_[want_depth][want_stencil];
         if (!dss) {
             MTLDepthStencilDescriptor *d = [MTLDepthStencilDescriptor new];
             d.depthCompareFunction = MTLCompareFunctionAlways;
@@ -865,7 +922,7 @@ private:
                 d.frontFaceStencil = s;
                 d.backFaceStencil = s;
             }
-            dss = depth_states_[dk] = [dev_ newDepthStencilStateWithDescriptor:d];
+            dss = clear_depth_[want_depth][want_stencil] = [dev_ newDepthStencilStateWithDescriptor:d];
         }
         struct { float color[4]; float depth; float pad[3]; } u = {{((color >> 16) & 0xFF) / 255.f, ((color >> 8) & 0xFF) / 255.f, (color & 0xFF) / 255.f, (color >> 24) / 255.f}, z, {0, 0, 0}};
         [enc_ setRenderPipelineState:p];
@@ -876,6 +933,11 @@ private:
         [enc_ setViewport:full];
         [enc_ setVertexBytes:&u length:sizeof(u) atIndex:0];
         [enc_ setFragmentBytes:&u length:sizeof(u) atIndex:0];
+        // The next draw finds the encoder changed: pipeline, depth state, stencil reference, cull mode, viewport,
+        // scissor and vertex buffer 0 are no longer what it was last told.
+        ap_.pipeline = ap_.depth = ap_.vb[0] = nullptr;
+        ap_.raster = false;
+        dirty_ |= kDirtyViewport;
         // Optional rect list (D3DRECT[Count]): each rect is clipped to the viewport/scissor area.
         const Blob *rects = r.blob(kRectA);
         size_t nrects = rects ? rects->data.size() / 16 : 0;
@@ -1103,13 +1165,12 @@ private:
 
     id<MTLRenderPipelineState> pipeline(Shader &vs, Shader &ps, id<MTLFunction> vf, id<MTLFunction> pf, const std::vector<Elem> &decl) {
         bool blend = rs_[27] != 0, sep = rs_[206] != 0;
-        const uint64_t k[19] = {cur_vs_, cur_ps_, (uint64_t)(uintptr_t)(__bridge void *)pf, cur_decl_, (uint64_t)pass_color_, (uint64_t)pass_depth_, blend,
-                                rs_[19], rs_[20], rs_[171], sep, rs_[207], rs_[208], rs_[209], rs_[168], streams_[0].stride, streams_[1].stride,
-                                streams_[2].stride, streams_[3].stride};
-        if (last_pipeline_.same(k)) return last_pipeline_.value;
-        std::string key = bin_key(k, 19);
+        const Key<19> key = {{cur_vs_, cur_ps_, (uint64_t)(uintptr_t)(__bridge void *)pf, cur_decl_, (uint64_t)pass_color_, (uint64_t)pass_depth_, blend,
+                              rs_[19], rs_[20], rs_[171], sep, rs_[207], rs_[208], rs_[209], rs_[168], streams_[0].stride, streams_[1].stride,
+                              streams_[2].stride, streams_[3].stride}};
+        if (last_pipeline_.same(key)) return last_pipeline_.value;
         auto it = pipelines_.find(key);
-        if (it != pipelines_.end()) return last_pipeline_.set(k, it->second);
+        if (it != pipelines_.end()) return last_pipeline_.set(key, it->second);
         (void)ps;
         MTLRenderPipelineDescriptor *d = [MTLRenderPipelineDescriptor new];
         d.vertexFunction = vf;
@@ -1170,11 +1231,10 @@ private:
 
     id<MTLDepthStencilState> depth_state() {
         bool z = rs_[7] != 0, stencil = rs_[52] != 0, two = rs_[185] != 0;
-        const uint64_t k[15] = {z, rs_[14], rs_[23], stencil, rs_[53], rs_[54], rs_[55], rs_[56], rs_[58], rs_[59], two, rs_[186], rs_[187], rs_[188], rs_[189]};
-        if (last_depth_.same(k)) return last_depth_.value;
-        std::string key = bin_key(k, 15);
+        const Key<15> key = {{z, rs_[14], rs_[23], stencil, rs_[53], rs_[54], rs_[55], rs_[56], rs_[58], rs_[59], two, rs_[186], rs_[187], rs_[188], rs_[189]}};
+        if (last_depth_.same(key)) return last_depth_.value;
         auto it = depth_states_.find(key);
-        if (it != depth_states_.end()) return last_depth_.set(k, it->second);
+        if (it != depth_states_.end()) return last_depth_.set(key, it->second);
         MTLDepthStencilDescriptor *d = [MTLDepthStencilDescriptor new];
         d.depthCompareFunction = z ? (MTLCompareFunction)(std::clamp<uint32_t>(rs_[23], 1, 8) - 1) : MTLCompareFunctionAlways;
         d.depthWriteEnabled = z && rs_[14];
@@ -1196,12 +1256,11 @@ private:
     }
 
     id<MTLSamplerState> sampler(uint32_t u, uint32_t v, uint32_t w, uint32_t mag, uint32_t min, uint32_t mip, uint32_t aniso, bool compare) {
-        const uint64_t k[8] = {u, v, w, mag, min, mip, aniso, compare};
+        const Key<8> key = {{u, v, w, mag, min, mip, aniso, compare}};
         Last<8> &last = last_sampler_[(u * 31 + v * 7 + mag * 5 + min * 3 + mip + aniso + compare) & 7];
-        if (last.same(k)) return last.value;
-        std::string key = bin_key(k, 8);
+        if (last.same(key)) return last.value;
         auto it = samplers_.find(key);
-        if (it != samplers_.end()) return last.set(k, it->second);
+        if (it != samplers_.end()) return last.set(key, it->second);
         auto addr = [](uint32_t a) {
             switch (a) {
             case 2: return MTLSamplerAddressModeMirrorRepeat;
@@ -1235,7 +1294,11 @@ private:
         if (!last.buf || last.dirty || used > last.used) {
             const NSUInteger need = (sizeof(Consts) + 255) & ~(NSUInteger)255;
             if (const_chunks_.empty() || const_off_ + need > const_chunks_.back().length) {
-                const_chunks_.push_back([dev_ newBufferWithLength:need * 512 options:MTLResourceStorageModeShared]);
+                if (chunks_free_.empty()) const_chunks_.push_back([dev_ newBufferWithLength:need * 512 options:MTLResourceStorageModeShared]);
+                else {
+                    const_chunks_.push_back(chunks_free_.back());
+                    chunks_free_.pop_back();
+                }
                 const_off_ = 0;
             }
             id<MTLBuffer> b = const_chunks_.back();
@@ -1254,92 +1317,249 @@ private:
         last.on_encoder = true;
     }
 
-    // DrawIndexedPrimitive(Type, BaseVertexIndex, MinVertexIndex, NumVertices, StartIndex, PrimCount)
-    void draw(const Record &r) {
+    // ---- draw submission (P6) -------------------------------------------------------------------------------
+    // The state setters only record; whatever is expensive to work out is flagged and worked out by the next draw.
+public:
+    void set_render_state(uint32_t state, uint32_t value) override {
+        if (state >= rs_.size() || rs_[state] == value) return;
+        rs_[state] = value;
+        dirty_ |= rs_dirty_[state];
+    }
+    void set_texture(uint32_t stage, uint32_t texture) override {
+        if (stage >= 16 || bound_tex_[stage] == texture) return;
+        bound_tex_[stage] = texture;
+        tex_dirty_ |= (uint16_t)(1u << stage);
+    }
+    void set_sampler_state(uint32_t stage, uint32_t type, uint32_t value) override {
+        if (stage >= 16 || type >= 14 || samp_[stage][type] == value) return;
+        samp_[stage][type] = value;
+        samp_dirty_ |= (uint16_t)(1u << stage);
+    }
+    void set_vertex_declaration(uint32_t decl) override {
+        if (cur_decl_ == decl) return;
+        cur_decl_ = decl;
+        dirty_ |= kDirtyObjects | kDirtyPipeline;
+    }
+    void set_shader(bool vertex, uint32_t shader) override {
+        uint32_t &cur = vertex ? cur_vs_ : cur_ps_;
+        if (cur == shader) return;
+        cur = shader;
+        dirty_ |= kDirtyObjects | kDirtyFunctions | kDirtyPipeline;
+    }
+    void set_shader_constants(bool vertex, uint32_t start, const void *data, uint32_t count) override {
+        if (start >= sm3::kMaxFloatConsts || !data) return;
+        Consts &c = vertex ? vsc_ : psc_;
+        memcpy(c.c[start], data, (size_t)std::min<uint32_t>(count, sm3::kMaxFloatConsts - start) * 16);
+        const_copy_[vertex ? 0 : 1].dirty = true;
+    }
+    void set_stream_source(uint32_t stream, uint32_t buffer, uint32_t offset, uint32_t stride) override {
+        if (stream >= 16) return;
+        Stream &s = streams_[stream];
+        if (s.vb != buffer) stream_dirty_ |= (uint16_t)(1u << stream);
+        if (s.stride != stride) dirty_ |= kDirtyPipeline; // the vertex layout is part of the pipeline
+        s = {buffer, offset, stride};
+        stream_mask_ = buffer ? stream_mask_ | (uint16_t)(1u << stream) : stream_mask_ & (uint16_t)~(1u << stream);
+    }
+    void set_indices(uint32_t buffer) override {
+        if (cur_ib_ == buffer) return;
+        cur_ib_ = buffer;
+        ib_dirty_ = true;
+    }
+    void write_buffer(uint32_t buffer, uint32_t lock_flags, uint32_t offset, const void *data, uint32_t size) override {
+        buffer_written(buffer, lock_flags, offset, size, data ? 1 : 0, data, data ? size : 0);
+    }
+    void draw_indexed(uint32_t type, int32_t base_vertex, uint32_t min_index, uint32_t num_vertices, uint32_t start_index, uint32_t prim_count) override {
         if (!rendering(frame_)) return;
-        auto skip = [&](const char *why) {
+        const char *why;
+        // Only a draw that starts a pass or needs a state object looked up (or made) can leave autoreleased
+        // objects behind; the others, most of a frame, do without a pool.
+        if (!enc_ || (dirty_ & (kDirtyObjects | kDirtyFunctions | kDirtyPipeline | kDirtyDepth))) {
+            @autoreleasepool {
+                why = draw(type, base_vertex, min_index, num_vertices, start_index, prim_count);
+            }
+        } else
+            why = draw(type, base_vertex, min_index, num_vertices, start_index, prim_count);
+        if (why) {
             draws_skipped_++;
             problem(std::string("draw skipped: ") + why);
-        };
-        if (r.arg(1) != 4) return skip("primitive type");
+        }
+    }
+
+private:
+    Buf *find_buffer(uint32_t id) {
+        auto it = buffers_.find(id);
+        return it == buffers_.end() ? nullptr : &it->second;
+    }
+    // Which objects the bound shader / declaration ids mean.
+    void resolve_objects() {
+        dirty_ &= ~kDirtyObjects;
         auto vi = shaders_.find(cur_vs_), pi = shaders_.find(cur_ps_);
         auto di = decls_.find(cur_decl_);
-        auto ib = buffers_.find(cur_ib_);
-        if (vi == shaders_.end() || pi == shaders_.end()) return skip("no shader bound");
-        if (di == decls_.end()) return skip("no vertex declaration");
-        if (ib == buffers_.end()) return skip("no index buffer");
-        if (!begin_pass()) return skip("no render target");
-        Shader &vs = vi->second, &ps = pi->second;
-        // Samplers bound to depth textures are sampled with comparison (hardware shadow maps).
-        id<MTLFunction> pf0 = function(ps, 0);
-        if (!pf0) return skip("pixel shader unavailable");
-        uint32_t shadow = 0;
-        for (const sm3::SamplerDecl &s : ps.meta.samplers)
-            if (const Tex *t = tex(bound_tex_[s.reg]); t && t->depth && s.type == 2) shadow |= 1u << s.reg;
-        id<MTLFunction> pf = shadow ? function(ps, shadow) : pf0;
-        id<MTLFunction> vf = function(vs, 0);
-        if (!vf || !pf) return skip("shader unavailable");
-        if (pass_color_ == MTLPixelFormatInvalid && pass_depth_ == MTLPixelFormatInvalid) return skip("no attachments");
-        id<MTLRenderPipelineState> p = pipeline(vs, ps, vf, pf, di->second);
-        if (!p) return skip("pipeline creation failed");
+        vs_p_ = vi == shaders_.end() ? nullptr : &vi->second;
+        ps_p_ = pi == shaders_.end() ? nullptr : &pi->second;
+        decl_p_ = di == decls_.end() ? nullptr : &di->second;
+        objects_missing_ = !vs_p_ || !ps_p_ ? "no shader bound" : !decl_p_ ? "no vertex declaration" : nullptr;
+    }
+    // The bound shaders' Metal functions (compiled at first use) and the stages the pixel shader samples.
+    void resolve_functions() {
+        dirty_ &= ~kDirtyFunctions;
+        dirty_ |= kDirtyPipeline;
+        functions_missing_ = nullptr;
+        vf_ = pf_ = nil;
+        pf0_ = function(*ps_p_, 0);
+        if (!pf0_) {
+            functions_missing_ = "pixel shader unavailable";
+            return;
+        }
+        ps_samplers_ = 0;
+        for (const sm3::SamplerDecl &s : ps_p_->meta.samplers)
+            if (s.reg < 16) ps_samplers_ |= (uint16_t)(1u << s.reg);
+        // every stage is looked at again: what a stage needs (texture kind, comparison) depends on the shader
+        tex_dirty_ = 0xFFFF;
+        shadow_ = 0;
+        pf_ = pf0_;
+        vf_ = function(*vs_p_, 0);
+    }
+    // The stages in `todo` (sampled by the bound pixel shader, texture or sampler state changed): which Metal
+    // texture and sampler each means, told to the encoder if it differs from what it has. Samplers bound to
+    // depth textures are sampled with comparison (hardware shadow maps): that selects the shader variant.
+    void apply_stages(Shader &ps, uint16_t todo) {
+        uint32_t shadow = shadow_;
+        for (const sm3::SamplerDecl &s : ps.meta.samplers) {
+            const uint32_t reg = s.reg, bit = 1u << reg;
+            if (reg >= 16 || !(todo & bit)) continue;
+            Tex *t = (tex_dirty_ & bit) ? (tex_p_[reg] = tex(bound_tex_[reg])) : tex_p_[reg];
+            bool is_shadow = t && t->depth && s.type == 2;
+            shadow = is_shadow ? shadow | bit : shadow & ~bit;
+            MTLTextureType want = s.type == 3 ? MTLTextureTypeCube : s.type == 4 ? MTLTextureType3D : MTLTextureType2D;
+            bool usable = t && t->view && t->type() == want;
+            id<MTLTexture> mt = usable ? t->view : fallback_texture(want, is_shadow);
+            if (usable) t->used_gen = gen_;
+            bad_tex_ = !usable && bound_tex_[reg] ? bad_tex_ | (uint16_t)bit : bad_tex_ & (uint16_t)~bit;
+            unrec_tex_ = t && t->unrecorded ? unrec_tex_ | (uint16_t)bit : unrec_tex_ & (uint16_t)~bit;
+            if (void *p = (__bridge void *)mt; ap_.tex[reg] != p) {
+                [enc_ setFragmentTexture:mt atIndex:reg];
+                ap_.tex[reg] = p;
+            }
+            const auto &st = samp_[reg];
+            id<MTLSamplerState> ss = sampler(st[1], st[2], st[3], st[5], st[6], st[7], st[10], is_shadow);
+            if (void *p = (__bridge void *)ss; ap_.samp[reg] != p) {
+                [enc_ setFragmentSamplerState:ss atIndex:reg];
+                ap_.samp[reg] = p;
+            }
+        }
+        tex_dirty_ &= (uint16_t)~todo;
+        samp_dirty_ &= (uint16_t)~todo;
+        if (shadow != shadow_) {
+            shadow_ = shadow;
+            pf_ = shadow ? function(ps, shadow) : pf0_;
+            dirty_ |= kDirtyPipeline;
+        }
+    }
 
-        [enc_ setRenderPipelineState:p];
-        if (pass_depth_ != MTLPixelFormatInvalid) [enc_ setDepthStencilState:depth_state()];
-        [enc_ setStencilReferenceValue:rs_[57] & 0xFF];
-        [enc_ setFrontFacingWinding:MTLWindingClockwise];
-        [enc_ setCullMode:rs_[22] == 3 ? MTLCullModeBack : rs_[22] == 2 ? MTLCullModeFront : MTLCullModeNone];
+    // DrawIndexedPrimitive(Type, BaseVertexIndex, MinVertexIndex, NumVertices, StartIndex, PrimCount).
+    // Returns why the draw was skipped, or null.
+    const char *draw(uint32_t type, int32_t base_vertex, uint32_t min_index, uint32_t num_vertices, uint32_t start_index, uint32_t prim_count) {
+        if (type != 4) return "primitive type";
+        if (dirty_ & kDirtyObjects) resolve_objects();
+        if (objects_missing_) return objects_missing_;
+        if (ib_dirty_) ib_p_ = find_buffer(cur_ib_), ib_dirty_ = false;
+        if (!ib_p_) return "no index buffer";
+        if (!begin_pass()) return "no render target";
+        if (dirty_ & kDirtyFunctions) resolve_functions();
+        if (functions_missing_) return functions_missing_;
+        Shader &vs = *vs_p_, &ps = *ps_p_;
+        if (uint16_t todo = (tex_dirty_ | samp_dirty_) & ps_samplers_) apply_stages(ps, todo);
+        if (!vf_ || !pf_) return "shader unavailable";
+        if (pass_color_ == MTLPixelFormatInvalid && pass_depth_ == MTLPixelFormatInvalid) return "no attachments";
+        if (dirty_ & kDirtyPipeline) {
+            cur_pipeline_ = pipeline(vs, ps, vf_, pf_, *decl_p_);
+            dirty_ &= ~kDirtyPipeline;
+        }
+        if (!cur_pipeline_) return "pipeline creation failed";
+
+        if (void *p = (__bridge void *)cur_pipeline_; ap_.pipeline != p) {
+            [enc_ setRenderPipelineState:cur_pipeline_];
+            ap_.pipeline = p;
+        }
+        if (pass_depth_ != MTLPixelFormatInvalid) {
+            if (dirty_ & kDirtyDepth) {
+                cur_depth_ = depth_state();
+                dirty_ &= ~kDirtyDepth;
+            }
+            if (void *p = (__bridge void *)cur_depth_; ap_.depth != p) {
+                [enc_ setDepthStencilState:cur_depth_];
+                ap_.depth = p;
+            }
+        }
         float bias, slope;
         memcpy(&bias, &rs_[195], 4);
         memcpy(&slope, &rs_[175], 4);
-        [enc_ setDepthBias:bias * 16777216.0f slopeScale:slope clamp:0];
-        MTLViewport vp = viewport_;
-        if (vp.width <= 0 || vp.height <= 0) return skip("empty viewport");
-        [enc_ setViewport:vp];
-        MTLScissorRect sc = rs_[174] ? clamp_scissor(scissor_) : viewport_rect();
-        if (!sc.width || !sc.height) return skip("empty scissor");
-        [enc_ setScissorRect:sc];
+        const uint32_t ref = rs_[57] & 0xFF, cull = rs_[22];
+        if (!ap_.raster || ap_.stencil_ref != ref) [enc_ setStencilReferenceValue:ref];
+        if (!ap_.raster || ap_.cull != cull) [enc_ setCullMode:cull == 3 ? MTLCullModeBack : cull == 2 ? MTLCullModeFront : MTLCullModeNone];
+        if (!ap_.raster || memcmp(&ap_.bias, &bias, 4) || memcmp(&ap_.slope, &slope, 4)) [enc_ setDepthBias:bias * 16777216.0f slopeScale:slope clamp:0];
+        ap_.stencil_ref = ref, ap_.cull = cull, ap_.bias = bias, ap_.slope = slope, ap_.raster = true;
+        if (dirty_ & kDirtyViewport) { // stays flagged while there is nothing to draw into
+            viewport_bad_ = nullptr;
+            if (viewport_.width <= 0 || viewport_.height <= 0) viewport_bad_ = "empty viewport";
+            else {
+                cur_scissor_ = rs_[174] ? clamp_scissor(scissor_) : viewport_rect();
+                if (!cur_scissor_.width || !cur_scissor_.height) viewport_bad_ = "empty scissor";
+            }
+            if (!viewport_bad_) {
+                [enc_ setViewport:viewport_];
+                [enc_ setScissorRect:cur_scissor_];
+                dirty_ &= ~kDirtyViewport;
+            }
+        }
+        if (viewport_bad_) return viewport_bad_;
 
-        for (uint32_t s = 0; s < 16; s++) {
-            if (!streams_[s].vb) continue;
-            auto b = buffers_.find(streams_[s].vb);
-            if (b == buffers_.end()) continue;
-            b->second.used_gen = gen_;
-            // DrawIndexedPrimitive reads vertices [Base + MinIndex, Base + MinIndex + NumVertices).
-            uint64_t first = (uint64_t)streams_[s].offset + (uint64_t)(int64_t)((int32_t)r.arg(2) + (int64_t)r.arg(3)) * streams_[s].stride;
-            if (b->second.missing(first, first + (uint64_t)r.arg(4) * streams_[s].stride)) unrecorded("vertex buffer", streams_[s].vb);
-            [enc_ setVertexBuffer:b->second.buf offset:std::min(streams_[s].offset, b->second.size) atIndex:s];
+        for (uint32_t m = stream_mask_; m; m &= m - 1) {
+            const uint32_t s = (uint32_t)__builtin_ctz(m);
+            if (stream_dirty_ & (1u << s)) stream_buf_[s] = find_buffer(streams_[s].vb);
+            Buf *b = stream_buf_[s];
+            if (!b) continue;
+            b->used_gen = gen_;
+            if (!b->unrecorded.empty()) {
+                // DrawIndexedPrimitive reads vertices [Base + MinIndex, Base + MinIndex + NumVertices).
+                uint64_t first = (uint64_t)streams_[s].offset + (uint64_t)(int64_t)(base_vertex + (int64_t)min_index) * streams_[s].stride;
+                if (b->missing(first, first + (uint64_t)num_vertices * streams_[s].stride)) unrecorded("vertex buffer", streams_[s].vb);
+            }
+            const NSUInteger off = std::min(streams_[s].offset, b->size);
+            if (void *p = (__bridge void *)b->buf; ap_.vb[s] != p) {
+                [enc_ setVertexBuffer:b->buf offset:off atIndex:s];
+                ap_.vb[s] = p, ap_.vb_off[s] = off;
+            } else if (ap_.vb_off[s] != off) {
+                [enc_ setVertexBufferOffset:off atIndex:s];
+                ap_.vb_off[s] = off;
+            }
         }
-        [enc_ setVertexBuffer:dummy_vb_ offset:0 atIndex:16];
-        for (const sm3::SamplerDecl &s : ps.meta.samplers) {
-            Tex *t = tex(bound_tex_[s.reg]);
-            bool is_shadow = (shadow >> s.reg) & 1;
-            MTLTextureType want = s.type == 3 ? MTLTextureTypeCube : s.type == 4 ? MTLTextureType3D : MTLTextureType2D;
-            id<MTLTexture> mt = (t && t->view && t->view.textureType == want) ? t->view : fallback_texture(want, is_shadow);
-            if (t && mt == t->view) t->used_gen = gen_;
-            else if (bound_tex_[s.reg]) problem("sampler bound to a texture of the wrong type or unknown texture");
-            if (t && t->unrecorded) unrecorded("texture", bound_tex_[s.reg]);
-            [enc_ setFragmentTexture:mt atIndex:s.reg];
-            const auto &st = samp_[s.reg];
-            [enc_ setFragmentSamplerState:sampler(st[1], st[2], st[3], st[5], st[6], st[7], st[10], is_shadow) atIndex:s.reg];
-        }
-        const float ve[4] = {(float)(1.0 / vp.width), (float)(-1.0 / vp.height), 0, 0};
+        stream_dirty_ = 0;
+        if (uint16_t m = (uint16_t)((bad_tex_ | unrec_tex_) & ps_samplers_)) // diagnostics, counted per draw
+            for (uint32_t reg = 0; reg < 16; reg++) {
+                if ((bad_tex_ & m) >> reg & 1) problem("sampler bound to a texture of the wrong type or unknown texture");
+                if ((unrec_tex_ & m) >> reg & 1) unrecorded("texture", bound_tex_[reg]);
+            }
+        const float ve[4] = {(float)(1.0 / viewport_.width), (float)(-1.0 / viewport_.height), 0, 0};
         const float pe[4] = {(rs_[24] & 0xFF) / 255.0f, rs_[15] ? (float)rs_[25] : 0.0f, 0, 0};
         if (memcmp(vsc_.extra, ve, sizeof(ve))) memcpy(vsc_.extra, ve, sizeof(ve)), const_copy_[0].dirty = true;
         if (memcmp(psc_.extra, pe, sizeof(pe))) memcpy(psc_.extra, pe, sizeof(pe)), const_copy_[1].dirty = true;
         bind_consts(vsc_, true, vs.meta.uses_relative_consts ? 0 : vs.meta.float_consts_used);
         bind_consts(psc_, false, ps.meta.uses_relative_consts ? 0 : ps.meta.float_consts_used);
 
-        Buf &index = ib->second;
+        Buf &index = *ib_p_;
         index.used_gen = gen_;
         bool i32 = index.index_fmt == FMT_INDEX32;
-        NSUInteger isz = i32 ? 4 : 2, count = (NSUInteger)r.arg(6) * 3, off = (NSUInteger)r.arg(5) * isz;
-        if (off + count * isz > index.size) return skip("index range out of buffer");
-        if (index.missing(off, off + count * isz)) unrecorded("index buffer", cur_ib_);
+        NSUInteger isz = i32 ? 4 : 2, count = (NSUInteger)prim_count * 3, off = (NSUInteger)start_index * isz;
+        if (off + count * isz > index.size) return "index range out of buffer";
+        if (!index.unrecorded.empty() && index.missing(off, off + count * isz)) unrecorded("index buffer", cur_ib_);
         [enc_ drawIndexedPrimitives:MTLPrimitiveTypeTriangle indexCount:count indexType:i32 ? MTLIndexTypeUInt32 : MTLIndexTypeUInt16
-                        indexBuffer:index.buf indexBufferOffset:off instanceCount:1 baseVertex:(int32_t)r.arg(2) baseInstance:0];
+                        indexBuffer:index.buf indexBufferOffset:off instanceCount:1 baseVertex:base_vertex baseInstance:0];
         draws_++;
         pass_touched_ = true;
-        if (debugging()) debug_draw(r, vs, ps, shadow);
+        if (debugging()) debug_draw(prim_count, base_vertex, start_index, vs, ps, shadow_);
+        return nullptr;
     }
 
     id<MTLTexture> fallback_texture(MTLTextureType type, bool depth) {
@@ -1478,12 +1698,16 @@ private:
     std::unordered_map<uint32_t, Shader> shaders_;
     std::unordered_map<uint32_t, std::vector<Elem>> decls_;
     id<MTLCommandBuffer> prev_frame_cmd_ = nil;
-    std::unordered_map<std::string, id<MTLRenderPipelineState>> pipelines_;
-    std::unordered_map<uint32_t, std::vector<std::string>> pipeline_users_; // shader / declaration id -> keys in pipelines_
-    std::unordered_map<std::string, id<MTLDepthStencilState>> depth_states_;
-    std::unordered_map<std::string, id<MTLSamplerState>> samplers_;
+    std::unordered_map<Key<19>, id<MTLRenderPipelineState>, KeyHash<19>> pipelines_;
+    std::unordered_map<uint32_t, std::vector<Key<19>>> pipeline_users_; // shader / declaration id -> keys in pipelines_
+    std::map<std::string, id<MTLRenderPipelineState>> internal_pipelines_; // clear / blit
+    std::unordered_map<Key<15>, id<MTLDepthStencilState>, KeyHash<15>> depth_states_;
+    id<MTLDepthStencilState> clear_depth_[2][2] = {}; // Clear: [writes depth][writes stencil]
+    std::unordered_map<Key<8>, id<MTLSamplerState>, KeyHash<8>> samplers_;
     std::map<int, id<MTLTexture>> fallback_;
-    std::vector<id<MTLBuffer>> const_chunks_;
+    std::vector<id<MTLBuffer>> const_chunks_;                         // read by the command buffer being built
+    std::vector<id<MTLBuffer>> chunks_frame_, chunks_prev_, chunks_free_; // by committed ones of this frame / the frame before; reusable
+    static constexpr size_t kMaxFreeChunks = 32;
     NSUInteger const_off_ = 0;
     // The last copy of each stage's constants (0 = vertex, 1 = pixel): where it is, how many float registers it
     // holds, whether the game set a constant since, and whether the current pass's encoder already points at it.
@@ -1501,7 +1725,7 @@ private:
     std::map<std::string, std::map<uint32_t, std::set<int>>> unrecorded_ids_;
 
     // D3D9 device state
-    std::unordered_map<uint32_t, uint32_t> rs_;
+    std::array<uint32_t, 256> rs_{}; // D3DRS_* -> value (the highest state Direct3D 9 defines is 209)
     std::array<std::array<uint32_t, 14>, 16> samp_{};
     std::array<uint32_t, 16> bound_tex_{};
     std::array<Stream, 16> streams_{};
@@ -1511,6 +1735,45 @@ private:
     MTLViewport viewport_ = {0, 0, 1, 1, 0, 1};
     MTLScissorRect scissor_ = {0, 0, 1, 1};
     Consts vsc_{}, psc_{};
+
+    // Draw submission (P6): what has to be worked out again before the next draw ...
+    enum : uint32_t {
+        kDirtyObjects = 1,   // which shaders / declaration the bound ids mean
+        kDirtyFunctions = 2, // the bound shaders' Metal functions and what the pixel shader samples
+        kDirtyPipeline = 4,  // something the pipeline is made from
+        kDirtyDepth = 8,     // a depth / stencil render state
+        kDirtyViewport = 16, // viewport, scissor rect, SCISSORTESTENABLE, or the size of the pass
+        kDirtyAll = 31,
+    };
+    uint32_t dirty_ = kDirtyAll;
+    uint8_t rs_dirty_[256] = {};                      // render state -> dirty bits it sets when its value changes
+    uint16_t tex_dirty_ = 0xFFFF, samp_dirty_ = 0xFFFF; // stages whose texture / sampler state has to be looked at again
+    uint16_t stream_dirty_ = 0xFFFF, stream_mask_ = 0;  // streams whose buffer has to be looked up again / that have one
+    bool ib_dirty_ = true;
+    // ... and what was worked out last time
+    Shader *vs_p_ = nullptr, *ps_p_ = nullptr;
+    const std::vector<Elem> *decl_p_ = nullptr;
+    const char *objects_missing_ = nullptr, *functions_missing_ = nullptr, *viewport_bad_ = nullptr; // why a draw is skipped
+    id<MTLFunction> vf_ = nil, pf0_ = nil, pf_ = nil;
+    uint16_t ps_samplers_ = 0;               // stages the bound pixel shader samples
+    uint16_t bad_tex_ = 0, unrec_tex_ = 0;   // stages bound to a texture of the wrong kind / whose contents the trace lacks
+    uint32_t shadow_ = 0;                    // stages sampled with comparison (depth textures)
+    Tex *tex_p_[16] = {};
+    Buf *stream_buf_[16] = {}, *ib_p_ = nullptr;
+    id<MTLRenderPipelineState> cur_pipeline_ = nil;
+    id<MTLDepthStencilState> cur_depth_ = nil;
+    MTLScissorRect cur_scissor_ = {0, 0, 1, 1};
+    // What the current pass's encoder was last told (identities only: the encoder keeps alive what it was
+    // given, so an address cannot come back as another object while it is compared here).
+    struct Applied {
+        void *pipeline, *depth;
+        void *vb[16], *tex[16], *samp[16];
+        NSUInteger vb_off[16];
+        uint32_t stencil_ref, cull;
+        float bias, slope;
+        bool raster; // stencil_ref / cull / bias / slope are valid
+    };
+    Applied ap_{};
 };
 
 } // namespace

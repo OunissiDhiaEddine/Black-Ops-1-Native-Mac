@@ -586,6 +586,14 @@ void com_observe(const std::string &iface, uint32_t tag_base, ComObserver fn) {
         t.tag = tag_base + i;
     }
 }
+void com_observe_slot(const std::string &iface, uint32_t slot, uint32_t tag, ComObserver fn) {
+    std::lock_guard<std::mutex> lk(g_tramp_mu);
+    auto it = g_vtable_tramps.find(iface);
+    if (it == g_vtable_tramps.end() || slot >= it->second.size()) return;
+    Tramp &t = *g_tramps[it->second[slot]];
+    t.observer = fn;
+    t.tag = tag;
+}
 static uint32_t com_vtable_impl(const std::string &iface, const ComMethod *methods, size_t count, bool thiscall) {
     {
         std::lock_guard<std::mutex> lk(g_tramp_mu);
@@ -676,7 +684,8 @@ static void host_call(Cpu *cpu, uint32_t target) {
     } else {
         a = reinterpret_cast<const uint32_t *>(g_mem + cpu->esp + 4);
     }
-    t.calls.fetch_add(1, std::memory_order_relaxed);
+    static const bool count_calls = getenv("BO1_IMPORT_STATS") != nullptr; // an atomic add per call otherwise (P6)
+    if (count_calls) t.calls.fetch_add(1, std::memory_order_relaxed);
     if (g_verbose >= 2) {
         uint32_t ret;
         memcpy(&ret, g_mem + cpu->esp, 4);
