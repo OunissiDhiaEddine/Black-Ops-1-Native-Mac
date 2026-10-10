@@ -281,7 +281,7 @@ public:
     }
     bool wants_quit() override { return quit_; }
     Work work() override {
-        return {ns_translate_, ns_library_, ns_pipeline_, ns_gpu_wait_, ns_upload_, ns_drawable_, functions_compiled_, pipelines_created_, uploads_, upload_bytes_, precompiled_used_};
+        return {ns_translate_, ns_library_, ns_pipeline_, ns_gpu_wait_, ns_upload_, ns_drawable_, ns_gpu_.load(), functions_compiled_, pipelines_created_, uploads_, upload_bytes_, precompiled_used_};
     }
 
     int report() override {
@@ -628,6 +628,7 @@ private:
             enc_ = nil;
             if (debugging() && pass_touched_) debug_dump(have_rt_ ? &rt_ : nullptr, have_ds_ ? &ds_ : nullptr, "pass");
             pass_touched_ = false;
+            gpu_pass_report("pass");
         }
     }
 
@@ -765,10 +766,35 @@ private:
         const_chunks_.clear();
         const_off_ = 0;
     }
+    // The GPU's own time for a command buffer, added up when it completes (Work::ns_gpu).
+    void commit(id<MTLCommandBuffer> cb) {
+        std::atomic<uint64_t> *sum = &ns_gpu_;
+        [cb addCompletedHandler:^(id<MTLCommandBuffer> done) {
+            double s = done.GPUEndTime - done.GPUStartTime;
+            if (s > 0) sum->fetch_add((uint64_t)(s * 1e9), std::memory_order_relaxed);
+        }];
+        [cb commit];
+    }
+    // BO1_GPU_PASSES=N: in frame N every pass gets a command buffer of its own and one line on stderr with the
+    // GPU's time for it (P7: which passes of a frame cost what at a given resolution).
+    void gpu_pass_report(const char *kind) {
+        if (frame_ != gpu_passes_frame_ || !cmd_) return;
+        id<MTLCommandBuffer> cb = cmd_;
+        [cb commit];
+        [cb waitUntilCompleted];
+        cmd_ = nil;
+        gen_++;
+        retire_const_chunks();
+        const_copy_[0] = const_copy_[1] = {};
+        const Tex *ct = have_rt_ ? tex(rt_.tex) : nullptr, *dt = have_ds_ ? tex(ds_.tex) : nullptr;
+        fprintf(stderr, "gpu pass %3d %-8s %7.3f ms  %4u draws  colour %s fmt %u %ux%u  depth %s\n", gpu_pass_n_++, kind, (cb.GPUEndTime - cb.GPUStartTime) * 1e3,
+                pass_draws_, ct ? "yes" : "no", ct ? ct->fmt : 0, ct ? std::max(1u, ct->w >> rt_.level) : 0, ct ? std::max(1u, ct->h >> rt_.level) : 0, dt ? "yes" : "no");
+        pass_draws_ = 0;
+    }
     void flush(bool wait) {
         end_pass();
         if (cmd_) {
-            [cmd_ commit];
+            commit(cmd_);
             if (wait) {
                 auto t0 = std::chrono::steady_clock::now();
                 [cmd_ waitUntilCompleted];
@@ -786,29 +812,59 @@ private:
         return t ? t->tex : nil;
     }
     // Begin (or continue) a pass on the current targets. Returns false if there is nothing to draw to.
-    bool begin_pass() {
+    // A Clear that opens a pass and covers the whole target becomes the pass's load action (P7): the GPU then
+    // neither loads the old contents of a tile nor shades a clearing triangle over it — at 2560x1600 that is
+    // 4 M pixels of colour, depth and stencil per cleared pass.
+    struct PassClear {
+        uint32_t flags, color, stencil; // D3DCLEAR_TARGET = 1, ZBUFFER = 2, STENCIL = 4; D3DCOLOR
+        float z;
+        bool done = false;              // set by begin_pass when the load actions did it
+    };
+    bool begin_pass(PassClear *pc = nullptr) {
         if (enc_) return true;
         Tex *ct = nullptr, *dt = nullptr;
         id<MTLTexture> color = have_rt_ ? target_texture(rt_, &ct) : nil;
         id<MTLTexture> depth = have_ds_ ? target_texture(ds_, &dt) : nil;
         if (!color && !depth) return false;
+        pass_w_ = color ? std::max<NSUInteger>(1, color.width >> rt_.level) : std::max<NSUInteger>(1, depth.width >> ds_.level);
+        pass_h_ = color ? std::max<NSUInteger>(1, color.height >> rt_.level) : std::max<NSUInteger>(1, depth.height >> ds_.level);
+        bool clear_color = false, clear_depth = false, clear_stencil = false;
+        if (pc && !debugging()) {
+            // Direct3D clears the viewport (and scissor) area: only when that is the whole target, and for
+            // depth / stencil only when the depth buffer is exactly as large as the pass (a larger one keeps
+            // what lies outside).
+            MTLScissorRect area = viewport_rect();
+            bool whole = area.x == 0 && area.y == 0 && area.width == pass_w_ && area.height == pass_h_ && !rs_[174];
+            bool depth_fits = depth && std::max<NSUInteger>(1, depth.width >> ds_.level) == pass_w_ && std::max<NSUInteger>(1, depth.height >> ds_.level) == pass_h_;
+            bool want_ds = depth && (pc->flags & 6);
+            if (whole && (!want_ds || depth_fits)) {
+                clear_color = color && (pc->flags & 1);
+                clear_depth = depth && (pc->flags & 2);
+                clear_stencil = depth && (pc->flags & 4);
+                pc->done = true;
+            }
+        }
         MTLRenderPassDescriptor *p = [MTLRenderPassDescriptor new];
         if (color) {
             p.colorAttachments[0].texture = color;
             p.colorAttachments[0].level = rt_.level;
             p.colorAttachments[0].slice = ct->cube ? rt_.face : 0;
-            p.colorAttachments[0].loadAction = MTLLoadActionLoad;
+            p.colorAttachments[0].loadAction = clear_color ? MTLLoadActionClear : MTLLoadActionLoad;
             p.colorAttachments[0].storeAction = MTLStoreActionStore;
+            if (clear_color)
+                p.colorAttachments[0].clearColor = MTLClearColorMake(((pc->color >> 16) & 0xFF) / 255.f, ((pc->color >> 8) & 0xFF) / 255.f, (pc->color & 0xFF) / 255.f, (pc->color >> 24) / 255.f);
         }
         if (depth) {
             p.depthAttachment.texture = depth;
             p.depthAttachment.level = ds_.level;
-            p.depthAttachment.loadAction = MTLLoadActionLoad;
+            p.depthAttachment.loadAction = clear_depth ? MTLLoadActionClear : MTLLoadActionLoad;
             p.depthAttachment.storeAction = MTLStoreActionStore;
+            if (clear_depth) p.depthAttachment.clearDepth = pc->z;
             p.stencilAttachment.texture = depth;
             p.stencilAttachment.level = ds_.level;
-            p.stencilAttachment.loadAction = MTLLoadActionLoad;
+            p.stencilAttachment.loadAction = clear_stencil ? MTLLoadActionClear : MTLLoadActionLoad;
             p.stencilAttachment.storeAction = MTLStoreActionStore;
+            if (clear_stencil) p.stencilAttachment.clearStencil = pc->stencil & 0xFF;
         }
         ensure_cmd();
         enc_ = [cmd_ renderCommandEncoderWithDescriptor:p];
@@ -822,8 +878,6 @@ private:
         [enc_ setVertexBuffer:dummy_vb_ offset:0 atIndex:16];
         pass_color_ = color ? color.pixelFormat : MTLPixelFormatInvalid;
         pass_depth_ = depth ? depth.pixelFormat : MTLPixelFormatInvalid;
-        pass_w_ = color ? std::max<NSUInteger>(1, color.width >> rt_.level) : std::max<NSUInteger>(1, depth.width >> ds_.level);
-        pass_h_ = color ? std::max<NSUInteger>(1, color.height >> rt_.level) : std::max<NSUInteger>(1, depth.height >> ds_.level);
         if (ct) ct->used_gen = gen_;
         if (dt) dt->used_gen = gen_;
         return true;
@@ -895,7 +949,12 @@ private:
         float z;
         uint32_t zbits = r.arg(5);
         memcpy(&z, &zbits, 4);
-        if (!begin_pass()) return;
+        PassClear pc{flags, color, stencil, z};
+        if (!begin_pass(r.arg(1) ? nullptr : &pc)) return; // (a rect list is drawn)
+        if (pc.done) {
+            pass_touched_ = true;
+            return;
+        }
         MTLScissorRect area = viewport_rect();
         if (rs_[174]) { // intersect with the scissor rect
             MTLScissorRect s = clamp_scissor(scissor_);
@@ -979,6 +1038,7 @@ private:
                     sourceSize:MTLSizeMake(sw, sh, 1) toTexture:dt->tex destinationSlice:dt->cube ? di->second.face : 0
               destinationLevel:dl destinationOrigin:MTLOriginMake(0, 0, 0)];
             [b endEncoding];
+            gpu_pass_report("copy");
             if (debugging()) debug_dump(&di->second, nullptr, fmt_key("stretchrect(copy) src=%08x", si->second.tex).c_str());
             return;
         }
@@ -1010,6 +1070,7 @@ private:
             [e drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];
         }
         [e endEncoding];
+        gpu_pass_report("stretch");
         if (debugging()) debug_dump(&di->second, nullptr, fmt_key("stretchrect(scale) src=%08x", si->second.tex).c_str());
     }
 
@@ -1557,6 +1618,7 @@ private:
         [enc_ drawIndexedPrimitives:MTLPrimitiveTypeTriangle indexCount:count indexType:i32 ? MTLIndexTypeUInt32 : MTLIndexTypeUInt16
                         indexBuffer:index.buf indexBufferOffset:off instanceCount:1 baseVertex:base_vertex baseInstance:0];
         draws_++;
+        pass_draws_++;
         pass_touched_ = true;
         if (debugging()) debug_draw(prim_count, base_vertex, start_index, vs, ps, shadow_);
         return nullptr;
@@ -1620,7 +1682,7 @@ private:
                         toTexture:drawable.texture destinationSlice:0 destinationLevel:0 destinationOrigin:MTLOriginMake(0, 0, 0)];
             [blit endEncoding];
             [cb presentDrawable:drawable];
-            [cb commit];
+            commit(cb);
             frames_shown_++;
         } else if (!warned_window_) {
             warned_window_ = true;
@@ -1688,6 +1750,9 @@ private:
     uint64_t ns_translate_ = 0, ns_library_ = 0, ns_pipeline_ = 0; // where shader start-up time goes (T-036)
     bool late_ = false;
     uint64_t precompiled_used_ = 0, ns_drawable_ = 0, ns_gpu_wait_ = 0, ns_upload_ = 0, pipelines_created_ = 0, uploads_ = 0, upload_bytes_ = 0; // Work (T-058)
+    std::atomic<uint64_t> ns_gpu_{0};
+    int gpu_passes_frame_ = getenv("BO1_GPU_PASSES") ? atoi(getenv("BO1_GPU_PASSES")) : -1, gpu_pass_n_ = 0;
+    uint32_t pass_draws_ = 0;
     static uint64_t since(std::chrono::steady_clock::time_point t0) {
         return (uint64_t)std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - t0).count();
     }

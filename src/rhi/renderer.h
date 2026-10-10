@@ -57,6 +57,7 @@ public:
     struct Work {
         uint64_t ns_translate = 0, ns_compile = 0, ns_pipeline = 0, ns_gpu_wait = 0, ns_upload = 0;
         uint64_t ns_drawable = 0; // waiting for the window's next drawable (vsync / compositor)
+        uint64_t ns_gpu = 0;      // time the GPU spent executing the command buffers that have completed (P7)
         uint64_t functions = 0, pipelines = 0, uploads = 0, upload_bytes = 0;
         uint64_t precompiled = 0; // of `functions`: compiled in the background before their first use
     };
