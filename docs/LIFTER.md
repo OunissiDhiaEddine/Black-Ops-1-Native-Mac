@@ -187,24 +187,36 @@ Known limits of the method (do not read more into a green run than this):
 - memory the original only *reads* outside the supplied blocks is zero, which hides bugs that
   depend on real global state.
 
+A function's inputs depend on the seed and the function's address only (the generator reseeds per function), so
+the shard count (`JOBS`) and the selection do not change them (T-069; before, `JOBS=3` and `JOBS=4` tested
+different inputs). Dropped as input artefacts, and counted: runs in which an access runs over the end of the
+32-bit address space — the emulator continues at address 0, the arena has no wrap-around, Windows would fault.
+
 Three result classes besides pass/fail keep known limits visible without hiding bugs:
 "nan-only" (difference only in the sign/payload of NaNs), "fp-range" (a double overflowed or
 underflowed while the lifted code ran — the x87's wider exponent, §5) and "approx" (x87 value within
 1e-12). Inputs on which the reference itself is wrong are dropped when the vectors are generated
 (hooks on the exact instruction addresses, `artifacts/lifted/special_sites.json`, written by the lifter):
-`FYL2X` with ST(0) <= 0, `FPREM/FPREM1` with an exponent gap >= 53, `FSIN/FCOS/FSINCOS/FPTAN` of
+`FYL2X` with ST(0) <= 0, `FPREM` with an exponent gap >= 53, every `FPREM1`, `FSIN/FCOS/FSINCOS/FPTAN` of
 infinity, and anything executing `CPUID`/`RDTSC` (machine-dependent).
 
 Deviations of the REFERENCE found so far (the lifted code follows the Intel SDM in every case):
 - QEMU sets FSW.ZE for 0/0; a real x87 sets IE. Six functions return with that status word still in
   eax (`tests/diff/reference_deviations.json`).
 - QEMU's `FCOMI` family, `FSIN`… of infinity, partial `FPREM`: see above.
+- The QEMU inside Unicorn computes `FPREM1` like `FPREM`: it truncates the quotient where a real x87 (and the
+  lifted code) rounds it to nearest. CONFIRMED on one vector (0x009710FC, the CRT's argument reduction for
+  `fptan`): -5.6065526952890201e34 by 1.4488038916154245e19 gave -1.0701e19, larger in magnitude than half the
+  divisor, which an IEEE remainder cannot be; the lifted code gave 3.7868e18. Vectors that execute it are dropped.
 - QEMU/Unicorn chooses between two NaN operands with the x87 rule (larger significand) for SSE as
   well; real SSE returns the first operand. Such vectors are reported as "nan-only", not as passes.
 - QEMU's `FYL2X` leaves the stack alone when ST(0) <= 0; a real x87 stores NaN/infinity and pops.
   Functions affected are listed in `tests/diff/reference_deviations.json` and reported separately.
 
-Debugging a failing vector: `tests/diff/debug_vector.sh <func_va> [nth]` lifts the function (and its
+Differences of an "fp-range" vector are printed as `RANGEDIFF …` lines, not `FAIL …` (the report counts failing
+functions by the `FAIL` lines; before T-069 such a vector made its function "unexplained").
+
+Debugging a failing vector: `tests/diff/debug_vector.sh <func_va> [nth]` (`VECTORS='dir/vectors_*.bin'` for another set) lifts the function (and its
 callees) with `RT_TRACE` before every instruction, runs the vector through both sides and prints the
 first instruction after which registers / XMM / x87 differ.
 

@@ -108,12 +108,18 @@ def main() -> int:
 
     lazy = set()
     written = []
+    # An access that runs over the end of the 32-bit address space continues at address 0 in the emulator; the
+    # lifted code's arena has no wrap-around (the bytes land behind it), and on Windows that address faults.
+    WRAPS = "input artefact: an access wraps around the 4 GiB address space"
+    deviates = [None]
 
     budget = {"pages": 0, "abort": None}                      # per-vector limits (reset before each run)
 
     def on_unmapped(u, access, addr, size, value, _):
         if access == UC_MEM_FETCH_UNMAPPED:                   # jumped into nowhere: let it fail
             return False
+        if addr + size > 0x100000000:
+            deviates[0] = WRAPS
         budget["pages"] += 1
         if budget["pages"] > MAX_LAZY_PAGES or budget["abort"]:
             budget["abort"] = budget["abort"] or "touched too many unmapped pages"
@@ -129,6 +135,8 @@ def main() -> int:
 
     def on_write(u, access, addr, size, value, _):
         written.append((addr, size))
+        if addr + size > 0x100000000:
+            deviates[0] = WRAPS
         if len(written) > MAX_WRITES and not budget["abort"]:
             budget["abort"] = "wrote too much memory"
             u.emu_stop()
@@ -153,8 +161,9 @@ def main() -> int:
     #  - FYL2X (D9 F1) with ST(0) <= 0: QEMU only sets C2; a real x87 stores NaN / -infinity and pops.
     #  - FPREM / FPREM1 (D9 F8 / D9 F5) with an exponent gap >= 53: QEMU's partial reduction is approximate.
     #  - FSIN / FCOS / FSINCOS / FPTAN of +-infinity: QEMU leaves ST(0) and sets C2; a real x87 returns NaN (#IA).
+    #  - FPREM1 (D9 F5), always: the QEMU inside Unicorn truncates the quotient as FPREM does; a real x87 (and the
+    #    lifted code) rounds it to nearest. Seen at 0x009710FC: |remainder| came out larger than half the divisor.
     #  - CPUID (0F A2) and RDTSC (0F 31): results describe the machine, not the code under test.
-    deviates = [None]
 
     def st_regs(u):
         top = (u.reg_read(UC_X86_REG_FPSW) >> 11) & 7
@@ -170,6 +179,9 @@ def main() -> int:
         if (se0 & 0x7FFF) - (se1 & 0x7FFF) >= 53:
             deviates[0] = "reference deviates from a real x87: FPREM with a large quotient"
 
+    def on_fprem1(u, addr, size, _):
+        deviates[0] = "reference deviates from a real x87: FPREM1 (QEMU truncates the quotient like FPREM)"
+
     def on_trig(u, addr, size, _):
         (mant, se), _st1 = st_regs(u)
         if se & 0x7FFF == 0x7FFF and (mant << 1) & 0xFFFFFFFFFFFFFFFF == 0:
@@ -184,7 +196,7 @@ def main() -> int:
     # exact instruction addresses, written by the lifter (a hook per byte-pattern match made every
     # instruction pay for thousands of hooks)
     sites = json.loads((Path(args.meta).parent / "special_sites.json").read_text())
-    handlers = {"fyl2x": on_fyl2x, "fprem": on_fprem, "fprem1": on_fprem, "fsin": on_trig, "fcos": on_trig, "fsincos": on_trig,
+    handlers = {"fyl2x": on_fyl2x, "fprem": on_fprem, "fprem1": on_fprem1, "fsin": on_trig, "fcos": on_trig, "fsincos": on_trig,
                 "fptan": on_trig, "f2xm1": on_f2xm1, "cpuid": on_env, "rdtsc": on_env}
     special_sites = [(a, handlers[m]) for m, addrs in sites.items() for a in addrs]
 
@@ -259,13 +271,14 @@ def main() -> int:
 
     rng.seed(args.seed * 7919 + 1)
     heaps = [make_heap() for _ in range(48)]          # identical in every shard
-    rng.seed(args.seed * 7919 + 2 + shard_i)
 
     out = bytearray(b"BO1DIFF3" + struct.pack("<III", 0, len(heaps), HEAP_SIZE) + b"".join(heaps))
     out += struct.pack("<I", len(patches)) + b"".join(struct.pack("<II", a, v) for a, v in patches)
     count, skipped, funcs_ok, done = 0, Counter(), 0, 0
     for fn in cands:
         got = 0
+        rng.seed(((args.seed * 7919 + 2) << 32) + fn)     # a function's inputs depend on the seed only, not on the
+                                                          # shard count or on which other functions are selected
         for _ in range(args.per_func):
             regs = [rand_value() for _ in range(8)]
             regs[4] = ESP0

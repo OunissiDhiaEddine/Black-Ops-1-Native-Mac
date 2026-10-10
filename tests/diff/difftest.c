@@ -215,23 +215,26 @@ int main(int argc, char **argv) {
             if (verbose) printf("FAIL %08x: trap %s at %08x\n", fn, kTrap[code < 9 ? code : 0], code == 8 ? g_fault_guest : cpu.trap_addr);
             continue;
         }
+        // differences of a vector on which a double overflowed or underflowed are reported under their own tag:
+        // they are the model's known limit (below), and the report counts failing functions by the FAIL lines
+        const char *tag = fp_range ? "RANGEDIFF" : "FAIL";
         int bad = 0;
         for (int i = 0; i < 8; i++)
             if (regs[i] != expect[i]) {
                 bad = 1;
-                if (verbose) printf("FAIL %08x: %s = %08x, expected %08x\n", fn, kReg[i], regs[i], expect[i]);
+                if (verbose) printf("%s %08x: %s = %08x, expected %08x\n", tag, fn, kReg[i], regs[i], expect[i]);
             }
         int inexact = 0;
         if (vflags & 1) { // MMX function: the x87 registers hold MMX data
             for (int i = 0; i < 8; i++)
                 if (cpu.mm[i] != exp_mm[i] && exp_mm[i] != 0) { // untouched registers read back as 0 from Unicorn
                     bad = 1;
-                    if (verbose) printf("FAIL %08x: mm%d = %016llx, expected %016llx\n", fn, i, (unsigned long long)cpu.mm[i], (unsigned long long)exp_mm[i]);
+                    if (verbose) printf("%s %08x: mm%d = %016llx, expected %016llx\n", tag, fn, i, (unsigned long long)cpu.mm[i], (unsigned long long)exp_mm[i]);
                 }
         } else {
             if (cpu.ftop != exp_top) {
                 bad = 1;
-                if (verbose) printf("FAIL %08x: x87 top = %u, expected %u\n", fn, cpu.ftop, exp_top);
+                if (verbose) printf("%s %08x: x87 top = %u, expected %u\n", tag, fn, cpu.ftop, exp_top);
             } else
                 for (unsigned i = 0; i < ((8 - exp_top) & 7); i++) {
                     double a = cpu.st[(cpu.ftop + i) & 7], b = exp_st[i];
@@ -241,7 +244,7 @@ int main(int argc, char **argv) {
                         continue;
                     }
                     bad = 1;
-                    if (verbose) printf("FAIL %08x: st(%u) = %.17g, expected %.17g\n", fn, i, a, b);
+                    if (verbose) printf("%s %08x: st(%u) = %.17g, expected %.17g\n", tag, fn, i, a, b);
                 }
         }
         int nan_only = 0;
@@ -257,7 +260,7 @@ int main(int argc, char **argv) {
                 }
                 bad = 1;
                 if (verbose)
-                    printf("FAIL %08x: xmm%d = %08x %08x %08x %08x, expected %08x %08x %08x %08x\n", fn, i, cpu.xmm[i].u32[0], cpu.xmm[i].u32[1],
+                    printf("%s %08x: xmm%d = %08x %08x %08x %08x, expected %08x %08x %08x %08x\n", tag, fn, i, cpu.xmm[i].u32[0], cpu.xmm[i].u32[1],
                            cpu.xmm[i].u32[2], cpu.xmm[i].u32[3], exp_xmm[i].u32[0], exp_xmm[i].u32[1], exp_xmm[i].u32[2], exp_xmm[i].u32[3]);
             }
         const uint8_t *q = outs;
@@ -287,7 +290,7 @@ int main(int argc, char **argv) {
                     if (verbose) printf("NANDIFF %08x: memory at %08x\n", fn, addr);
                 } else {
                     bad = 1;
-                    if (verbose) printf("FAIL %08x: memory at %08x = %02x, expected %02x\n", fn, addr + k, g_mem[addr + k], q[k]);
+                    if (verbose) printf("%s %08x: memory at %08x = %02x, expected %02x\n", tag, fn, addr + k, g_mem[addr + k], q[k]);
                 }
             }
             q += len;
