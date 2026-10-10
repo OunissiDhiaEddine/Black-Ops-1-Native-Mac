@@ -334,8 +334,24 @@ static void run_scripted_commands(Cpu *cpu) {
     long now = (long)std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - t0).count();
     for (size_t i = 0; i < cmds.size();) {
         if (cmds[i].at > now) { i++; continue; }
-        uint32_t text = heap_strdup(cmds[i].text + "\n");
         log("scripted command: %s", cmds[i].text.c_str());
+        // "!changelevel <map>" / "!missionsuccess <map>": what the game's script builtins of those names do when a
+        // mission ends (0x007FBBB0 / 0x007FBCD0, RE_NOTES "Saves, disconnect and display restart") — the next
+        // map's name at 0x01C018B0 (64 bytes), the level-change request at 0x01C07014, and for missionsuccess the
+        // flag at 0x01C07018. The game's frame code (0x0041DE40) takes it from there. For unattended checks of
+        // the hand-over between missions: the builtins themselves can only be called by a level script.
+        const std::string &t = cmds[i].text;
+        bool success = t.rfind("!missionsuccess ", 0) == 0;
+        if (success || t.rfind("!changelevel ", 0) == 0) {
+            std::string map = t.substr(t.find(' ') + 1).substr(0, 63);
+            memset(g_mem + 0x01C018B0, 0, 64);
+            memcpy(g_mem + 0x01C018B0, map.data(), map.size());
+            wr32(0x01C07014, 1);
+            if (success) wr32(0x01C07018, 1);
+            cmds.erase(cmds.begin() + (long)i);
+            continue;
+        }
+        uint32_t text = heap_strdup(t + "\n");
         guest_call(cpu, 0x0049B930, {0, text});
         heap_free(text);
         cmds.erase(cmds.begin() + (long)i);

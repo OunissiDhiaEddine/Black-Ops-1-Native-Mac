@@ -27,6 +27,8 @@ SDL_AUDIO_DRIVER=dummy BO1_KEYS="45000:0x20" BO1_CMDS="60000|devmap cuba" BO1_D3
 | `loadgame <name>` / `loadgame_continue` | loads `players/save/<name>.svg` / the newest save; every mission start writes `<map>.svg` |
 | `disconnect` | leaves the mission for the menu |
 | `r_mode 1024x768` then `vid_restart` | display-mode change = a Direct3D `Reset`. `vid_restart` alone does nothing: it acts only when a renderer setting changed |
+`BO1_CMDS` also takes two runtime commands that are not the game's: `!changelevel <map>` and `!missionsuccess <map>`
+make the level-change request the game's script builtins of those names make when a mission ends (T-070).
 There is no console command that saves (`savegame` is a script call): RE_NOTES "Saves, disconnect and display restart".
 
 ### Switches (environment)
