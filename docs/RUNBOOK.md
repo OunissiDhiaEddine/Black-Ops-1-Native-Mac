@@ -160,6 +160,14 @@ Design references: `docs/HOST_ABI.md` (guest/host calls), `docs/LIFTER.md`, `doc
   shows a recorded trace live in a window.
 - **Where the time goes:** `sample <pid> 10 -file out.txt` on a running `bo1_boot`, then `tools/sample_tree.py out.txt "MetalRenderer::draw_indexed" 3` (callees merged over the report). A heavy scene without a hand: `BO1_CMDS="45000|loadgame <save>"` with a checkpoint save in `players/save/`.
   `scripts/perf_scene.sh <tag>` does both for the two checkpoint saves `cuba-1` (street fight, ~31,000 Direct3D calls per frame) and `cuba-2` (~15,000): frame statistics in `artifacts/boot/<tag>.log`, two profiles next to it; `BIN=<other bo1_boot>` measures another build on the same saves. Expected on the M1 at 800x600 (2026-10-10): renderer 3.8 ms per frame in `cuba-1`, 2.5 ms in `cuba-2`, 62.5 fps in both. The profiler slows the game while it samples (those windows show it). "GPU busy" in the second statistics line is the GPU's own time for the frames' command buffers (the budget is 16.7 ms per frame = 5,000 ms per 300 frames; expected 2026-10-10: ~3,000 ms in `cuba-1` at a true 2560x1600, ~2,500 ms at 1280x800); it rises when anything else uses the GPU. "renderer ms" times draws, buffer writes and everything that goes as a record; the state setters (most of the calls) are counted but not timed since 2026-10-10, so numbers in older logs are 0.6–1.8 ms higher for the clock reads alone.
+- **What does the game do when X happens:** wrap the function in question for one build — a file in `src/native/` with
+  `NATIVE(<va>) { fprintf(stderr, …); f_<va>_lifted(cpu); }`, a private copy of `artifacts/lifted` (see "Machine and
+  toolchain"), `scripts/build_lifted.sh`, `scripts/build_boot.sh` — and remove it again. Useful entry points:
+  `Cbuf_AddText` 0x0049B930 (every console command the game queues; text = argument 1), 0x00543CF0 (server command
+  to a client; text = argument 2), 0x0055B510 (open a menu by name; argument 2), 0x0078DAF0 (the client's handler of
+  server commands). `lldb` did not work from an agent session on 2026-10-10 (the run hung at start).
+- **Game scripts can be read:** a fastfile is zlib from byte 12; inside it every script (`.gsc`) is a zlib stream of
+  its own (search for `78 DA` / `78 9C` and inflate). `reference/` is only read.
 - **Steam:** `tools/steam_sites.py` lists the game's call sites; unknown methods trap with their slot number.
 - **Reading the game's code:** `tools/xref.py` (who references a string or an address, who calls a function, plain
   disassembly at a VA) and `tools/bink_sites.py --range LO HI` (annotated listing of whole functions).
