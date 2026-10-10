@@ -167,7 +167,7 @@ struct FrameStats {
         log("frame stats: frame %d, %.1f fps; frame ms avg %.2f p50 %.2f p95 %.2f p99 %.2f max %.1f; renderer ms avg %.2f p95 %.2f (%.0f%% of the frame); %.0f calls/frame",
             g_frame, 1000.0 * n / sum, sum / n, pct(frame_ms, 0.5), pct(frame_ms, 0.95), pct(frame_ms, 0.99), pct(frame_ms, 1.0), rsum / n,
             pct(render_ms, 0.95), 100.0 * rsum / sum, (double)calls_sum / n);
-        log("frame stats: in these %zu frames: %zu slow (> 33.4 ms); shaders %.1f ms (%llu functions, %llu ahead or from the cache), pipelines %.1f ms (%llu), GPU busy %.1f ms, GPU wait %.1f ms, drawable wait %.1f ms, "
+        log("frame stats: in these %zu frames: %zu slow (> 33.4 ms); shaders %.1f ms (%llu functions, %llu from the cache), pipelines %.1f ms (%llu), GPU busy %.1f ms, GPU wait %.1f ms, drawable wait %.1f ms, "
             "texture uploads %.1f ms (%llu, %.1f MiB)",
             frame_ms.size(), slow, (double)(w.ns_translate + w.ns_compile - at_window.ns_translate - at_window.ns_compile) / 1e6,
             (unsigned long long)(w.functions - at_window.functions), (unsigned long long)(w.precompiled - at_window.precompiled),
@@ -191,10 +191,6 @@ void observe(uint32_t tag, Cpu *, const uint32_t *a, int words, uint32_t result)
         if (iface != IFACE_D3D9 || slot != 16 || (result & 0x80000000u)) return; // nothing to draw with before CreateDevice
         rhi::Options o;
         if (const char *d = getenv("BO1_D3D_DUMP")) o.dump_dir = d;
-        // BO1_PRECOMPILE=1: compile every shader in the background when the game creates it. Off by default: a
-        // level creates ~6,000 shaders and uses a few hundred, and compiling the rest next to the game cost more
-        // than it saved (renderer time +55% while the queue ran, first-use compiles waiting behind it; T-058).
-        if (const char *v = getenv("BO1_PRECOMPILE")) o.precompile = atoi(v) != 0;
         // BO1_SHADER_CACHE_ALL=0: the shader cache only takes the shaders that were used, not every shader a level
         // creates (far fewer to compile; a shader never met before still stalls once).
         o.cache_created = !(getenv("BO1_SHADER_CACHE_ALL") && atoi(getenv("BO1_SHADER_CACHE_ALL")) == 0);

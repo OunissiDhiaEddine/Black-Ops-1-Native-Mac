@@ -118,20 +118,8 @@ struct Buf {
         return false;
     }
 };
-// A shader being compiled in the background (Options::precompile): started when the game creates the shader,
-// picked up by its first use. The block that compiles owns a reference, so the Shader may go away meanwhile.
-static std::atomic<long> g_pre_queued{0}, g_pre_done{0};
-struct Precompiled {
-    std::mutex mu;
-    std::condition_variable cv;
-    bool done = false;
-    id<MTLFunction> fn = nil;
-    std::string error;
-};
 struct Shader {
     int created_frame = 0;
-    std::shared_ptr<Precompiled> pre; // the variant without shadow samplers (mask 0), if started
-    sm3::Result pre_meta;
     std::vector<uint32_t> code;
     bool vs = false, failed = false;
     sm3::Result meta; // from the first translation (inputs, samplers)
@@ -297,8 +285,7 @@ public:
         if (opts_.window) printf("window: %d frames shown\n", frames_shown_);
         printf("shader work: translate %.1f ms, MSL compile %.1f ms, pipeline creation %.1f ms\n", ns_translate_ / 1e6, ns_library_ / 1e6,
                ns_pipeline_ / 1e6);
-        if (opts_.precompile || !cache_dir_.empty())
-            printf("shader functions compiled ahead or loaded from the cache: %llu of %zu\n", (unsigned long long)precompiled_used_, functions_compiled_);
+        if (!cache_dir_.empty()) printf("shader functions loaded from the cache: %llu of %zu\n", (unsigned long long)precompiled_used_, functions_compiled_);
         printf("metal backend: %d frames rendered, %llu draws executed, %llu skipped; %zu pipelines, %zu shader functions compiled\n",
                frames_rendered_, (unsigned long long)draws_, (unsigned long long)draws_skipped_, pipelines_.size() + internal_pipelines_.size(), functions_compiled_);
         for (auto &[k, n] : problems_) printf("  %8d  %s\n", n, k.c_str());
@@ -544,7 +531,6 @@ private:
                     memcpy(s.code.data(), b->data.data(), s.code.size() * 4);
                 }
                 s.created_frame = frame_;
-                if (opts_.precompile && !s.code.empty()) precompile(s);
                 if (opts_.cache_created && !cache_dir_.empty() && !s.code.empty()) note_created(s);
                 shaders_[id] = std::move(s);
                 dirty_ |= kDirtyObjects | kDirtyFunctions | kDirtyPipeline;
@@ -1085,42 +1071,6 @@ private:
     }
 
     // ---- shaders, pipelines, states ------------------------------------------------------------
-    // Translation is cheap and done here; the MSL compile (the slow part when Metal's cache does not know the
-    // shader yet) runs on a background queue, two at a time, below the render thread's priority.
-    void precompile(Shader &s) {
-        sm3::Options o;
-        auto t0 = std::chrono::steady_clock::now();
-        sm3::Result res = sm3::translate(s.code, o);
-        ns_translate_ += since(t0);
-        if (!res.ok) return; // the first use reports it
-        auto pre = std::make_shared<Precompiled>();
-        NSString *msl = @(res.msl.c_str());
-        id<MTLDevice> dev = dev_;
-        static NSOperationQueue *queue = [] {
-            NSOperationQueue *q = [[NSOperationQueue alloc] init];
-            q.maxConcurrentOperationCount = 2;
-            q.qualityOfService = NSQualityOfServiceUtility;
-            return q;
-        }();
-        g_pre_queued++;
-        [queue addOperationWithBlock:^{
-            @autoreleasepool {
-                NSError *err = nil;
-                id<MTLLibrary> lib = [dev newLibraryWithSource:msl options:nil error:&err];
-                id<MTLFunction> f = lib ? [lib newFunctionWithName:@"main0"] : nil;
-                std::lock_guard<std::mutex> lk(pre->mu);
-                pre->fn = f;
-                if (!f) pre->error = err ? [[err.localizedDescription componentsSeparatedByString:@"\n"][0] UTF8String] : "?";
-                pre->done = true;
-            }
-            g_pre_done++;
-            pre->cv.notify_all();
-        }];
-        res.msl.clear();
-        s.pre_meta = std::move(res);
-        s.pre = std::move(pre);
-    }
-
     // ---- shader cache (P7) -----------------------------------------------------------------------------------
     // Compiling a shader's MSL is what stalls a frame at the shader's first use (130-340 ms each when Metal has
     // never seen it; Metal's own memory of them is per folder and not ours to manage). The cache is a directory
@@ -1166,31 +1116,6 @@ private:
         if (s.failed) return nil;
         auto it = s.fn.find(shadow_mask);
         if (it != s.fn.end()) return it->second;
-        if (shadow_mask == 0 && s.pre) { // started at creation: normally finished long ago
-            std::shared_ptr<Precompiled> pre = std::move(s.pre);
-            s.pre = nullptr;
-            bool done;
-            id<MTLFunction> f;
-            std::string error;
-            {
-                std::lock_guard<std::mutex> lk(pre->mu);
-                done = pre->done, f = pre->fn, error = pre->error;
-            }
-            // Not finished (still queued behind the rest of the level's shaders): compile it here as before
-            // rather than wait for its turn; the background result is dropped.
-            if (!done) late_ = true;
-            if (done) {
-                if (!f) {
-                    s.failed = true;
-                    problem("shader compile: " + error);
-                    return nil;
-                }
-                if (!s.have_meta) s.meta = std::move(s.pre_meta), s.have_meta = true;
-                functions_compiled_++;
-                precompiled_used_++;
-                return s.fn[0] = f;
-            }
-        }
         sm3::Options o;
         o.shadow_samplers = shadow_mask;
         auto t0 = std::chrono::steady_clock::now();
@@ -1227,9 +1152,8 @@ private:
         // BO1_SHADER_LOG=1: every compile that happened at first use, with how long the shader had existed
         static const bool shader_log = getenv("BO1_SHADER_LOG") != nullptr;
         if (shader_log && !cached)
-            fprintf(stderr, "shader compiled at first use: %s, shadow mask %x, created in frame %d, used in frame %d, %.1f ms%s; background: %ld queued, %ld done\n", s.vs ? "vs" : "ps",
-                    shadow_mask, s.created_frame, frame_, (double)since(t0) / 1e6, late_ ? " (background compile not finished)" : "", g_pre_queued.load(), g_pre_done.load());
-        late_ = false;
+            fprintf(stderr, "shader compiled at first use: %s, shadow mask %x, created in frame %d, used in frame %d, %.1f ms\n", s.vs ? "vs" : "ps", shadow_mask,
+                    s.created_frame, frame_, (double)since(t0) / 1e6);
         return s.fn[shadow_mask] = f;
     }
 
@@ -1806,7 +1730,6 @@ private:
     uint64_t draws_ = 0, draws_skipped_ = 0;
     size_t functions_compiled_ = 0;
     uint64_t ns_translate_ = 0, ns_library_ = 0, ns_pipeline_ = 0; // where shader start-up time goes (T-036)
-    bool late_ = false;
     uint64_t precompiled_used_ = 0, ns_drawable_ = 0, ns_gpu_wait_ = 0, ns_upload_ = 0, pipelines_created_ = 0, uploads_ = 0, upload_bytes_ = 0; // Work (T-058)
     std::string cache_dir_; // shader cache directory; empty = off
     std::atomic<uint64_t> ns_gpu_{0};

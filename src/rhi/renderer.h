@@ -15,8 +15,6 @@ struct Options {
     bool window = false;     // show every rendered frame in a window (SDL3 + CAMetalLayer)
     void *layer = nullptr;   // CAMetalLayer* of an existing window: frames are presented there and the renderer
                              // neither creates a window nor touches SDL (the native runtime owns window and events)
-    bool precompile = false; // compile a shader in the background when the game creates it (level load), so that
-                             // its first use in a frame does not wait for the compiler (T-058: ~250 ms each, cold)
     bool cache_created = false; // shader cache: also note the source of every shader the game CREATES (a level's
                                 // ~6,000 at load), so that scripts/shader_cache.sh can compile them before their first use
     int fps = 60;            // presentation rate of the window (0 = as fast as the calls arrive)
@@ -61,7 +59,7 @@ public:
         uint64_t ns_drawable = 0; // waiting for the window's next drawable (vsync / compositor)
         uint64_t ns_gpu = 0;      // time the GPU spent executing the command buffers that have completed (P7)
         uint64_t functions = 0, pipelines = 0, uploads = 0, upload_bytes = 0;
-        uint64_t precompiled = 0; // of `functions`: compiled in the background before their first use
+        uint64_t precompiled = 0; // of `functions`: loaded from the shader cache instead of compiled (T-067)
     };
     virtual Work work() { return {}; }
     // True once the user closed the window (or pressed Escape).

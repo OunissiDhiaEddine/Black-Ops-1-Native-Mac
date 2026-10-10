@@ -438,3 +438,21 @@ Entry template:
 - Learned (docs/LIFTER.md §6): Unicorn's QEMU truncates the quotient in `FPREM1`; the arena has no 4 GiB wrap-around (only garbage pointers reach it); the old report could call a correctly excused vector "unexplained".
 - Problems: totals of the 4-job and 3-job runs differ by 2 vectors with identical reported lines — LIKELY the watchdog / emulator rebuild after a faulting run, not looked into.
 - Next: T-064 proper (STATE, step b).
+
+### 2026-10-10 20:55 — T-071 — project clean-up
+- User (project chat): "for now u should check on the whole project and clean up nd remove uneeded stuff". (Also: a DMG of the final app is wanted later, for the user's own use — P8.)
+- Surveyed: tracked files against every reference to them, `artifacts/` by size and by whether a document cites the file, branches, worktrees, stashes, the docs.
+- Removed:
+  - code: the background shader compile inside the game (`BO1_PRECOMPILE`, `rhi::Options::precompile`, the `Precompiled` machinery in `metal_renderer.mm`) — off by default since it made the renderer 55% slower (2026-10-07), and the shader cache (T-067 / T-069) does its job from outside the process. The statistics line now says "N from the cache".
+  - `docs/patches/t060_alternative_setjmp.patch` (a second implementation of what T-060 shipped; still in `git log -- docs/patches`).
+  - untracked: 19 logs in `artifacts/boot` cited by no document (`t061_*run*.log`, `t058b_*`, `t060_run.log`, `audio_run.log` … 15 MiB); this thread's leftovers in its worktree and scratch folder.
+- Kept on purpose (in use or the user's): `reference/`, `artifacts/game` with the saves, `artifacts/boot/players_main_before_pause/` (the user's earlier saves), the traces, the Wine oracle, the baseline captures, `artifacts/shaders`, `artifacts/shader_cache`, the files of the other thread (`t064_*`, its worktree and branch).
+- Not decided by me — for the user:
+  1. The superseded Steam path (`BO1_EMULATED_STEAM_DLL`: `src/platform/win32/x86_module.cpp` and the x86 interpreter library linked into `bo1_boot`). Dead since ADR-015; removing it drops a library the final app would otherwise carry. It touches `scripts/build_boot.sh`, which the other thread is changing.
+  2. The two remaining patches in `docs/patches/` (the stall-free shader compile the user turned down; the pipeline archive).
+  3. Moving the P5 entries of this log (2026-10-06/07, ~300 lines) to `docs/LOG_ARCHIVE.md` — needs one sentence of `CLAUDE.md` changed ("entries of P0–P4").
+  4. `CLAUDE.md`'s repo map does not mention `tests/native/`, `src/native/`'s first contents or the shader cache; an agent cannot edit that file, so it needs a draft copied over by the user.
+  5. Disk: `artifacts/shaders` (135 MiB, can be extracted from the traces again) and the 2026-10-05 baseline shots and run logs (~60 MiB) are only cited by old entries.
+  6. `tools/macos/winlist_all.swift` (a window-listing helper from 2026-10-07; nothing calls it).
+- Evidence: Steam self-test 76/76; `build/test_win_messages` passes; `scripts/replay_check.sh` 0.9994 / 0.9984 / 0.9997 / 0.9985 with 24 byte-identical frames; `artifacts/boot/cleanup_check_run.log` — `loadgame cuba-2`, 62.5 fps, time limit.
+- Next: STATE.
