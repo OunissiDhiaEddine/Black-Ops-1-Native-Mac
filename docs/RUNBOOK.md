@@ -49,6 +49,8 @@ There is no console command that saves (`savegame` is a script call): RE_NOTES "
 | `BO1_AUDIO_MUTE=1` | the real audio device and its clock, mastering volume 0: for timing checks (SDL's dummy / disk devices consume samples about 8% slower than real time, so anything timed against the sound drifts there) |
 | `BO1_FRAME_STATS=N` | one "frame stats:" line per N frames (300 for `1`): fps, frame time avg / p50 / p95 / p99 / max, time inside the renderer and its share (state setters are not timed: see "Where the time goes"), Direct3D calls per frame; plus a line of what was spent on shaders (and how many were compiled ahead), pipelines, GPU and drawable waits, texture uploads, and one "slow frame N: …" line with the same breakdown for every frame over 33.4 ms |
 | `BO1_GPU_PASSES=N` | in frame N every pass (and every `StretchRect`) is committed on its own and prints "gpu pass …" with the GPU's time for it, its draw count and its target: which passes cost what at a resolution. The first line of the report covers everything before that frame: skip it |
+| `BO1_SHADER_CACHE=dir` / `off` | the shader cache's directory (default `artifacts/shader_cache`, see "Shader cache" below) / no cache: every shader is compiled in the game at its first use, as before T-067 |
+| `BO1_SHADER_CACHE_ALL=0` | the cache takes only the shaders a session used, not every shader a level creates: a few hundred to compile instead of ~5,500, and a shader never met before still stalls once |
 | `BO1_SHADER_LOG=1` | one line for every shader compiled at its first use (not ahead, in the background), with the frames it was created and used in |
 | `BO1_PRECOMPILE=1` | compile every shader in the background when the game creates it (off by default: it slowed play, LOG 2026-10-07) |
 | `BO1_MOUSE_LOG=file` | window only: every mouse motion event (`ms motion xrel yrel x y relative`), every `SetCursorPos` (`ms warp x y`) and every switch of relative mouse mode; the run log gets one "mouse look: relative mouse mode on / off …" line per switch regardless |
@@ -65,6 +67,21 @@ There is no console command that saves (`savegame` is a script call): RE_NOTES "
 - The lifted C code is generated (`tools/lifter/`), lives in `artifacts/lifted/` and is never edited or committed.
 - `scripts/doctor.sh` reports which tools are present; `scripts/setup_venv.sh` creates `.venv`.
 
+### Shader cache (T-067)
+- What stalls a frame at a shader's first use is compiling its MSL (130–340 ms each when Metal has never seen it).
+  `artifacts/shader_cache/` holds Metal libraries compiled outside the game, named by the hash of the MSL text; the
+  renderer loads one in ~0.15 ms instead of compiling. Pipelines are still created at first use (~7 ms each the
+  first time in a folder).
+- The game never compiles in the background and never leaves a draw out. It leaves the source (`<key>.metal`) of
+  every shader it had to compile itself and of every shader a level creates when it loads (~5,500 per level).
+- `scripts/shader_cache.sh` compiles the waiting sources with Apple's offline compiler (`xcrun metal`, part of
+  Xcode's Metal toolchain) at low priority, `JOBS=3` at a time: 0.3–0.7 CPU-seconds per shader, so a level's first
+  load means 10–30 minutes once. `scripts/run_native.sh` runs it when the game exits (Ctrl-C is fine: it goes on
+  next time); `scripts/shader_cache.sh status` counts libraries and waiting sources.
+- The directory belongs to the main folder; a worktree links it like its other inputs. Deleting it is harmless.
+  After a change of the shader translator the keys change: old libraries are simply never asked for again
+  (delete the directory now and then).
+
 ### Machine and toolchain (as of 2026-10-06)
 - Apple M1 (arm64, **16 KiB pages**), 8 GB RAM, macOS 27.0.1, Xcode 27.0.
 - Homebrew: cmake, ninja, ffmpeg, sdl3 3.4.18, faudio 26.10, mingw-w64, ghidra, openjdk@21, sevenzip.
@@ -72,7 +89,7 @@ There is no console command that saves (`savegame` is a script call): RE_NOTES "
 - `.venv`: pefile, capstone, lief, unicorn, numpy, pillow.
 - Wine baseline (oracle only, ADR-007): `artifacts/wine/cx` (WineCX 24.0.7), prefix `artifacts/wineprefix-cx`,
   started with `scripts/run_baseline.sh`. Working copy of the game: `artifacts/game` (`reference/` stays read-only).
-- A worktree thread links its inputs from the main checkout (`artifacts/lifted`, `artifacts/game`, `artifacts/traces`,
+- A worktree thread links its inputs from the main checkout (`artifacts/lifted`, `artifacts/game`, `artifacts/traces`, `artifacts/shader_cache`,
   `.venv`, `reference`, `re/ghidra_export`, the golden PNGs) and keeps its own `build/` and `artifacts/boot/`.
   Two exceptions: a thread that writes saves or settings makes `artifacts/game` a folder of links with its own
   `players/` (saves and `config.cfg` live there); a thread that changes the lifter or `src/runtime/lifted.h` works

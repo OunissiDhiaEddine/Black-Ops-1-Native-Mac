@@ -87,7 +87,7 @@ Replace lifted modules with clean 64-bit C++ in `src/native/`, in priority order
 ## P7 — Metal optimization
 Profile with Instruments + Metal frame capture. Candidates: PSO + shader library cache at startup, argument buffers / fewer encoder switches, persistent mapped buffers (unified memory), triple buffering + frame pacing (ProMotion), tile memory where passes allow, MetalFX upscaling option, async texture streaming, fewer CPU->GPU copies.
 
-**Status:** one item done ahead of the phase on the user's word (2026-10-10, T-066: GPU time measured per frame and per pass; whole-target clears as load actions). The phase itself is not started; ask the user first.
+**Status:** one item done ahead of the phase on the user's word (2026-10-10, T-066: GPU time measured per frame and per pass; whole-target clears as load actions) and a second on "keep going with the agenda" (T-067: shader cache of offline-compiled Metal libraries; pipelines are T-068). The phase itself is not started; ask the user first.
 
 ## P8 — QA & polish
 Save/load, controller mapping, resolution/fullscreen/Spaces, display scaling, audio device changes, soak tests, crash logs. Then evaluate Zombies, then MP.

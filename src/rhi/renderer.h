@@ -17,6 +17,8 @@ struct Options {
                              // neither creates a window nor touches SDL (the native runtime owns window and events)
     bool precompile = false; // compile a shader in the background when the game creates it (level load), so that
                              // its first use in a frame does not wait for the compiler (T-058: ~250 ms each, cold)
+    bool cache_created = false; // shader cache: also note the source of every shader the game CREATES (a level's
+                                // ~6,000 at load), so that scripts/shader_cache.sh can compile them before their first use
     int fps = 60;            // presentation rate of the window (0 = as fast as the calls arrive)
 };
 
