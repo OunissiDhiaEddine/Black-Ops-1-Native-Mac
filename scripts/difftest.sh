@@ -42,10 +42,15 @@ if [ ${#todo[@]} -gt 0 ]; then
   printf '%s\n' "${todo[@]}" | xargs -P "$JOBS" -I{} sh -c 'clang '"$CFLAGS"' -c "$1" -o "'"$OUT"'/obj/$(basename "$1" .c).o"' _ {}
 fi
 for o in "$OUT"/obj/lifted_*.o; do [ -f "$OUT/$(basename "$o" .o).c" ] || rm -f "$o"; done
+# src/native defines the functions it replaces; BO1_NATIVE=off below makes them run their lifted originals,
+# which is what the vectors test (the replacements have their own test: scripts/test_native.sh)
+for c in src/native/*.c; do
+  clang -std=c11 -O2 -g -Wall -Wextra -Werror -ffp-contract=off -Isrc/runtime -c "$c" -o "$OUT/obj/native_$(basename "$c" .c).o"
+done
 clang "$OUT"/obj/*.o -o "$OUT/difftest"
 
 set +e
-"$OUT/difftest" "$EXE" --verbose "$OUT"/vectors_*.bin > "$OUT/difftest.log" 2>&1
+BO1_NATIVE=off "$OUT/difftest" "$EXE" --verbose "$OUT"/vectors_*.bin > "$OUT/difftest.log" 2>&1
 RC=$?
 set -e
 tail -1 "$OUT/difftest.log"

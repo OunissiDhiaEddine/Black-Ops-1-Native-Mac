@@ -72,6 +72,15 @@ if [ ! -f "$o" ] || [ src/runtime/runtime.c -nt "$o" ] || [ src/runtime/lifted.h
   clang $CFLAGS -c src/runtime/runtime.c -o "$o" &
   pids+=($!)
 fi
+# hand-written replacements of lifted functions (P6): -O2, and like the lifted code never a fused multiply-add
+NFLAGS="-std=c11 -O2 -g -Wall -Wextra -Werror -ffp-contract=off -Isrc/runtime"
+for c in src/native/*.c; do
+  o="$OUT/obj/native_$(basename "$c" .c).o"
+  if [ ! -f "$o" ] || [ "$c" -nt "$o" ] || [ src/native/native.h -nt "$o" ] || [ src/runtime/lifted.h -nt "$o" ] || [ src/runtime/lifted_fp.h -nt "$o" ]; then
+    clang $NFLAGS -c "$c" -o "$o" &
+    pids+=($!)
+  fi
+done
 for p in ${pids[@]+"${pids[@]}"}; do wait "$p"; done
 # the Metal renderer (ADR-004) comes from the CMake build: the game's live Direct3D calls go to it (d3d9_live.cpp)
 bash scripts/build.sh bo1_metal bo1_shaders bo1_window >/dev/null

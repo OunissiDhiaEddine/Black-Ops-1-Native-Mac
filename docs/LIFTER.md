@@ -1,6 +1,6 @@
 # LIFTER — static recompilation of `BlackOps.exe` (x86-32) to C (ADR-013)
 
-> Keep this file in step with `tools/lifter/lift.py`, `src/runtime/lifted.h` and `tests/diff/`.
+> Keep this file in step with `tools/lifter/lift.py`, `src/runtime/lifted.h`, `tests/diff/` and `src/native/native.h`.
 > Generated code lives in `artifacts/lifted/` (gitignored, never hand-edited, never committed —
 > it is a derivative of the game binary). Regenerate with `scripts/difftest.sh` or
 > `.venv/bin/python tools/lifter/lift.py`.
@@ -237,3 +237,28 @@ The same generated C, compiled for x86_64 and run under Rosetta 2 on the same 26
   text -> ~25 MB of code for the image (x4.3 over the original 5.9 MB), ~1.5 min full build with 6 jobs.
 - Unicorn must be rebuilt after a faulting run (a failed run left it returning to garbage
   addresses for every later function) — handled in `gen_vectors.py`.
+
+## 8. Native replacements (P6, `src/native/`)
+A lifted function is handed to hand-written code by defining it in a C file under `src/native/` with the marker
+`NATIVE(<8 hex digits>) { … }` (`src/native/native.h`). Nothing else names it: `lift.py` scans `src/native/*.c` for
+the marker, emits the lifted body of that address as `f_<va>_lifted` and leaves `f_<va>` — what every lifted
+caller and the `rt_dispatch` table reach — to the native source (`re/lift_coverage.json` -> `native_replacements`).
+The lifter stops when a marked address is not a function or does not lift. `lifted_protos.h` does not change, so
+replacing a function recompiles only the chunk it is in.
+
+- **Contract of a replacement:** it is entered like the lifted function (return address at `M32(cpu->esp)`, stack
+  arguments above it — `ARG(n)` —, register arguments in the `Cpu`), must leave `esp` as the original's `ret` does
+  and keep what the original keeps. Anything it does not reproduce — caller-saved registers, scratch below `esp`,
+  SIMD registers, NaN payloads — is written at the function together with the evidence that no caller reads it.
+- **Switch:** `BO1_NATIVE=off` makes every replacement run its lifted original (one predictable branch per call):
+  for A/B measurements, for bisecting a bug, and for `scripts/difftest.sh`, whose vectors keep testing the lifted
+  bodies against the x86 reference.
+- **Test:** `scripts/test_native.sh` (`tests/native/test_native.c`) runs each replacement and its lifted original
+  on the same randomised guest memory and registers and compares every output byte, the registers the original
+  keeps and `esp`; `--bench` adds the time of both sides. Lifted-vs-x86 (§6) plus native-vs-lifted is the chain.
+  A new replacement gets its cases there, and a mutation check (break the native code on purpose, see the test
+  fail) before it is trusted.
+- **Flags:** `-O2 -ffp-contract=off -Wall -Wextra -Werror` (`scripts/build_boot.sh`); no fused multiply-add, as
+  for the lifted code.
+- `lift.py --no-native` ignores `src/native` (the single-function debug tree of `tests/diff/debug_vector.sh`).
+- Replaced so far: `re/lift_coverage.json` -> `native_replacements`; what each one is: `re/symbols.csv`.

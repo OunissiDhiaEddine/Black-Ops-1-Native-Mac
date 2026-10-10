@@ -48,6 +48,13 @@
   "0x008a8ded",
   "0x008bd031"
  ],
+ "native_replacements": [
+  "0x00745520",
+  "0x00745730",
+  "0x00745a00",
+  "0x00745d70",
+  "0x00967760"
+ ],
  "x87_decode_mismatches": {},
  "unlifted": {
   "0x0040c000": "int1",

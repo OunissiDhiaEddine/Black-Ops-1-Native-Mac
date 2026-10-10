@@ -9,7 +9,7 @@ FN="$1"; NTH="${2:-0}"
 DBG=artifacts/lifted_dbg
 EXE="reference/Call of Duty Black Ops/BlackOps.exe"
 mkdir -p "$DBG"
-.venv/bin/python tools/lifter/lift.py --out "$DBG" --only "$FN" --closure --trace > /dev/null
+.venv/bin/python tools/lifter/lift.py --out "$DBG" --only "$FN" --closure --trace --no-native > /dev/null
 CFLAGS="-std=c11 -O1 -g -DLIFT_TRACE -Wno-unused-label -Wno-unused-function -ffp-contract=off -Isrc/runtime -I$DBG"
 clang $CFLAGS "$DBG"/lifted_*.c src/runtime/runtime.c tests/diff/difftest.c -o "$DBG/difftest"
 "$DBG/difftest" "$EXE" --verbose --func "${FN#0x}" --nth "$NTH" artifacts/lifted/vectors_*.bin > "$DBG/lifted.trace" || true

@@ -46,6 +46,7 @@ There is no console command that saves (`savegame` is a script call): RE_NOTES "
 | `BO1_NO_NET=1` | sockets exist but carry no traffic |
 | `BO1_CPUS=n` | processor count reported to the game |
 | `BO1_GAME_DIR`, `BO1_HOME_DIR` | the guest's `C:\bo1` (default `artifacts/game`) and home (default `artifacts/boot/home`) |
+| `BO1_NATIVE=off` | every hand-written replacement (`src/native`) runs its lifted original instead: A/B measurements and bisecting (docs/LIFTER.md §8) |
 | `BO1_AUDIO_MUTE=1` | the real audio device and its clock, mastering volume 0: for timing checks (SDL's dummy / disk devices consume samples about 8% slower than real time, so anything timed against the sound drifts there) |
 | `BO1_FRAME_STATS=N` | one "frame stats:" line per N frames (300 for `1`): fps, frame time avg / p50 / p95 / p99 / max, time inside the renderer and its share (state setters are not timed: see "Where the time goes"), Direct3D calls per frame; plus a line of what was spent on shaders (and how many were compiled ahead), pipelines, GPU and drawable waits, texture uploads, and one "slow frame N: …" line with the same breakdown for every frame over 33.4 ms |
 | `BO1_SHADER_LOG=1` | one line for every shader compiled at its first use (not ahead, in the background), with the frames it was created and used in |
@@ -58,6 +59,7 @@ There is no console command that saves (`savegame` is a script call): RE_NOTES "
 - `scripts/build.sh` — CMake/Ninja: shader translator, Metal renderer library, window library, replay tool, unit tests.
 - `scripts/build_lifted.sh` — lift the image and compile only the chunks that changed (objects are renamed into place, so a parallel thread never links a half-written file); then `scripts/build_boot.sh`. A change of `src/runtime/lifted.h` recompiles all 67 chunks (~4 min at `JOBS=2`).
 - `scripts/build_lifted.sh --a2-check` + `BO1_LIFT=artifacts/lifted_a2 scripts/build_boot.sh` -> `artifacts/boot/bo1_boot_a2`: audit build whose every `ret` reports (`[A2] …` on stderr) when it is about to return somewhere else than the function was entered with (docs/LIFTER.md, assumption A2). ~4 min, ~400 MB; delete `artifacts/lifted_a2` afterwards.
+- `src/native/*.c` — hand-written replacements of lifted functions (`NATIVE(<va>)`, docs/LIFTER.md §8). After adding one: `scripts/build_lifted.sh` (re-lifts; recompiles the one chunk that holds the function), `scripts/test_native.sh`, `scripts/build_boot.sh`.
 - `scripts/build_boot.sh` — the runtime `artifacts/boot/bo1_boot` (not in CMake: it links the lifted objects in
   `artifacts/lifted/obj`, which come from `scripts/difftest.sh` / the lifter). Links Homebrew's SDL3, FFmpeg
   (libavformat / libavcodec / libavutil) and FAudio.
@@ -76,7 +78,9 @@ There is no console command that saves (`savegame` is a script call): RE_NOTES "
   Two exceptions: a thread that writes saves or settings makes `artifacts/game` a folder of links with its own
   `players/` (saves and `config.cfg` live there); a thread that changes the lifter or `src/runtime/lifted.h` works
   on its own clone of the lifted code (`cp -cp` of `artifacts/lifted/*.c *.h *.json` and `obj/lifted_*.o`) and
-  regenerates the shared one when it merges.
+  regenerates the shared one when it merges. `touch` the cloned objects afterwards: a fresh worktree's
+  `src/runtime/lifted.h` is newer than they are, and `build_lifted.sh` then recompiles all 67 chunks (8 min at `JOBS=1`; it
+  happened on 2026-10-10).
 - **After a lifter change:** `.venv/bin/python tools/lifter/lift.py --out artifacts/lifted --stats re/lift_coverage.json`
   rewrites only the chunks whose text changed; compile those (`scripts/difftest.sh` does it, and re-tests), then
   `scripts/build_boot.sh`. A change of `src/runtime/lifted.h` makes `difftest.sh` recompile all 66 chunks (~4 min).
@@ -89,6 +93,7 @@ There is no console command that saves (`savegame` is a script call): RE_NOTES "
 | `scripts/boot_try.sh 90` | `time limit reached (still running …)` |
 | the unattended run above | three `BinkOpen` / `BinkClose` pairs with sound-track sample counts and 0 dropped, `xaudio2: first xWMA voice … decoded with FFmpeg`, no `Com_ERROR`, no "host signal" |
 | `scripts/replay_check.sh` (renderer changes) | worst SSIM cuba 0.9994, khe_sanh 0.9984, menu 0.9997, vorkuta 0.9985; no "unrecorded" lines |
+| `scripts/test_native.sh` (changes in `src/native`, the lifter or `lifted_fp.h`; a few seconds) | last line `test_native: 21600 cases, 0 failed` |
 | `REPORT=re/difftest_report_all.json scripts/difftest.sh 100000 2 5 all` (lifter changes; ~6 min, ~10 when `lifted.h` changed) | last line "functions failing: 9 (9 with a known-wrong reference, 0 unexplained)". Without `REPORT=` the summary overwrites the leaf-set report `re/difftest_report.json` |
 | saves: `BO1_BINK=off BO1_KEYS="35000:0x20" BO1_CMDS="50000\|devmap cuba;125000\|loadgame cuba"`, 200 s | `players\save\cuba.svg` written, "Save game build number: 152", "=== G_LoadGame ===", then frames again; no "guest stopped" |
 | leave and resume: `… BO1_CMDS=$'50000\|devmap cuba;127000\|disconnect\nloadgame cuba'`, 250 s | "Disconnecting: Disconnected from server", "Server: frontend", "Server: cuba", "=== G_LoadGame ===" |
@@ -114,6 +119,7 @@ src/platform/win32/*.cpp     kernel32, user32/gdi32, winsock, misc DLLs
 src/rhi + src/metal          renderer: Direct3D 9 calls in (typed functions and call records; a record of a typed
                              call is decoded into the same function, so the trace replay runs the same code),
                              Metal out. A draw tells Metal only the state that changed since the draw before.
+src/native/*.c               hand-written replacements of lifted functions (memcpy, vertex skinning); LIFTER.md §8
 src/shaders/sm3_msl.cpp      SM3 bytecode -> MSL
 src/platform/window          SDL3 window on the process main thread (size / full screen follow the game's display
                              mode), SDL events -> Win32 messages, virtual cursor /
