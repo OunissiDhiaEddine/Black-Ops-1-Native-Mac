@@ -12,6 +12,6 @@ FLAGS="-std=c11 -O2 -g -Wall -Wextra -Werror -ffp-contract=off -Isrc/runtime -Is
 for c in src/native/*.c tests/native/test_native.c; do
   clang $FLAGS -c "$c" -o "$OUT/$(basename "$c" .c).o"
 done
-clang -std=c11 -O1 -g -Wall -Werror -ffp-contract=off -Isrc/runtime -I"$LIFT" -c src/runtime/runtime.c -o "$OUT/runtime.o"
+clang -std=c11 -O2 -g -Wall -Werror -ffp-contract=off -Isrc/runtime -I"$LIFT" -c src/runtime/runtime.c -o "$OUT/runtime.o"
 clang "$OUT"/*.o "$LIFT"/obj/lifted_*.o -o artifacts/boot/test_native
 artifacts/boot/test_native "reference/Call of Duty Black Ops/BlackOps.exe" "$@"
