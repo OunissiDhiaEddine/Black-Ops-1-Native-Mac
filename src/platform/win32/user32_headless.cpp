@@ -5,6 +5,7 @@
 // headless and the queue only carries scripted input (BO1_KEYS). The file name is historical.
 // Message sequences are a simplified version of what Windows sends (LIKELY sufficient; to be compared
 // with a message trace from the Wine baseline if the game misbehaves).
+#include "boot_splash.h"
 #include <unistd.h>
 
 #include <chrono>
@@ -470,7 +471,16 @@ SHIM(user32, EnumThreadWindows, 3) {
     return 1;
 }
 SHIM(user32, MessageBoxA, 4) {
-    // Never blocks. The text is the interesting part: the game reports fatal errors this way.
+    // A box with the error icon (MB_ICONERROR) is the game's fatal-error message (0x005ACC60 from Sys_Error,
+    // 0x004C9B60): after it the game only pumps messages until it is told to quit. Here: the text goes to the log,
+    // a window run shows it as a native alert, and the process ends with exit code 1 (T-076).
+    if ((a[3] & 0xF0) == 0x10) {
+        std::string title = gstr(a[2]), text = gstr(a[1]);
+        fprintf(stderr, "\n*** FATAL GAME ERROR (%s): %s\n", title.c_str(), text.c_str());
+        if (win::WindowService::get().metal_layer()) win::show_error_alert(title.c_str(), text.c_str());
+        process_exit(1);
+    }
+    // Every other box never blocks; the text is the interesting part.
     log("MessageBoxA(\"%s\": \"%s\", type %x) -> IDNO/IDOK", gstr(a[2]).c_str(), gstr(a[1]).c_str(), a[3]);
     return (a[3] & 0xF) == 4 || (a[3] & 0xF) == 3 ? 7 /* IDNO */ : 1 /* IDOK */;
 }

@@ -81,7 +81,7 @@ for c in src/native/*.c; do
 done
 for p in ${pids[@]+"${pids[@]}"}; do wait "$p"; done
 # the Metal renderer (ADR-004) comes from the CMake build: the game's live Direct3D calls go to it (d3d9_live.cpp)
-bash scripts/build.sh bo1_metal bo1_shaders bo1_window >/dev/null
+bash scripts/build.sh bo1_metal bo1_shaders bo1_window > "$OUT/cmake_build.log" 2>&1 || { grep -E "error|FAILED" "$OUT/cmake_build.log" | head -20; echo "the CMake part failed: $OUT/cmake_build.log"; exit 1; }
 clang++ "$OUT"/obj/*.o "$LIFT"/obj/lifted_*.o build/libbo1_metal.a build/libbo1_shaders.a build/libbo1_window.a \
   /opt/homebrew/lib/libSDL3.dylib /opt/homebrew/lib/libavformat.dylib /opt/homebrew/lib/libavcodec.dylib /opt/homebrew/lib/libavutil.dylib /opt/homebrew/lib/libFAudio.dylib \
   -framework AppKit -framework Metal -framework Foundation -framework CoreGraphics -framework ImageIO -framework QuartzCore \

@@ -76,4 +76,20 @@ bool write_boot_splash_png(const char *path, int width, int height) {
     }
 }
 
+void show_error_alert(const char *title, const char *text) {
+    NSString *t = [NSString stringWithCString:title encoding:NSWindowsCP1252StringEncoding];
+    NSString *m = [NSString stringWithCString:text encoding:NSWindowsCP1252StringEncoding];
+    if (!t) t = @"Error";
+    if (!m) m = @"";
+    dispatch_sync(dispatch_get_main_queue(), ^{
+        NSAlert *alert = [[NSAlert alloc] init];
+        alert.alertStyle = NSAlertStyleCritical;
+        alert.messageText = t;
+        alert.informativeText = m;
+        [alert addButtonWithTitle:@"OK"];
+        [NSApp activateIgnoringOtherApps:YES];
+        [alert runModal];
+    });
+}
+
 } // namespace bo1::win

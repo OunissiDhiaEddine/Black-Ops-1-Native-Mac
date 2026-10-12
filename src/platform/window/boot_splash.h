@@ -14,3 +14,9 @@ bool show_boot_splash(void *metal_layer, double seconds);
 bool write_boot_splash_png(const char *path, int width, int height);
 
 } // namespace bo1::win
+
+namespace bo1::win {
+// A native alert with one OK button; returns when it is dismissed. Call from a thread that is not the main
+// thread, with the window service running (the game's fatal-error message, T-076).
+void show_error_alert(const char *title, const char *text);
+} // namespace bo1::win

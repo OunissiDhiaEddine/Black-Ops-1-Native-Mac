@@ -182,6 +182,7 @@ Design references: `docs/HOST_ABI.md` (guest/host calls), `docs/LIFTER.md`, `doc
   server commands). `lldb` did not work from an agent session on 2026-10-10 (the run hung at start).
 - **Game scripts can be read:** a fastfile is zlib from byte 12; inside it every script (`.gsc`) is a zlib stream of
   its own (search for `78 DA` / `78 9C` and inflate). `reference/` is only read.
+- **Fatal game error:** the log ends with `*** FATAL GAME ERROR (Error): <text>` and the process exits with code 1; a window run shows the text in an alert first. The lines `game console: …` before it are what the game wrote to its own debug console.
 - **Steam:** `tools/steam_sites.py` lists the game's call sites; unknown methods trap with their slot number.
 - **Reading the game's code:** `tools/xref.py` (who references a string or an address, who calls a function, plain
   disassembly at a VA) and `tools/bink_sites.py --range LO HI` (annotated listing of whole functions).
