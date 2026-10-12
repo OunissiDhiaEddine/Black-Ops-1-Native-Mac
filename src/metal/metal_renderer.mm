@@ -214,16 +214,16 @@ public:
             case IFACE_TEXTURE:
                 if (r.slot == 18) out_surface(r, r.arg(0), r.arg(1), 0);
                 else if (r.slot == 20) upload_texture(r, r.arg(0), r.arg(1), 0);
-                else if (r.slot == 2 && released(r, textures_)) tex_dirty_ = 0xFFFF;
+                else if (r.slot == 2) released_texture(r);
                 break;
             case IFACE_CUBE:
                 if (r.slot == 18) out_surface(r, r.arg(0), r.arg(2), r.arg(1));
                 else if (r.slot == 20) upload_texture(r, r.arg(0), r.arg(2), r.arg(1));
-                else if (r.slot == 2 && released(r, textures_)) tex_dirty_ = 0xFFFF;
+                else if (r.slot == 2) released_texture(r);
                 break;
             case IFACE_VOLUME:
                 if (r.slot == 20) upload_texture(r, r.arg(0), r.arg(1), 0);
-                else if (r.slot == 2 && released(r, textures_)) tex_dirty_ = 0xFFFF;
+                else if (r.slot == 2) released_texture(r);
                 break;
             case IFACE_VB: case IFACE_IB:
                 if (r.slot == 12) upload_buffer(r);
@@ -235,7 +235,7 @@ public:
                     if (it != surfaces_.end()) upload_texture(r, it->second.tex, it->second.level, it->second.face);
                 } else if (r.slot == 2 && r.has_result() && r.result == 0) {
                     auto it = surfaces_.find(r.arg(0));
-                    if (it != surfaces_.end() && it->second.tex == r.arg(0)) textures_.erase(r.arg(0)), tex_dirty_ = 0xFFFF; // standalone
+                    if (it != surfaces_.end() && it->second.tex == r.arg(0)) texture_changes(r.arg(0)), textures_.erase(r.arg(0)), tex_dirty_ = 0xFFFF; // standalone
                     surfaces_.erase(r.arg(0));
                 }
                 break;
@@ -253,15 +253,20 @@ public:
                 // The frame's work is submitted; the CPU only waits for the GPU when it reads the picture back
                 // (a dump), otherwise for the PREVIOUS frame, so that at most one frame is queued (waiting for
                 // this one cost 21% of the render thread in the first profile, T-058).
-                bool dump = !opts_.dump_dir.empty() && frame >= opts_.first_frame && frame % 20 == 0;
-                id<MTLCommandBuffer> mine = cmd_;
+                bool dump = !opts_.dump_dir.empty() && frame >= opts_.first_frame && frame % dump_every_ == 0;
+                // A copy that holds a place in the queue is made now: the frame cannot be shown behind it. One
+                // whose source has not changed since stays noted across the frame boundary.
+                if (pend_.active && (pend_.slot || !lazy_copies())) make_pending_copy();
                 flush(dump);
                 if (!dump && prev_frame_cmd_) {
                     auto t0 = std::chrono::steady_clock::now();
                     [prev_frame_cmd_ waitUntilCompleted];
                     ns_gpu_wait_ += since(t0);
                 }
-                prev_frame_cmd_ = dump ? nil : mine;
+                prev_frame_cmd_ = dump ? nil : last_commit_; // the last command buffer of this frame, in queue order
+                pass_ord_ = 0;
+                if ((frames_rendered_ & 511) == 0) depth_seen_.fill(0); // (the frame's passes change with the scene)
+                wait_gen_ = gen_; // across frames only the previous frame is waited for (above), as before
                 // Every command buffer of the frame before this one has completed now (they complete in the order
                 // they were committed, and the last of them was just waited for, or this frame's was): its
                 // constant chunks are free to be written again. This frame's wait one more frame.
@@ -277,7 +282,8 @@ public:
     }
     bool wants_quit() override { return quit_; }
     Work work() override {
-        return {ns_translate_, ns_library_, ns_pipeline_, ns_gpu_wait_, ns_upload_, ns_drawable_, ns_gpu_.load(), functions_compiled_, pipelines_created_, uploads_, upload_bytes_, precompiled_used_};
+        return {ns_translate_, ns_library_, ns_pipeline_, ns_gpu_wait_, ns_upload_, ns_drawable_, gpu_clock_.ns.load(), functions_compiled_, pipelines_created_, uploads_, upload_bytes_, precompiled_used_,
+                copies_asked_, copies_made_};
     }
 
     int report() override {
@@ -286,6 +292,7 @@ public:
         printf("shader work: translate %.1f ms, MSL compile %.1f ms, pipeline creation %.1f ms\n", ns_translate_ / 1e6, ns_library_ / 1e6,
                ns_pipeline_ / 1e6);
         if (!cache_dir_.empty()) printf("shader functions loaded from the cache: %llu of %zu\n", (unsigned long long)precompiled_used_, functions_compiled_);
+        if (copies_asked_) printf("whole-surface copies: %llu asked for, %llu made\n", (unsigned long long)copies_asked_, (unsigned long long)copies_made_);
         printf("metal backend: %d frames rendered, %llu draws executed, %llu skipped; %zu pipelines, %zu shader functions compiled\n",
                frames_rendered_, (unsigned long long)draws_, (unsigned long long)draws_skipped_, pipelines_.size() + internal_pipelines_.size(), functions_compiled_);
         for (auto &[k, n] : problems_) printf("  %8d  %s\n", n, k.c_str());
@@ -316,6 +323,12 @@ private:
         if (!r.has_result() || r.result != 0) return false;
         map.erase(r.arg(0));
         return true;
+    }
+    void released_texture(const Record &r) {
+        if (!r.has_result() || r.result != 0) return;
+        texture_changes(r.arg(0));
+        textures_.erase(r.arg(0));
+        tex_dirty_ = 0xFFFF;
     }
     // Pipelines are cached under the ids of their shaders and vertex declaration: they go with any of the three.
     // (Called whenever a shader or declaration is destroyed: what the bound ids mean has to be looked up again.)
@@ -363,6 +376,7 @@ private:
             memcpy(&w, pp->data.data(), 4);
             memcpy(&h, pp->data.data() + 4, 4);
         }
+        texture_changes(kBackBufferTex);
         Tex t;
         t.fmt = FMT_A8R8G8B8, t.w = w, t.h = h;
         MTLTextureDescriptor *d = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatBGRA8Unorm width:w height:h mipmapped:NO];
@@ -384,6 +398,7 @@ private:
     void create_texture(uint32_t id, MTLTextureType type, uint32_t w, uint32_t h, uint32_t depth, uint32_t levels,
                         uint32_t usage, uint32_t fmt) {
         if (!id) return;
+        texture_changes(id);
         tex_dirty_ = 0xFFFF; // the id may be one a stage already has bound
         Tex t;
         t.fmt = fmt, t.w = w, t.h = h, t.d = depth;
@@ -573,7 +588,7 @@ private:
             b.buf = [dev_ newBufferWithLength:std::max<uint32_t>(b.size, 16) options:MTLResourceStorageModeShared];
             b.used_gen = 0;
             b.unrecorded.clear();
-        } else if (!nooverwrite && b.used_gen == gen_ && data) {
+        } else if (!nooverwrite && b.used_gen >= wait_gen_ && data) {
             @autoreleasepool {
                 flush(true);
             }
@@ -602,7 +617,8 @@ private:
         }
         if (level == 0) t->unrecorded = false;
         tex_dirty_ = 0xFFFF; // `unrecorded` is remembered per stage
-        if (t->used_gen == gen_) flush(true); // an earlier draw in this command buffer samples it
+        texture_changes(tex_id);
+        if (t->used_gen >= wait_gen_) flush(true); // an earlier draw of this frame, not yet waited for, samples it
         MTLRegion region;
         if (d.has_rect) region = MTLRegionMake3D(d.left, d.top, t->volume ? d.front : 0, d.right - d.left, d.bottom - d.top, t->volume ? d.back - d.front : 1);
         else region = MTLRegionMake3D(0, 0, 0, d.width, d.height, t->volume ? d.depth : 1);
@@ -639,6 +655,7 @@ private:
         else fprintf(debug_log_, " %s=none", what);
     }
     void debug_dump(const Surface *color, const Surface *depth, const char *kind) {
+        if (pend_.slot) make_pending_copy();
         if (cmd_) {
             [cmd_ commit];
             [cmd_ waitUntilCompleted];
@@ -762,12 +779,25 @@ private:
         const_chunks_.clear();
         const_off_ = 0;
     }
-    // The GPU's own time for a command buffer, added up when it completes (Work::ns_gpu).
+    // The GPU's own time for the command buffers, added up as they complete (Work::ns_gpu): the time during which
+    // it was executing at least one of them. A frame is several command buffers (deferred copies), and the GPU
+    // starts on the next one's geometry while it still shades the one before, so their spans overlap: the plain
+    // sum would count that time twice.
+    struct GpuClock {
+        std::mutex mu;
+        double last_end = 0;
+        std::atomic<uint64_t> ns{0};
+    };
     void commit(id<MTLCommandBuffer> cb) {
-        std::atomic<uint64_t> *sum = &ns_gpu_;
+        GpuClock *g = &gpu_clock_;
         [cb addCompletedHandler:^(id<MTLCommandBuffer> done) {
-            double s = done.GPUEndTime - done.GPUStartTime;
-            if (s > 0) sum->fetch_add((uint64_t)(s * 1e9), std::memory_order_relaxed);
+            double a = done.GPUStartTime, b = done.GPUEndTime;
+            std::lock_guard<std::mutex> lk(g->mu);
+            if (a < g->last_end) a = g->last_end;
+            if (b > a) {
+                g->ns.fetch_add((uint64_t)((b - a) * 1e9), std::memory_order_relaxed);
+                g->last_end = b;
+            }
         }];
         [cb commit];
     }
@@ -775,6 +805,7 @@ private:
     // GPU's time for it (P7: which passes of a frame cost what at a given resolution).
     void gpu_pass_report(const char *kind) {
         if (frame_ != gpu_passes_frame_ || !cmd_) return;
+        if (pend_.slot) make_pending_copy();
         id<MTLCommandBuffer> cb = cmd_;
         [cb commit];
         [cb waitUntilCompleted];
@@ -784,23 +815,106 @@ private:
         const_copy_[0] = const_copy_[1] = {};
         const Tex *ct = have_rt_ ? tex(rt_.tex) : nullptr, *dt = have_ds_ ? tex(ds_.tex) : nullptr;
         fprintf(stderr, "gpu pass %3d %-8s %7.3f ms  %4u draws  colour %s fmt %u %ux%u  depth %s\n", gpu_pass_n_++, kind, (cb.GPUEndTime - cb.GPUStartTime) * 1e3,
-                pass_draws_, ct ? "yes" : "no", ct ? ct->fmt : 0, ct ? std::max(1u, ct->w >> rt_.level) : 0, ct ? std::max(1u, ct->h >> rt_.level) : 0, dt ? "yes" : "no");
+                pass_draws_, ct ? "yes" : "no", ct ? ct->fmt : 0, ct ? std::max(1u, ct->w >> rt_.level) : 0, ct ? std::max(1u, ct->h >> rt_.level) : 0,
+                !dt ? "no" : pass_lacks_depth_ && !strcmp(kind, "pass") ? "left out" : "yes");
         pass_draws_ = 0;
     }
+    // Commit what was encoded; `wait`: until the GPU has executed it and everything committed before it.
     void flush(bool wait) {
+        if (wait && pend_.slot) make_pending_copy(); // nothing behind an uncommitted place in the queue completes
         end_pass();
         if (cmd_) {
             commit(cmd_);
-            if (wait) {
-                auto t0 = std::chrono::steady_clock::now();
-                [cmd_ waitUntilCompleted];
-                ns_gpu_wait_ += since(t0);
-            }
+            last_commit_ = cmd_;
+            slot_is_last_ = false;
             cmd_ = nil;
         }
         gen_++;
+        if (wait) {
+            if (last_commit_) {
+                auto t0 = std::chrono::steady_clock::now();
+                [last_commit_ waitUntilCompleted];
+                ns_gpu_wait_ += since(t0);
+            }
+            wait_gen_ = gen_;
+        }
         retire_const_chunks();
         const_copy_[0] = const_copy_[1] = {};
+    }
+
+    // ---- deferred copies (P7) ----------------------------------------------------------------------------------
+    // The game copies the back buffer to its "resolved scene" texture five to six times a frame (StretchRect,
+    // same size and format) and never reads most of those copies: the next copy replaces them. Such a copy is
+    // therefore only noted. It is made when something is about to read (or partly change) the destination, and
+    // dropped when the destination is replaced first. When the SOURCE is about to change before that is known,
+    // the command buffer is closed and an empty one takes the next place in the queue (`enqueue`): Metal executes
+    // command buffers in the order they were enqueued, so a copy encoded into that one later still reads the
+    // source as it was when the game asked. Everything committed after it waits on the GPU until it is committed
+    // too, with the copy or empty: at the latest when the frame ends. What the game sees never differs from
+    // copying at once (BO1_EAGER_COPIES=1 does that, for comparison).
+    struct PendingCopy {
+        bool active = false;
+        uint32_t src = 0, dst = 0;       // texture ids
+        Surface dst_surface{};
+        id<MTLTexture> from = nil, to = nil;
+        NSUInteger from_slice = 0, from_level = 0, to_slice = 0, to_level = 0, w = 0, h = 0;
+        id<MTLCommandBuffer> slot = nil; // the place kept in the queue, once the source was about to change
+    };
+    bool lazy_copies() const { return lazy_copies_ && !debugging() && frame_ != gpu_passes_frame_; }
+    static void encode_copy(id<MTLCommandBuffer> cb, const PendingCopy &c) {
+        id<MTLBlitCommandEncoder> b = [cb blitCommandEncoder];
+        [b copyFromTexture:c.from sourceSlice:c.from_slice sourceLevel:c.from_level sourceOrigin:MTLOriginMake(0, 0, 0) sourceSize:MTLSizeMake(c.w, c.h, 1)
+                 toTexture:c.to destinationSlice:c.to_slice destinationLevel:c.to_level destinationOrigin:MTLOriginMake(0, 0, 0)];
+        [b endEncoding];
+    }
+    void commit_slot() {
+        commit(pend_.slot);
+        if (slot_is_last_) last_commit_ = pend_.slot;
+        pend_.slot = nil;
+    }
+    // The noted copy is needed after all: in the place kept for it, or right here (the source is unchanged).
+    void make_pending_copy() {
+        if (!pend_.active) return;
+        PendingCopy c = pend_;
+        pend_.active = false; // (end_pass below may come back here through the debugging aids)
+        if (c.slot) {
+            encode_copy(c.slot, c);
+            commit_slot();
+        } else {
+            end_pass();
+            ensure_cmd();
+            encode_copy(cmd_, c);
+        }
+        for (uint32_t id : {c.src, c.dst})
+            if (Tex *t = tex(id); t && (t->tex == c.from || t->tex == c.to)) t->used_gen = gen_;
+        copies_made_++;
+        pend_ = {};
+    }
+    // The destination is replaced as a whole before anything read it.
+    void drop_pending_copy() {
+        if (pend_.slot) commit_slot();
+        pend_ = {};
+    }
+    // The source of the noted copy is about to change.
+    void keep_place_for_copy() {
+        if (!lazy_copies()) {
+            make_pending_copy();
+            return;
+        }
+        flush(false);
+        pend_.slot = [queue_ commandBuffer];
+        [pend_.slot enqueue];
+        slot_is_last_ = true;
+    }
+    // A texture is created, destroyed, or written by the game from memory.
+    void texture_changes(uint32_t id) {
+        if (pend_.active && (id == pend_.src || id == pend_.dst)) make_pending_copy();
+    }
+    // Does the bound pixel shader sample the destination of the noted copy?
+    bool samples_pending_copy() const {
+        for (uint32_t m = ps_samplers_; m; m &= m - 1)
+            if (bound_tex_[__builtin_ctz(m)] == pend_.dst) return true;
+        return false;
     }
     id<MTLTexture> target_texture(const Surface &s, Tex **out = nullptr) {
         Tex *t = tex(s.tex);
@@ -816,12 +930,30 @@ private:
         float z;
         bool done = false;              // set by begin_pass when the load actions did it
     };
-    bool begin_pass(PassClear *pc = nullptr) {
-        if (enc_) return true;
+    // `needs_depth`: what is about to be drawn tests or writes depth / stencil. The game leaves its depth buffer
+    // bound through all its full-screen passes; a pass whose first draw does not need it is begun without it
+    // (P7: the GPU then neither loads nor stores 4 M pixels of depth and stencil for it), and begun again with it
+    // if a later draw does. `depth_seen_` remembers, by the pass's position in the frame, where that happened, so
+    // that the next frames attach it from the start.
+    bool begin_pass(PassClear *pc = nullptr, bool needs_depth = true) {
+        bool again = false;
+        if (enc_) {
+            if (!pass_lacks_depth_ || !needs_depth) return true;
+            end_pass();
+            depth_seen_[pass_ord_ & 255] = 1;
+            again = true;
+        }
+        if (pend_.active && have_rt_) {
+            if (rt_.tex == pend_.dst) make_pending_copy(); // drawn into: what it held counts
+            else if (rt_.tex == pend_.src && !pend_.slot) keep_place_for_copy();
+        }
         Tex *ct = nullptr, *dt = nullptr;
         id<MTLTexture> color = have_rt_ ? target_texture(rt_, &ct) : nil;
         id<MTLTexture> depth = have_ds_ ? target_texture(ds_, &dt) : nil;
         if (!color && !depth) return false;
+        if (!again) pass_ord_++;
+        pass_lacks_depth_ = color && depth && !needs_depth && lean_passes_ && !debugging() && !depth_seen_[pass_ord_ & 255];
+        if (pass_lacks_depth_) depth = nil, dt = nullptr;
         pass_w_ = color ? std::max<NSUInteger>(1, color.width >> rt_.level) : std::max<NSUInteger>(1, depth.width >> ds_.level);
         pass_h_ = color ? std::max<NSUInteger>(1, color.height >> rt_.level) : std::max<NSUInteger>(1, depth.height >> ds_.level);
         bool clear_color = false, clear_depth = false, clear_stencil = false;
@@ -946,7 +1078,7 @@ private:
         uint32_t zbits = r.arg(5);
         memcpy(&z, &zbits, 4);
         PassClear pc{flags, color, stencil, z};
-        if (!begin_pass(r.arg(1) ? nullptr : &pc)) return; // (a rect list is drawn)
+        if (!begin_pass(r.arg(1) ? nullptr : &pc, (flags & 6) != 0)) return; // (a rect list is drawn)
         if (pc.done) {
             pass_touched_ = true;
             return;
@@ -1023,17 +1155,27 @@ private:
         Tex *st = tex(si->second.tex), *dt = tex(di->second.tex);
         if (!st || !dt || !st->tex || !dt->tex) return;
         if (r.arg(2) || r.arg(4)) problem("StretchRect with rects");
-        end_pass();
-        ensure_cmd();
-        uint32_t sl = si->second.level, dl = di->second.level;
+        end_pass(); // (also for a copy that is only noted: the next draw into the source has to begin a pass)
+        const Surface ss = si->second, ds = di->second;
+        if (pend_.active) {
+            // This call replaces the whole destination of the noted copy without reading it: that copy is dead.
+            // Anything else that involves either texture, or a second copy to keep track of: make it first.
+            if (ds.tex == pend_.dst && ds.level == pend_.dst_surface.level && ds.face == pend_.dst_surface.face && ss.tex != pend_.dst) drop_pending_copy();
+            else make_pending_copy();
+        }
+        uint32_t sl = ss.level, dl = ds.level;
         NSUInteger sw = std::max(1u, st->w >> sl), sh = std::max(1u, st->h >> sl), dw = std::max(1u, dt->w >> dl), dh = std::max(1u, dt->h >> dl);
-        st->used_gen = dt->used_gen = gen_;
         if (sw == dw && sh == dh && st->tex.pixelFormat == dt->tex.pixelFormat) {
-            id<MTLBlitCommandEncoder> b = [cmd_ blitCommandEncoder];
-            [b copyFromTexture:st->tex sourceSlice:st->cube ? si->second.face : 0 sourceLevel:sl sourceOrigin:MTLOriginMake(0, 0, 0)
-                    sourceSize:MTLSizeMake(sw, sh, 1) toTexture:dt->tex destinationSlice:dt->cube ? di->second.face : 0
-              destinationLevel:dl destinationOrigin:MTLOriginMake(0, 0, 0)];
-            [b endEncoding];
+            copies_asked_++;
+            PendingCopy c;
+            c.active = true, c.src = ss.tex, c.dst = ds.tex, c.dst_surface = ds;
+            c.from = st->tex, c.from_slice = st->cube ? ss.face : 0, c.from_level = sl;
+            c.to = dt->tex, c.to_slice = dt->cube ? ds.face : 0, c.to_level = dl, c.w = sw, c.h = sh;
+            pend_ = c;
+            // Noted only (see "deferred copies"), unless it is a depth copy, a copy onto itself or one into the
+            // back buffer, which is shown without a draw reading it.
+            if (lazy_copies() && !st->depth && !dt->depth && ss.tex != ds.tex && ds.tex != kBackBufferTex) return;
+            make_pending_copy();
             gpu_pass_report("copy");
             if (debugging()) debug_dump(&di->second, nullptr, fmt_key("stretchrect(copy) src=%08x", si->second.tex).c_str());
             return;
@@ -1042,6 +1184,8 @@ private:
             problem("StretchRect between depth surfaces of different size");
             return;
         }
+        ensure_cmd();
+        st->used_gen = dt->used_gen = gen_;
         MTLRenderPassDescriptor *p = [MTLRenderPassDescriptor new];
         p.colorAttachments[0].texture = dt->tex;
         p.colorAttachments[0].level = dl;
@@ -1508,9 +1652,14 @@ private:
         if (objects_missing_) return objects_missing_;
         if (ib_dirty_) ib_p_ = find_buffer(cur_ib_), ib_dirty_ = false;
         if (!ib_p_) return "no index buffer";
-        if (!begin_pass()) return "no render target";
+        const bool needs_depth = rs_[7] || rs_[52]; // ZENABLE, STENCILENABLE
+        if (!begin_pass(nullptr, needs_depth)) return "no render target";
         if (dirty_ & kDirtyFunctions) resolve_functions();
         if (functions_missing_) return functions_missing_;
+        if (pend_.active && samples_pending_copy()) { // this draw reads a copy that was only noted
+            make_pending_copy();
+            if (!begin_pass(nullptr, needs_depth)) return "no render target"; // (the pass was ended if the copy went into this command buffer)
+        }
         Shader &vs = *vs_p_, &ps = *ps_p_;
         if (uint16_t todo = (tex_dirty_ | samp_dirty_) & ps_samplers_) apply_stages(ps, todo);
         if (!vf_ || !pf_) return "shader unavailable";
@@ -1732,7 +1881,18 @@ private:
     uint64_t ns_translate_ = 0, ns_library_ = 0, ns_pipeline_ = 0; // where shader start-up time goes (T-036)
     uint64_t precompiled_used_ = 0, ns_drawable_ = 0, ns_gpu_wait_ = 0, ns_upload_ = 0, pipelines_created_ = 0, uploads_ = 0, upload_bytes_ = 0; // Work (T-058)
     std::string cache_dir_; // shader cache directory; empty = off
-    std::atomic<uint64_t> ns_gpu_{0};
+    GpuClock gpu_clock_;
+    PendingCopy pend_;
+    bool lean_passes_ = !getenv("BO1_DEPTH_ALWAYS") || !strcmp(getenv("BO1_DEPTH_ALWAYS"), "0");
+    bool pass_lacks_depth_ = false;      // the open pass was begun without the bound depth buffer
+    uint32_t pass_ord_ = 0;              // passes begun in this frame
+    std::array<uint8_t, 256> depth_seen_{}; // by pass_ord_: that pass came to need the depth buffer after it began
+    bool lazy_copies_ = !getenv("BO1_EAGER_COPIES") || !strcmp(getenv("BO1_EAGER_COPIES"), "0");
+    uint64_t copies_asked_ = 0, copies_made_ = 0;
+    id<MTLCommandBuffer> last_commit_ = nil; // the last command buffer in queue order that was committed
+    bool slot_is_last_ = false;              // nothing was committed since the place for the noted copy was taken
+    uint64_t wait_gen_ = 1;                  // resources used since this generation may still be read by the GPU
+    int dump_every_ = getenv("BO1_DUMP_EVERY") ? std::max(1, atoi(getenv("BO1_DUMP_EVERY"))) : 20; // frames between dumped pictures
     int gpu_passes_frame_ = getenv("BO1_GPU_PASSES") ? atoi(getenv("BO1_GPU_PASSES")) : -1, gpu_pass_n_ = 0;
     uint32_t pass_draws_ = 0;
     static uint64_t since(std::chrono::steady_clock::time_point t0) {
