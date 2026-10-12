@@ -60,6 +60,7 @@ public:
         uint64_t ns_gpu = 0;      // time the GPU spent executing the command buffers that have completed (P7)
         uint64_t functions = 0, pipelines = 0, uploads = 0, upload_bytes = 0;
         uint64_t precompiled = 0; // of `functions`: loaded from the shader cache instead of compiled (T-067)
+        uint64_t copies = 0, copies_made = 0; // whole-surface copies the game asked for / that had to be made (P7)
     };
     virtual Work work() { return {}; }
     // True once the user closed the window (or pressed Escape).

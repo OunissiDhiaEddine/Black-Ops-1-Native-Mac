@@ -170,13 +170,14 @@ struct FrameStats {
             g_frame, 1000.0 * n / sum, sum / n, pct(frame_ms, 0.5), pct(frame_ms, 0.95), pct(frame_ms, 0.99), pct(frame_ms, 1.0), rsum / n,
             pct(render_ms, 0.95), 100.0 * rsum / sum, (double)calls_sum / n);
         log("frame stats: in these %zu frames: %zu slow (> 33.4 ms); shaders %.1f ms (%llu functions, %llu from the cache), pipelines %.1f ms (%llu), GPU busy %.1f ms, GPU wait %.1f ms, drawable wait %.1f ms, "
-            "texture uploads %.1f ms (%llu, %.1f MiB)",
+            "texture uploads %.1f ms (%llu, %.1f MiB); surface copies %llu of %llu made",
             frame_ms.size(), slow, (double)(w.ns_translate + w.ns_compile - at_window.ns_translate - at_window.ns_compile) / 1e6,
             (unsigned long long)(w.functions - at_window.functions), (unsigned long long)(w.precompiled - at_window.precompiled),
             (double)(w.ns_pipeline - at_window.ns_pipeline) / 1e6,
             (unsigned long long)(w.pipelines - at_window.pipelines), (double)(w.ns_gpu - at_window.ns_gpu) / 1e6, (double)(w.ns_gpu_wait - at_window.ns_gpu_wait) / 1e6,
             (double)(w.ns_drawable - at_window.ns_drawable) / 1e6, (double)(w.ns_upload - at_window.ns_upload) / 1e6, (unsigned long long)(w.uploads - at_window.uploads),
-            (double)(w.upload_bytes - at_window.upload_bytes) / 1048576.0);
+            (double)(w.upload_bytes - at_window.upload_bytes) / 1048576.0, (unsigned long long)(w.copies_made - at_window.copies_made),
+            (unsigned long long)(w.copies - at_window.copies));
         at_window = w;
         slow = 0;
         frame_ms.clear();
