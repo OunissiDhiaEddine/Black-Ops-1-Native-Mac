@@ -11,7 +11,7 @@ EXE="reference/Call of Duty Black Ops/BlackOps.exe"
 VECTORS="${VECTORS:-artifacts/lifted/vectors_*.bin}"
 mkdir -p "$DBG"
 .venv/bin/python tools/lifter/lift.py --out "$DBG" --only "$FN" --closure --trace --no-native > /dev/null
-CFLAGS="-std=c11 -O1 -g -DLIFT_TRACE -Wno-unused-label -Wno-unused-function -ffp-contract=off -Isrc/runtime -I$DBG"
+CFLAGS="-std=c11 -O2 -g -DLIFT_TRACE -Wno-unused-label -Wno-unused-function -ffp-contract=off -Isrc/runtime -I$DBG"
 clang $CFLAGS "$DBG"/lifted_*.c src/runtime/runtime.c tests/diff/difftest.c -o "$DBG/difftest"
 "$DBG/difftest" "$EXE" --verbose --func "${FN#0x}" --nth "$NTH" $VECTORS > "$DBG/lifted.trace" || true
 .venv/bin/python tests/diff/trace_vector.py "$FN" --nth "$NTH" --vectors "$VECTORS" --plain > "$DBG/ref.trace"

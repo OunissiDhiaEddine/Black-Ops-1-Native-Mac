@@ -140,3 +140,4 @@ addr,name,kind,confidence,notes
 0x00745A00,R_SkinVerts_3Bones,func,CONFIRMED,"name is ours. eax=dst edi=bone matrices, stack: src, blend, count, int *index; blend entry 10 bytes. Replaced by src/native/skin_verts.c (T-064)"
 0x00745D70,R_SkinVerts_4Bones,func,CONFIRMED,"name is ours. eax=dst esi=bone matrices, stack as 0x00745A00; blend entry 14 bytes. Replaced by src/native/skin_verts.c (T-064)"
 0x00967760,_memcpy,func,CONFIRMED,"MSVC CRT (Ghidra FID); copies downwards on overlap, i.e. memmove. Replaced by src/native/crt.c (T-064)"
+0x0071FBC0,R_CullBoxAgainstPlanes,func,CONFIRMED,"name is ours. eax=plane set (20-byte planes, count at +0x140) esi=box floats; returns 1 when outside. Replaced by src/native/scene_cull.c (T-064)"
