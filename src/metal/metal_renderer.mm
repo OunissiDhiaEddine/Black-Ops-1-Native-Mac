@@ -264,8 +264,6 @@ public:
                     ns_gpu_wait_ += since(t0);
                 }
                 prev_frame_cmd_ = dump ? nil : last_commit_; // the last command buffer of this frame, in queue order
-                pass_ord_ = 0;
-                if ((frames_rendered_ & 511) == 0) depth_seen_.fill(0); // (the frame's passes change with the scene)
                 wait_gen_ = gen_; // across frames only the previous frame is waited for (above), as before
                 // Every command buffer of the frame before this one has completed now (they complete in the order
                 // they were committed, and the last of them was just waited for, or this frame's was): its
@@ -815,8 +813,7 @@ private:
         const_copy_[0] = const_copy_[1] = {};
         const Tex *ct = have_rt_ ? tex(rt_.tex) : nullptr, *dt = have_ds_ ? tex(ds_.tex) : nullptr;
         fprintf(stderr, "gpu pass %3d %-8s %7.3f ms  %4u draws  colour %s fmt %u %ux%u  depth %s\n", gpu_pass_n_++, kind, (cb.GPUEndTime - cb.GPUStartTime) * 1e3,
-                pass_draws_, ct ? "yes" : "no", ct ? ct->fmt : 0, ct ? std::max(1u, ct->w >> rt_.level) : 0, ct ? std::max(1u, ct->h >> rt_.level) : 0,
-                !dt ? "no" : pass_lacks_depth_ && !strcmp(kind, "pass") ? "left out" : "yes");
+                pass_draws_, ct ? "yes" : "no", ct ? ct->fmt : 0, ct ? std::max(1u, ct->w >> rt_.level) : 0, ct ? std::max(1u, ct->h >> rt_.level) : 0, dt ? "yes" : "no");
         pass_draws_ = 0;
     }
     // Commit what was encoded; `wait`: until the GPU has executed it and everything committed before it.
@@ -930,19 +927,10 @@ private:
         float z;
         bool done = false;              // set by begin_pass when the load actions did it
     };
-    // `needs_depth`: what is about to be drawn tests or writes depth / stencil. The game leaves its depth buffer
-    // bound through all its full-screen passes; a pass whose first draw does not need it is begun without it
-    // (P7: the GPU then neither loads nor stores 4 M pixels of depth and stencil for it), and begun again with it
-    // if a later draw does. `depth_seen_` remembers, by the pass's position in the frame, where that happened, so
-    // that the next frames attach it from the start.
-    bool begin_pass(PassClear *pc = nullptr, bool needs_depth = true) {
-        bool again = false;
-        if (enc_) {
-            if (!pass_lacks_depth_ || !needs_depth) return true;
-            end_pass();
-            depth_seen_[pass_ord_ & 255] = 1;
-            again = true;
-        }
+    // (Measured and not done, P7: beginning a pass without the bound depth buffer when its draws neither test nor
+    // write depth or stencil. The GPU's time for the game's full-screen passes did not change.)
+    bool begin_pass(PassClear *pc = nullptr) {
+        if (enc_) return true;
         if (pend_.active && have_rt_) {
             if (rt_.tex == pend_.dst) make_pending_copy(); // drawn into: what it held counts
             else if (rt_.tex == pend_.src && !pend_.slot) keep_place_for_copy();
@@ -951,9 +939,6 @@ private:
         id<MTLTexture> color = have_rt_ ? target_texture(rt_, &ct) : nil;
         id<MTLTexture> depth = have_ds_ ? target_texture(ds_, &dt) : nil;
         if (!color && !depth) return false;
-        if (!again) pass_ord_++;
-        pass_lacks_depth_ = color && depth && !needs_depth && lean_passes_ && !debugging() && !depth_seen_[pass_ord_ & 255];
-        if (pass_lacks_depth_) depth = nil, dt = nullptr;
         pass_w_ = color ? std::max<NSUInteger>(1, color.width >> rt_.level) : std::max<NSUInteger>(1, depth.width >> ds_.level);
         pass_h_ = color ? std::max<NSUInteger>(1, color.height >> rt_.level) : std::max<NSUInteger>(1, depth.height >> ds_.level);
         bool clear_color = false, clear_depth = false, clear_stencil = false;
@@ -1078,7 +1063,7 @@ private:
         uint32_t zbits = r.arg(5);
         memcpy(&z, &zbits, 4);
         PassClear pc{flags, color, stencil, z};
-        if (!begin_pass(r.arg(1) ? nullptr : &pc, (flags & 6) != 0)) return; // (a rect list is drawn)
+        if (!begin_pass(r.arg(1) ? nullptr : &pc)) return; // (a rect list is drawn)
         if (pc.done) {
             pass_touched_ = true;
             return;
@@ -1652,13 +1637,12 @@ private:
         if (objects_missing_) return objects_missing_;
         if (ib_dirty_) ib_p_ = find_buffer(cur_ib_), ib_dirty_ = false;
         if (!ib_p_) return "no index buffer";
-        const bool needs_depth = rs_[7] || rs_[52]; // ZENABLE, STENCILENABLE
-        if (!begin_pass(nullptr, needs_depth)) return "no render target";
+        if (!begin_pass()) return "no render target";
         if (dirty_ & kDirtyFunctions) resolve_functions();
         if (functions_missing_) return functions_missing_;
         if (pend_.active && samples_pending_copy()) { // this draw reads a copy that was only noted
             make_pending_copy();
-            if (!begin_pass(nullptr, needs_depth)) return "no render target"; // (the pass was ended if the copy went into this command buffer)
+            if (!begin_pass()) return "no render target"; // (the pass was ended if the copy went into this command buffer)
         }
         Shader &vs = *vs_p_, &ps = *ps_p_;
         if (uint16_t todo = (tex_dirty_ | samp_dirty_) & ps_samplers_) apply_stages(ps, todo);
@@ -1883,10 +1867,6 @@ private:
     std::string cache_dir_; // shader cache directory; empty = off
     GpuClock gpu_clock_;
     PendingCopy pend_;
-    bool lean_passes_ = !getenv("BO1_DEPTH_ALWAYS") || !strcmp(getenv("BO1_DEPTH_ALWAYS"), "0");
-    bool pass_lacks_depth_ = false;      // the open pass was begun without the bound depth buffer
-    uint32_t pass_ord_ = 0;              // passes begun in this frame
-    std::array<uint8_t, 256> depth_seen_{}; // by pass_ord_: that pass came to need the depth buffer after it began
     bool lazy_copies_ = !getenv("BO1_EAGER_COPIES") || !strcmp(getenv("BO1_EAGER_COPIES"), "0");
     uint64_t copies_asked_ = 0, copies_made_ = 0;
     id<MTLCommandBuffer> last_commit_ = nil; // the last command buffer in queue order that was committed
