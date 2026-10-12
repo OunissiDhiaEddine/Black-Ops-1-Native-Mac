@@ -1,3 +1,4 @@
+#include <stdatomic.h>
 #include "runtime.h"
 
 #include <pthread.h>
@@ -103,12 +104,34 @@ static jmp_buf *setjmp_landing(Cpu *cpu, uint32_t target) {
     return s ? &s->host : NULL;
 }
 
+// Indirect calls repeat their targets (vtables, callback tables): a direct-mapped cache in front of the binary
+// search over the ~26,000 entries. A slot is ONE 64-bit word — target address in the high half, table index + 1
+// in the low half — so that all threads share it without a lock: a reader sees an old word or a new one, never
+// a mix, and checks the address before it trusts the index.
+#define RT_CACHE_SLOTS 4096u
+static _Atomic uint64_t g_dispatch_cache[RT_CACHE_SLOTS];
+
+static LiftedFn dispatch_lookup(uint32_t target) {
+    _Atomic uint64_t *slot = &g_dispatch_cache[((target >> 4) ^ (target >> 16)) & (RT_CACHE_SLOTS - 1)];
+    uint64_t e = atomic_load_explicit(slot, memory_order_relaxed);
+    if ((uint32_t)(e >> 32) == target && (uint32_t)e) return g_lifted_table[(uint32_t)e - 1].fn;
+    unsigned lo = 0, hi = g_lifted_count;
+    while (lo < hi) {
+        unsigned mid = (lo + hi) / 2;
+        if (g_lifted_table[mid].va < target) lo = mid + 1;
+        else hi = mid;
+    }
+    if (lo >= g_lifted_count || g_lifted_table[lo].va != target) return NULL;
+    atomic_store_explicit(slot, ((uint64_t)target << 32) | (lo + 1), memory_order_relaxed);
+    return g_lifted_table[lo].fn;
+}
+
 void rt_dispatch(Cpu *cpu, uint32_t target) {
     if (target >= RT_TRAMP_BASE && g_rt_host_call) {
         g_rt_host_call(cpu, target);
         return;
     }
-    LiftedFn fn = rt_lookup(target);
+    LiftedFn fn = dispatch_lookup(target);
     if (!fn) {
         jmp_buf *land = setjmp_landing(cpu, target);
         if (land) _longjmp(*land, 1);

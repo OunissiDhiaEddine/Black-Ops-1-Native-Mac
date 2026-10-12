@@ -109,18 +109,31 @@ There is no console command that saves (`savegame` is a script call): RE_NOTES "
   `scripts/build_boot.sh`. A change of `src/runtime/lifted.h` makes `difftest.sh` recompile all 66 chunks (~4 min).
 
 ## Regression set
+Trimmed on 2026-10-12 on the user's word ("the tests are taking too long and using so much resources … keep only the
+absolutely needed tests"). A change gets ONE quick check from the first table. The second table is not routine: a
+row is run only when the change is about exactly that, or when the user asks; never "to be sure". No repeated timed
+runs and no profiles unless the result being reported depends on them, and then one run per variant.
+
+**Every change (under two minutes together):**
 | Command | Expected |
 |---|---|
 | `artifacts/boot/bo1_boot --steam-selftest` | `steam selftest: 76 checks, 0 failed, 24 interface methods` |
-| `build/test_win_messages`, `build/test_window_service` | `all checks passed` |
-| `scripts/boot_try.sh 90` | `time limit reached (still running …)` |
-| the unattended run above | three `BinkOpen` / `BinkClose` pairs with sound-track sample counts and 0 dropped, `xaudio2: first xWMA voice … decoded with FFmpeg`, no `Com_ERROR`, no "host signal" |
-| `scripts/replay_check.sh` (renderer changes) | worst SSIM cuba 0.9994, khe_sanh 0.9984, menu 0.9997, vorkuta 0.9985; no "unrecorded" lines |
-| `scripts/test_native.sh` (changes in `src/native`, the lifter or `lifted_fp.h`; a few seconds) | last line `test_native: 41600 cases, 0 failed` |
-| `REPORT=re/difftest_report_all.json scripts/difftest.sh 100000 2 5 all` (lifter changes; ~6 min, ~10 when `lifted.h` changed) | last line "functions failing: 9 (9 with a known-wrong reference, 0 unexplained)". Without `REPORT=` the summary overwrites the leaf-set report `re/difftest_report.json` |
-| saves: `BO1_BINK=off BO1_KEYS="35000:0x20" BO1_CMDS="50000\|devmap cuba;125000\|loadgame cuba"`, 200 s | `players\save\cuba.svg` written, "Save game build number: 152", "=== G_LoadGame ===", then frames again; no "guest stopped" |
-| leave and resume: `… BO1_CMDS=$'50000\|devmap cuba;127000\|disconnect\nloadgame cuba'`, 250 s | "Disconnecting: Disconnected from server", "Server: frontend", "Server: cuba", "=== G_LoadGame ===" |
-| display mode: `… BO1_CMDS="50000\|devmap cuba;125000\|r_mode 1024x768;127000\|vid_restart;175000\|r_mode 800x600;177000\|vid_restart"`, 220 s | two "d3d9(null): Reset …" lines, each followed by "Finished recovering lost device."; dumped frames change size; restore `players/config.cfg` afterwards if the run is cut short (it keeps the last `r_mode`) |
+| `scripts/boot_try.sh 60` (headless, silent, to the menu) | `time limit reached (still running …)` |
+| `scripts/test_native.sh` — only for changes in `src/native`, the lifter or `lifted_fp.h` (a few seconds) | last line `test_native: 41600 cases, 0 failed` |
+
+**Only when the change is about that area (each takes minutes and a core or more):**
+| Command | When | Expected |
+|---|---|---|
+| one mission boot: `SDL_AUDIO_DRIVER=dummy BO1_BINK=off BO1_KEYS="35000:0x20" BO1_CMDS="50000\|devmap cuba" artifacts/boot/bo1_boot --seconds 110` | a change that only shows inside a mission (game-side code, the runtime) | "scripted command: devmap cuba", then frames; no `Com_ERROR`, no "guest stopped" |
+| `scripts/replay_check.sh` | renderer or shader-translator changes | worst SSIM cuba 0.9994, khe_sanh 0.9984, menu 0.9997, vorkuta 0.9985; no "unrecorded" lines |
+| `REPORT=re/difftest_report_all.json scripts/difftest.sh 100000 2 5 all` (~6 min, 4 cores) | changes of the lifter's instruction semantics or of `lifted.h` / `lifted_fp.h` (not for adding a `NATIVE` function, not for build-flag changes already covered by `test_native.sh`) | last line "functions failing: 9 (9 with a known-wrong reference, 0 unexplained)". Without `REPORT=` the summary overwrites the leaf-set report `re/difftest_report.json` |
+| `build/test_win_messages`, `build/test_window_service` | window / input layer changes | `all checks passed` |
+| the unattended run above | movie or sound changes | three `BinkOpen` / `BinkClose` pairs with sound-track sample counts and 0 dropped, `xaudio2: first xWMA voice … decoded with FFmpeg`, no `Com_ERROR`, no "host signal" |
+| saves: `BO1_BINK=off BO1_KEYS="35000:0x20" BO1_CMDS="50000\|devmap cuba;125000\|loadgame cuba"`, 200 s | save / load changes | `players\save\cuba.svg` written, "Save game build number: 152", "=== G_LoadGame ===", then frames again; no "guest stopped" |
+| leave and resume: `… BO1_CMDS=$'50000\|devmap cuba;127000\|disconnect\nloadgame cuba'`, 250 s | `disconnect` / error-recovery changes | "Disconnecting: Disconnected from server", "Server: frontend", "Server: cuba", "=== G_LoadGame ===" |
+| display mode: `… BO1_CMDS="50000\|devmap cuba;125000\|r_mode 1024x768;127000\|vid_restart;175000\|r_mode 800x600;177000\|vid_restart"`, 220 s | display-mode / `Reset` changes | two "d3d9(null): Reset …" lines, each followed by "Finished recovering lost device."; dumped frames change size; restore `players/config.cfg` afterwards if the run is cut short (it keeps the last `r_mode`) |
+| `scripts/perf_scene.sh <tag>` (225 s, two profiles) | only when a frame-time or CPU-time number is the result being reported; one run per variant; take `artifacts/boot/timed_run.lock` in the main folder first (`mkdir`, `rmdir` after) | RUNBOOK "Where the time goes" |
+| `scripts/map_sweep.sh` (all 17 maps) | only on request | 17 of 17 start |
 
 ## How it fits together
 ```
