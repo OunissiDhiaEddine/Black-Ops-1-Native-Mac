@@ -92,6 +92,8 @@ renderer with recorded frames of the original; those recordings hold game data a
 - The very bright opening of the Hue City mission has not been compared with the original.
 - If a measurement shows the processor as the limit: more hand-written replacements for the render thread's hot functions (`src/native/`).
 - The shaders of a level compile at its first visit and make it stutter once.
+- Zombies: the game's own Zombies menu asks for its online service. Solo Zombies is started by the app's launcher instead (Kino der Toten, Five, Dead Ops Arcade; `BO1_ON_FIRST_KEY`, docs/RUNBOOK.md). The DLC maps and co-op are not offered.
+- Never looked at on a screen by the people who wrote them: the launcher's dialogs, the app icon in Finder, the boot credit, and the alert a fatal game error shows.
 
 ## Legal
 This is an unofficial interoperability project for people who own the game. It is not affiliated with or endorsed
