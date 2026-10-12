@@ -20,7 +20,7 @@ Success = campaign boots to main menu, loads a mission, plays at >= 60 fps on an
 | `docs/RE_NOTES.md` | reverse-engineering knowledge base (structs, functions, middleware), confidence-tagged | whenever something is learned |
 | `docs/PLAN.md` | phases, approach, exit criteria, risks | at phase boundaries |
 | `docs/HOST_ABI.md`, `docs/LIFTER.md`, `docs/TRACE_FORMAT.md` | design references for the guest/host ABI, the lifter and the D3D9 trace | with the code they describe |
-| `docs/LOG_ARCHIVE.md` | session-log entries of P0–P4, moved out of `LOG.md` unchanged | never |
+| `docs/LOG_ARCHIVE.md` | session-log entries of P0–P5, moved out of `LOG.md` unchanged | never |
 
 One fact lives in one place. Status goes in `LOG.md` / `TASKS.md`, commands in `docs/RUNBOOK.md`, knowledge in `docs/RE_NOTES.md`; the others link to it instead of repeating it.
 
@@ -62,14 +62,15 @@ src/rhi/                  minimal renderer interface (what the game actually nee
 src/metal/                Metal backend for rhi + shader cache
 src/shaders/              SM3 -> MSL translation + hand-written MSL
 src/lifted/               GENERATED code from the lifter (never hand-edit; regenerate)
-src/native/               hand-written 64-bit replacements for lifted modules (strangler fig)
+src/native/               hand-written 64-bit replacements for lifted functions (strangler fig): NATIVE(<va>), docs/LIFTER.md §8
 tests/golden/             reference frames + metrics from the Wine/DXVK baseline (gitignored if large)
 tests/diff/               per-function differential tests (original x86 vs lifted)
 tests/replay/             D3D9 trace replay harness for renderer development
 tests/window/             unit tests of the SDL3 window layer (events -> Win32 messages, window service)
+tests/native/             src/native against the lifted functions it replaces; scripts/test_native.sh
 tests/boot/               the native runtime's entry point (bo1_boot) + Steam self-test; built by scripts/build_boot.sh
 reference/                USER'S ORIGINAL GAME FILES (gitignored, read-only)
-artifacts/                build outputs, traces, captures (gitignored)
+artifacts/                build outputs, traces, captures, shader_cache (Metal libraries compiled by scripts/shader_cache.sh) (gitignored)
 scripts/                  bootstrap.sh, build.sh, run_baseline.sh, ...; run_native.sh = play the native build in a window
 ```
 

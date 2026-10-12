@@ -711,9 +711,9 @@ def main() -> int:
             "native_replacements": [f"0x{a:08x}" for a in sorted(L.native)],
             "x87_decode_mismatches": dict(lift_fp.MISMATCH),
             "unlifted": unlifted,
-            "blockers": dict(reasons.most_common()),
-            "blockers_all_instructions": dict(all_reasons.most_common()),
-            "blockers_functions_containing": dict(func_reasons.most_common())}, indent=1) + "\n")
+            "blockers": dict(sorted(reasons.items(), key=lambda kv: (-kv[1], kv[0]))),
+            "blockers_all_instructions": dict(sorted(all_reasons.items(), key=lambda kv: (-kv[1], kv[0]))),
+            "blockers_functions_containing": dict(sorted(func_reasons.items(), key=lambda kv: (-kv[1], kv[0])))}, indent=1) + "\n")
     return 0
 
 
