@@ -39,6 +39,7 @@ There is no console command that saves (`savegame` is a script call): RE_NOTES "
 | `BO1_D3D_DUMP=dir` | PNG of every 20th frame |
 | `BO1_KEYS="ms:vk,…"` | scripted key presses (ms after start : Windows virtual-key code) |
 | `BO1_CMDS="ms\|command;…"` | scripted console commands, e.g. `60000\|devmap cuba`. `;` separates entries; several commands in one entry go on separate lines (`BO1_CMDS=$'127000\|disconnect\nloadgame cuba'`) |
+| `BO1_ON_FIRST_KEY="command"` | console command(s) run once, two seconds after the player's first key press or click (the title screen). The app's launcher starts Zombies with it: `set zombiemode 1` + `devmap zombie_theater` / `zombie_pentagon`, or `set zombiemode 1` + `set zombietron 1` + `devmap zombietron` — the game's own Zombies menu wants its online service, a map started from the console runs alone and offline (seen headless 2026-10-12). `+devmap` on the command line (`BO1_ARGS`) does NOT start a map |
 | `BO1_ARGS="…"` | extra arguments appended to the game's command line |
 | `BO1_BINK=off` / `BO1_AUDIO=off` | no movies / no sound |
 | `BO1_VERBOSE=0..3` | shim and game debug output in the log |
@@ -97,7 +98,8 @@ There is no console command that saves (`savegame` is a script call): RE_NOTES "
 `artifacts/app/BlackOps-Mac.dmg`. The app holds `bo1_boot`, the 17 Homebrew libraries it links (install names made
 relative to the bundle), the compiled shader cache as it is at that moment, the program image the code was lifted
 from (`Resources/program.image`, so the executable in the user's game folder is not used), and a launcher script. It
-holds none of the game's data files: the launcher looks for the game folder (`main/` + `zone/`) in the usual places —
+asks at every start whether to play the campaign or Zombies (Kino der Toten, Five, Dead Ops Arcade), takes its icon
+from the game's executable at build time (`tools/macos/exe_icon.py`), and holds none of the game's data files: the launcher looks for the game folder (`main/` + `zone/`) in the usual places —
 `~/Games/Call of Duty Black Ops` first — or explains what is needed and asks for it, then builds a folder of links to it in
 `~/Library/Application Support/Black Ops Mac/game` with its own `players/` (saves, settings); the log of a run is
 `log.txt` there. Ad-hoc signed, for this user only — the binary is the recompiled game, so neither app nor DMG is

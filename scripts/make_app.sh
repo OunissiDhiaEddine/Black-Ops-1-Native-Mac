@@ -18,6 +18,8 @@ cp artifacts/boot/bo1_boot "$C/MacOS/bo1_boot"
 # the program image the lifted code belongs to (data sections are read from it at start); with it in the bundle the
 # app does not depend on which executable the user's copy of the game has
 cp "reference/Call of Duty Black Ops/BlackOps.exe" "$C/Resources/program.image"
+# the application icon is the game's own, taken out of that executable now (nothing of it is in the repository)
+.venv/bin/python tools/macos/exe_icon.py "reference/Call of Duty Black Ops/BlackOps.exe" "$C/Resources/AppIcon.icns"
 
 # every non-system library, followed through its own dependencies; install names rewritten to the bundle
 .venv/bin/python - "$C" <<'PY'
@@ -62,6 +64,7 @@ cat > "$C/Info.plist" <<'PLIST'
   <key>CFBundleDisplayName</key><string>Black Ops</string>
   <key>CFBundleIdentifier</key><string>local.didou.blackops-mac</string>
   <key>CFBundleExecutable</key><string>launch</string>
+  <key>CFBundleIconFile</key><string>AppIcon</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleShortVersionString</key><string>1.0</string>
   <key>CFBundleVersion</key><string>1</string>
@@ -106,6 +109,26 @@ if ! is_game "$GAME"; then
   if [ -d "$SUPPORT/keep/players" ]; then mv "$SUPPORT/keep/players" "$GAME/players"; else mkdir -p "$GAME/players"; fi
   rmdir "$SUPPORT/keep" 2>/dev/null
 fi
+# What to play. The game's own Zombies menu insists on its online service (as on Windows without a connection);
+# a Zombies map started from the console runs alone and offline, so the choice is made here and the map is started
+# two seconds after the first key press at the title screen (BO1_ON_FIRST_KEY).
+MODE="$(osascript -e 'button returned of (display dialog "What do you want to play?" buttons {"Quit", "Zombies…", "Campaign"} default button 3 with title "Black Ops" with icon note)' 2>/dev/null)" || exit 0
+case "$MODE" in
+  Campaign) ;;
+  Zombies*)
+    LIST=""
+    add() { [ -f "$GAME/zone/Common/$1.ff" ] && LIST="$LIST\"$2\", "; }
+    add zombie_theater "Kino der Toten"; add zombie_pentagon "Five"; add zombietron "Dead Ops Arcade"
+    [ -n "$LIST" ] || { alert "No Zombies maps were found in the game folder."; exit 1; }
+    MAP="$(osascript -e "choose from list {${LIST%, }} with title \"Black Ops\" with prompt \"Zombies, solo. The map starts after you press a key at the title screen.\" default items {\"Kino der Toten\"}" 2>/dev/null)"
+    case "$MAP" in
+      "Kino der Toten") export BO1_ON_FIRST_KEY=$'set zombiemode 1\ndevmap zombie_theater' ;;
+      "Five") export BO1_ON_FIRST_KEY=$'set zombiemode 1\ndevmap zombie_pentagon' ;;
+      "Dead Ops Arcade") export BO1_ON_FIRST_KEY=$'set zombiemode 1\nset zombietron 1\ndevmap zombietron' ;;
+      *) exit 0 ;;
+    esac ;;
+  *) exit 0 ;;
+esac
 # compiled shaders: seed the cache once from the bundle; shaders met for the first time are compiled by the game
 if [ ! -d "$SUPPORT/shader_cache" ] && [ -d "$HERE/Resources/shader_cache" ]; then
   cp -R "$HERE/Resources/shader_cache" "$SUPPORT/shader_cache"

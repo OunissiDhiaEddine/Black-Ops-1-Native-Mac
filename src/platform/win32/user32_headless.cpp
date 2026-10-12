@@ -306,11 +306,16 @@ SHIM(user32, GetMonitorInfoA, 2) {
 // BO1_CMDS="ms|command;ms|command": engine console commands, queued through the game's own
 // Cbuf_AddText(localClientNum, text) (VA 0x0049B930, re/symbols.csv) on the thread that pumps messages —
 // the same hook the tracing proxy uses for the baseline (e.g. "60000|devmap cuba").
+static long uptime_ms() { // since the first call (the first message pump)
+    static const auto t0 = std::chrono::steady_clock::now();
+    return (long)std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - t0).count();
+}
+static long g_first_input_ms; // when the first key-down / mouse-button message was handed to the game (0 = not yet)
 static void run_scripted_commands(Cpu *cpu) {
     struct Cmd { long at; std::string text; };
     static std::vector<Cmd> cmds;
     static bool parsed = false;
-    static auto t0 = std::chrono::steady_clock::now();
+    uptime_ms(); // starts the clock at the first call, as before
     if (!parsed) {
         parsed = true;
         if (const char *e = getenv("BO1_CMDS")) {
@@ -331,8 +336,18 @@ static void run_scripted_commands(Cpu *cpu) {
             cmds.clear();
         }
     }
+    long now = uptime_ms();
+    // BO1_ON_FIRST_KEY="command": run once, two seconds after the player's first key press or click (the title
+    // screen's "Press Any Key"). The app's launcher starts a Zombies map this way: the game's own Zombies menu
+    // insists on its online service, a map started from the console does not.
+    if (g_first_input_ms && now - g_first_input_ms >= 2000) {
+        static bool done = false;
+        if (!done) {
+            done = true;
+            if (const char *e = getenv("BO1_ON_FIRST_KEY")) cmds.push_back({0, e});
+        }
+    }
     if (cmds.empty()) return;
-    long now = (long)std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - t0).count();
     for (size_t i = 0; i < cmds.size();) {
         if (cmds[i].at > now) { i++; continue; }
         log("scripted command: %s", cmds[i].text.c_str());
@@ -364,6 +379,9 @@ SHIM(user32, PeekMessageA, 5) { // (lpMsg, hWnd, wMsgFilterMin, wMsgFilterMax, w
     win::WindowService &ws = win::WindowService::get();
     win::Msg m;
     if (!ws.enabled() || !ws.peek(&m, a[4] & 1)) return 0;
+    if (!g_first_input_ms && (m.message == 0x0100 || m.message == 0x0201)) { // WM_KEYDOWN, WM_LBUTTONDOWN
+        g_first_input_ms = uptime_ms() + 1;
+    }
     wr32(a[0], m.hwnd), wr32(a[0] + 4, m.message), wr32(a[0] + 8, m.wparam), wr32(a[0] + 12, m.lparam);
     wr32(a[0] + 16, m.time), wr32(a[0] + 20, (uint32_t)m.x), wr32(a[0] + 24, (uint32_t)m.y);
     return 1;
