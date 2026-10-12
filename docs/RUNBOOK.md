@@ -47,6 +47,7 @@ There is no console command that saves (`savegame` is a script call): RE_NOTES "
 | `BO1_NO_NET=1` | sockets exist but carry no traffic |
 | `BO1_CPUS=n` | processor count reported to the game |
 | `BO1_GAME_DIR`, `BO1_HOME_DIR` | the guest's `C:\bo1` (default `artifacts/game`) and home (default `artifacts/boot/home`) |
+| `BO1_SPLASH=off` | window only: skip the boot credit (3.5 s of black screen with one line of text when the display comes up; `src/platform/window/boot_splash.mm`). `build/test_boot_splash out.png` draws it without a window |
 | `BO1_NATIVE=off` | every hand-written replacement (`src/native`) runs its lifted original instead: A/B measurements and bisecting (docs/LIFTER.md §8) |
 | `BO1_AUDIO_MUTE=1` | the real audio device and its clock, mastering volume 0: for timing checks (SDL's dummy / disk devices consume samples about 8% slower than real time, so anything timed against the sound drifts there) |
 | `BO1_FRAME_STATS=N` | one "frame stats:" line per N frames (300 for `1`): fps, frame time avg / p50 / p95 / p99 / max, time inside the renderer and its share (state setters are not timed: see "Where the time goes"), Direct3D calls per frame; plus a line of what was spent on shaders (and how many came from the shader cache), pipelines, GPU and drawable waits, texture uploads, and one "slow frame N: …" line with the same breakdown for every frame over 33.4 ms |

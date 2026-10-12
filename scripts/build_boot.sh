@@ -84,6 +84,6 @@ for p in ${pids[@]+"${pids[@]}"}; do wait "$p"; done
 bash scripts/build.sh bo1_metal bo1_shaders bo1_window >/dev/null
 clang++ "$OUT"/obj/*.o "$LIFT"/obj/lifted_*.o build/libbo1_metal.a build/libbo1_shaders.a build/libbo1_window.a \
   /opt/homebrew/lib/libSDL3.dylib /opt/homebrew/lib/libavformat.dylib /opt/homebrew/lib/libavcodec.dylib /opt/homebrew/lib/libavutil.dylib /opt/homebrew/lib/libFAudio.dylib \
-  -framework Metal -framework Foundation -framework CoreGraphics -framework ImageIO -framework QuartzCore \
+  -framework AppKit -framework Metal -framework Foundation -framework CoreGraphics -framework ImageIO -framework QuartzCore \
   -o "$OUT/$BIN"
 echo "built $OUT/$BIN"
