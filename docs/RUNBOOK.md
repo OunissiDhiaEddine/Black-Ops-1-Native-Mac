@@ -63,7 +63,7 @@ There is no console command that saves (`savegame` is a script call): RE_NOTES "
 | `BO1_DEBUG_FRAME=N BO1_DEBUG_DIR=dir` | renderer dumps every pass of frame N; `tools/pass_dump.py dir` turns it into PNGs |
 
 ## Build
-- `scripts/build.sh` — CMake/Ninja: shader translator, Metal renderer library, window library, replay tool, unit tests.
+- `scripts/build.sh` — CMake/Ninja: shader translator, Metal renderer library, window library, unit tests.
 - `scripts/build_lifted.sh` — lift the image and compile only the chunks that changed (objects are renamed into place, so a parallel thread never links a half-written file); then `scripts/build_boot.sh`. A change of `src/runtime/lifted.h` recompiles all 67 chunks (~4 min at `JOBS=2`).
 - The lifted code is compiled at `-O2` (since 2026-10-12; `-O1` before): its SIMD loops run 3.3x faster and compile time is the same. `build_lifted.sh` / `difftest.sh` keep the flags in `artifacts/lifted/obj/.cflags` and recompile everything when they change (~5 min at `JOBS=2`).
 - `scripts/build_lifted.sh --a2-check` + `BO1_LIFT=artifacts/lifted_a2 scripts/build_boot.sh` -> `artifacts/boot/bo1_boot_a2`: audit build whose every `ret` reports (`[A2] …` on stderr) when it is about to return somewhere else than the function was entered with (docs/LIFTER.md, assumption A2). ~4 min, ~400 MB; delete `artifacts/lifted_a2` afterwards.
@@ -110,11 +110,10 @@ ever published (`CLAUDE.md` rule 1). A shader that is not in the seeded cache co
 - Homebrew: cmake, ninja, ffmpeg, sdl3 3.4.18, faudio 26.10, mingw-w64, ghidra, openjdk@21, sevenzip.
   An agent session cannot run `brew install` itself: give the user the command.
 - `.venv`: pefile, capstone, lief, unicorn, numpy, pillow.
-- The Wine baseline (ADR-007) was removed on 2026-10-12. What it recorded is the reference from now on:
-  `artifacts/traces/*.bin` + `tests/golden/*/*.png` (the replay check) and `artifacts/baseline/run-*.log` (the original's
-  own log output). To record again: `git log -- scripts/run_baseline.sh tools/d3d9_proxy` has the tooling.
+- The Wine baseline (ADR-007), its trace recordings and the replay test were removed on 2026-10-12 (`git log -- tests/replay
+  scripts/replay_check.sh`). Left of it: `artifacts/baseline/run-*.log`, the original's own log output.
   Working copy of the game: `artifacts/game` (`reference/` stays read-only).
-- A worktree thread links its inputs from the main checkout (`artifacts/lifted`, `artifacts/game`, `artifacts/traces`, `artifacts/shader_cache`,
+- A worktree thread links its inputs from the main checkout (`artifacts/lifted`, `artifacts/game`, `artifacts/shader_cache`,
   `.venv`, `reference`, `re/ghidra_export`, the golden PNGs) and keeps its own `build/` and `artifacts/boot/`.
   Two exceptions: a thread that writes saves or settings makes `artifacts/game` a folder of links with its own
   `players/` (saves and `config.cfg` live there); a thread that changes the lifter or `src/runtime/lifted.h` works
@@ -143,7 +142,6 @@ runs and no profiles unless the result being reported depends on them, and then 
 | Command | When | Expected |
 |---|---|---|
 | one mission boot: `SDL_AUDIO_DRIVER=dummy BO1_BINK=off BO1_KEYS="35000:0x20" BO1_CMDS="50000\|devmap cuba" artifacts/boot/bo1_boot --seconds 110` | a change that only shows inside a mission (game-side code, the runtime) | "scripted command: devmap cuba", then frames; no `Com_ERROR`, no "guest stopped" |
-| `scripts/replay_check.sh` | renderer or shader-translator changes | worst SSIM cuba 0.9994, khe_sanh 0.9984, menu 0.9997, vorkuta 0.9985; no "unrecorded" lines |
 | `REPORT=artifacts/lifted/difftest_report_all.json scripts/difftest.sh 100000 2 5 all` (~6 min, 4 cores) | changes of the lifter's instruction semantics or of `lifted.h` / `lifted_fp.h` (not for adding a `NATIVE` function, not for build-flag changes already covered by `test_native.sh`) | last line "functions failing: 9 (9 with a known-wrong reference, 0 unexplained)". Without `REPORT=` the summary overwrites the leaf-set report `re/difftest_report.json` |
 | `build/test_win_messages`, `build/test_window_service` | window / input layer changes | `all checks passed` |
 | the unattended run above | movie or sound changes | three `BinkOpen` / `BinkClose` pairs with sound-track sample counts and 0 dropped, `xaudio2: first xWMA voice … decoded with FFmpeg`, no `Com_ERROR`, no "host signal" |
@@ -187,8 +185,7 @@ Design references: `docs/HOST_ABI.md` (guest/host calls), `docs/LIFTER.md`, `doc
   (`OutputDebugStringA` lines) — they are identical up to the first fault. Then lldb on `bo1_boot`: break on
   `f_<VA>`, `x0` is the `Cpu *`, the global `g_mem` is the arena base; a write watchpoint on
   `g_mem + <guest address>` finds whoever clobbers a game variable.
-- **Renderer:** `BO1_DEBUG_FRAME` / `BO1_DEBUG_DIR` with `tools/pass_dump.py`; `build/replay artifacts/traces/<menu|cuba|vorkuta|khe_sanh>.bin --backend metal --frames A-B --dump DIR`
-  replays a recorded trace and writes those frames as PNG.
+- **Renderer:** `BO1_DEBUG_FRAME` / `BO1_DEBUG_DIR` with `tools/pass_dump.py` on a run of the game.
 - **Where the time goes:** `sample <pid> 10 -file out.txt` on a running `bo1_boot`, then `tools/sample_tree.py out.txt "MetalRenderer::draw_indexed" 3` (callees merged over the report). A heavy scene without a hand: `BO1_CMDS="45000|loadgame <save>"` with a checkpoint save in `players/save/`.
   `scripts/perf_scene.sh <tag>` does both for the two checkpoint saves `cuba-1` (street fight, ~31,000 Direct3D calls per frame) and `cuba-2` (~15,000): frame statistics in `artifacts/boot/<tag>.log`, two profiles next to it; `BIN=<other bo1_boot>` measures another build on the same saves. Expected on the M1 at 800x600 (2026-10-10): renderer 3.8 ms per frame in `cuba-1`, 2.5 ms in `cuba-2`, 62.5 fps in both. The profiler slows the game while it samples (those windows show it). "GPU busy" in the second statistics line is the GPU's own time for the frames' command buffers (the budget is 16.7 ms per frame = 5,000 ms per 300 frames; expected 2026-10-10: ~3,000 ms in `cuba-1` at a true 2560x1600, ~2,500 ms at 1280x800); it rises when anything else uses the GPU. Since T-074 it is the time during which the GPU was executing at least one of our command buffers (a frame is several, and their spans overlap: the plain sum counted up to three times too much). "renderer ms" times draws, buffer writes and everything that goes as a record; the state setters (most of the calls) are counted but not timed since 2026-10-10, so numbers in older logs are 0.6–1.8 ms higher for the clock reads alone.
 - **What does the game do when X happens:** wrap the function in question for one build — a file in `src/native/` with

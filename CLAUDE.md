@@ -41,7 +41,7 @@ Everything else is yours to decide: which open task to take, the approach, names
 
 ## Settled by the user (do not reopen without asking)
 - **Steam = ADR-015** (2026-10-06): a local, offline stand-in inside the runtime. It reports no DLC on purpose. Unknown Steam methods trap with their slot number: add them only with evidence from the game's call site (`tools/steam_sites.py`). The shipped `steam_api.dll` is not loaded, modified or analysed. The user will not install the Steam client.
-- **Wine was only the oracle** (ADR-007) and is gone since 2026-10-12 (user: clean-up before publishing). What it recorded stays as the reference: traces in `artifacts/traces/`, frames in `tests/golden/`, run logs in `artifacts/baseline/`. The capture tooling (`scripts/run_baseline.sh`, `tools/d3d9_proxy/`) is in `git log`; bringing Wine back needs the user's OK. The user's Windows PC is a last resort.
+- **Wine was only the oracle** (ADR-007) and is gone since 2026-10-12 (user: clean-up before publishing). Its recordings and the trace replay test built on them were deleted the same day (user: "delete the tests"); what stays of it are the run logs in `artifacts/baseline/`. The capture tooling (`scripts/run_baseline.sh`, `tools/d3d9_proxy/`) is in `git log`; bringing Wine back needs the user's OK. The user's Windows PC is a last resort.
 - **Installs:** an agent session cannot run `brew install` itself — give the user the command, then verify with `brew list --versions <name>`.
 
 ## Repo map
@@ -57,9 +57,7 @@ src/rhi/                  minimal renderer interface (what the game actually nee
 src/metal/                Metal backend for rhi + shader cache
 src/shaders/              SM3 -> MSL translation + hand-written MSL
 src/native/               hand-written 64-bit replacements for lifted functions (strangler fig): NATIVE(<va>), docs/LIFTER.md §8
-tests/golden/             reference frames + metrics recorded from the original game (the PNG frames are not in git)
 tests/diff/               per-function differential tests (original x86 vs lifted)
-tests/replay/             D3D9 trace replay harness for renderer development
 tests/window/             unit tests of the SDL3 window layer (events -> Win32 messages, window service)
 tests/native/             src/native against the lifted functions it replaces; scripts/test_native.sh
 tests/boot/               the native runtime's entry point (bo1_boot) + Steam self-test; built by scripts/build_boot.sh

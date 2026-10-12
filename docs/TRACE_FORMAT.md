@@ -1,7 +1,7 @@
 # D3D9 trace format (v2; v1 is still readable)
 
 Written by the Direct3D 9 proxy DLL that sat in front of the original game ("the proxy" below; removed with
-the Wine baseline on 2026-10-12, `git log -- tools/d3d9_proxy`), read by `tests/replay/` and `tools/trace_reader.py`. Little-endian, 32-bit guest pointers. One file per run in
+the Wine baseline on 2026-10-12, `git log -- tools/d3d9_proxy`), formerly read by `tests/replay/` (removed the same day). The renderer's live call records (`src/rhi/d3d9_call.h`) still have this shape. Little-endian, 32-bit guest pointers. One file per run in
 `artifacts/traces/` (gitignored: it contains game assets).
 
 ## File header (40 bytes)

@@ -82,8 +82,7 @@ asks for it, and keeps saves and settings in `~/Library/Application Support/Blac
 - [CLAUDE.md](CLAUDE.md): the rules the project is run by.
 
 Quick checks after a change are steps 6 above and, for `src/native` or the recompiler, `scripts/test_native.sh`.
-`scripts/difftest.sh` runs recompiled functions against an x86 emulator. `scripts/replay_check.sh` compares the
-renderer with recorded frames of the original; those recordings hold game data and are not in this repository.
+`scripts/difftest.sh` runs recompiled functions against an x86 emulator.
 
 ## Open work
 - Play mission 1 to its end in the window. The hand-over to the next mission is confirmed only in unattended runs, and only for the first of the five story interludes.

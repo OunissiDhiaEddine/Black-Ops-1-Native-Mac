@@ -1,5 +1,5 @@
 // One Direct3D 9 call as the renderer sees it (ADR-004: the renderer interface is D3D9-shaped).
-// The same record comes from two producers: the trace reader (tests/replay, docs/TRACE_FORMAT.md) and,
+// The same record came from two producers: the trace reader (removed 2026-10-12, docs/TRACE_FORMAT.md) and,
 // in the native runtime, the game's d3d9 shim. Arguments are the call's stack words; data the call
 // carries (locked ranges, shader bytecode, vertex declarations, present parameters) travels as blobs.
 #pragma once
