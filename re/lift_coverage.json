@@ -49,6 +49,7 @@
   "0x008bd031"
  ],
  "native_replacements": [
+  "0x0071fbc0",
   "0x00745520",
   "0x00745730",
   "0x00745a00",
@@ -491,8 +492,8 @@
   "aad": 3,
   "rcr": 3,
   "sldt": 3,
-  "register gs": 3,
   "register ds": 3,
+  "register gs": 3,
   "lds": 2,
   "loope": 2,
   "retf": 2,

@@ -245,6 +245,7 @@ The same generated C, compiled for x86_64 and run under Rosetta 2 on the same 26
 - 5,432 indirect call sites and 101 indirect jumps (34 import thunks) rely on `rt_dispatch`; targets that are
   not function entries trap (`TRAP_NO_TARGET`) — the list of such targets comes from running (T-045).
 - Indirect transfers and imports are not exercised by the diff tests (they need a live process image): T-045.
+- Optimisation level (T-064, 2026-10-12): the chunks are built at **-O2**. Measured on the chunk with the skinning loops: 242–457 ns per vertex at -O1, 70–140 at -O2, the same at -O3; `LIFT_EXACT_NAN=0` would give another 1.4x and is not used (it changes NaN results). The differential test (26,272 vectors) gives the same report on the -O2 objects as on the -O1 ones.
 - Whole-image numbers (measured on one 400-function unit, M1): ~5 s to compile at -O1/-O2, ~0.46 MB arm64
   text -> ~25 MB of code for the image (x4.3 over the original 5.9 MB), ~1.5 min full build with 6 jobs.
 - Unicorn must be rebuilt after a faulting run (a failed run left it returning to garbage

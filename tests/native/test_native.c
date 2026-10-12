@@ -11,7 +11,7 @@
 #include "native.h"
 #include "runtime.h"
 
-void f_00967760(Cpu *), f_00745520(Cpu *), f_00745730(Cpu *), f_00745a00(Cpu *), f_00745d70(Cpu *);
+void f_0071fbc0(Cpu *), f_00967760(Cpu *), f_00745520(Cpu *), f_00745730(Cpu *), f_00745a00(Cpu *), f_00745d70(Cpu *);
 
 enum { STACK = 0x10000000u, SRC = 0x20000000u, DST = 0x21000000u, MATS = 0x22000000u, BLEND = 0x23000000u,
        PINDEX = 0x24000000u, RET_VA = 0x00401000u, MAXV = 256, BONES = 64 };
@@ -100,6 +100,41 @@ static void skin_case(int bones, void (*fn)(Cpu *), int huge, int in_place) {
         while (at < sizeof out[0] && out[0][at] == out[1][at]) at++;
         printf("FAIL skin%d count %d index %u huge %d in_place %d: first differing byte %zu (vertex %zu, offset %zu), index %u / %u\n",
                bones, count, index, huge, in_place, at, at / 32, at % 32, index_out[0], index_out[1]);
+    }
+}
+
+// ---- box against planes --------------------------------------------------------------------------
+static void cull_case(void) {
+    uint32_t count = rnd() % 17;
+    int far_away = rnd() % 3 == 0;                      // most planes pass, so that later ones are reached
+    for (uint32_t i = 0; i < 16; i++) {
+        float pl[4] = {rndf(1.0f), rndf(1.0f), rndf(1.0f), far_away ? 5000.0f + rndf(100.0f) : rndf(300.0f)};
+        memcpy(g_mem + MATS + 20 * i, pl, 16);
+        for (int k = 0; k < 3; k++) M8(MATS + 20 * i + 16 + k) = (uint8_t)(4 * (rnd() % 6));
+        M8(MATS + 20 * i + 19) = (uint8_t)rnd();
+    }
+    if (rnd() % 50 == 0) M32(MATS + 20 * (rnd() % 16) + 4 * (rnd() % 4)) = 0x7FC00000u;   // a NaN
+    if (rnd() % 8 == 0) {                               // a plane whose distance comes out as exactly +0 or -0
+        uint32_t at = MATS + 20 * (rnd() % 16);
+        memset(g_mem + at, 0, 16);
+        if (rnd() & 1) M32(at + 12) = 0x80000000u;
+    }
+    M32(MATS + 0x140) = count;
+    for (int i = 0; i < 6; i++) { float v = rndf(200.0f); memcpy(g_mem + SRC + 4 * i, &v, 4); }
+    Cpu end[2];
+    for (int native = 0; native < 2; native++) {
+        Cpu cpu;
+        memset(&cpu, 0, sizeof cpu);
+        cpu.mxcsr = 0x1F80, cpu.fcw = 0x27F;
+        cpu.ebx = 1, cpu.ebp = 2, cpu.edi = 4;
+        cpu.eax = MATS, cpu.esi = SRC, cpu.esp = STACK;
+        run(f_0071fbc0, &cpu, native);
+        end[native] = cpu;
+    }
+    cases++;
+    if (end[0].eax != end[1].eax || !same_kept(&end[0], &end[1])) {
+        failures++;
+        printf("FAIL cull: %u planes, lifted %u, native %u\n", count, end[0].eax, end[1].eax);
     }
 }
 
@@ -206,6 +241,9 @@ int main(int argc, char **argv) {
         printf("skin, %d bone(s) per vertex: %d cases, %d failed\n", bones, cases - before, failures - failed_before);
     }
     int before = cases, failed_before = failures;
+    for (int i = 0; i < 20000; i++) cull_case();
+    printf("box against planes: %d cases, %d failed\n", cases - before, failures - failed_before);
+    before = cases, failed_before = failures;
     for (int i = 0; i < 20000; i++) memcpy_case();
     printf("memcpy: %d cases, %d failed\n", cases - before, failures - failed_before);
     if (argc > 2 && strcmp(argv[2], "--bench") == 0) {
