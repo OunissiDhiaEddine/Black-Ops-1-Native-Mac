@@ -2,6 +2,7 @@
 # Assemble the personal Mac app and its DMG (P8 / T-077). For the owner's own use only: the app's binary is the
 # recompiled game (CLAUDE.md rule 1) — never publish the app or the DMG.
 #   scripts/make_app.sh [--dmg]      -> artifacts/app/Black Ops.app   (and artifacts/app/BlackOps-Mac.dmg)
+#   env: SHADER_CACHE=dir            compiled shaders to seed the app with (default artifacts/shader_cache)
 # The app holds: bo1_boot, the Homebrew libraries it links (made relative to the bundle), the shader cache as it is
 # now (artifacts/shader_cache), the program image the code was lifted from, and a launcher. It does NOT hold the
 # game's data files (main/, zone/): the launcher looks for the owner's copy in the usual places or asks for its
@@ -50,9 +51,10 @@ if left: sys.exit("still outside the bundle: " + ", ".join(sorted(set(left))))
 print(f"bundled {len(done)} libraries")
 PY
 
-if [ -d artifacts/shader_cache ]; then
+CACHE="${SHADER_CACHE:-artifacts/shader_cache}"   # SHADER_CACHE=dir: take the compiled shaders from another folder
+if [ -d "$CACHE" ]; then
   mkdir -p "$C/Resources/shader_cache"
-  find artifacts/shader_cache/ -maxdepth 1 -name '*.metallib' -exec cp {} "$C/Resources/shader_cache/" \;
+  find "$CACHE/" -maxdepth 1 -name '*.metallib' -exec cp {} "$C/Resources/shader_cache/" \;
   echo "shader cache: $(ls "$C/Resources/shader_cache" | wc -l | tr -d ' ') libraries"
 fi
 
