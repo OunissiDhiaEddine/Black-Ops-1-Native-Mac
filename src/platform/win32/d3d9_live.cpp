@@ -12,6 +12,8 @@
 //
 //   BO1_D3D=null      keep the null device only (nothing is rendered; the old headless boot)
 //   BO1_D3D_DUMP=dir  write the back buffer of every 20th frame as PNG into dir
+#include <thread>
+#include "boot_splash.h"
 #include <chrono>
 #include <algorithm>
 #include <map>
@@ -222,6 +224,15 @@ void observe(uint32_t tag, Cpu *, const uint32_t *a, int words, uint32_t result)
         if (slot == 16) { // CreateDevice: D3DPRESENT_PARAMETERS
             rec.add(kPP, g_mem + a[5], 56), send = true;
             if (ok) win::WindowService::get().set_display((int)rd32(a[5]), (int)rd32(a[5] + 4), rd32(a[5] + 32) == 0);
+            // Boot credit (T-065): once, when the display comes up. The game is held back for as long, so that
+            // nothing of its own start is hidden behind it. Window only; BO1_SPLASH=off skips it.
+            static bool splash_shown = false;
+            if (ok && !splash_shown) {
+                splash_shown = true;
+                const double seconds = 3.5;
+                if (win::show_boot_splash(win::WindowService::get().metal_layer(), seconds))
+                    std::this_thread::sleep_for(std::chrono::milliseconds((int)(seconds * 1000)));
+            }
         }
         break;
     case IFACE_DEVICE:
