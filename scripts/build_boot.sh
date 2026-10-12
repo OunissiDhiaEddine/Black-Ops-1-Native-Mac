@@ -51,10 +51,8 @@ print(f'}};\nstatic const uint32_t kProbeDisplayMode[4] = {{{m["width"]}, {m["he
 print(f'static const uint32_t kProbeAdapterCount = {d["adapter_count"]};')
 PY
 
-# libunicorn (x86 interpreter for the emulated steam_api.dll, ADR-010) comes with the Python package in the venv
-UNICORN="$(ls -d .venv/lib/python3*/site-packages/unicorn | head -1)"
 # -O2: the Direct3D shims sit on the path of every draw call (P6); the lifted code has its own flags (scripts/build_lifted.sh)
-CXXFLAGS="-std=c++20 -O2 -g -Wall -Wextra -Werror -Wno-unused-parameter -ffp-contract=off -Isrc/runtime -Isrc/platform/win32 -Isrc/rhi -Itools/d3d9_proxy -Isrc/platform/window -I/opt/homebrew/include -I$LIFT -I$OUT/gen -I$UNICORN/include"
+CXXFLAGS="-std=c++20 -O2 -g -Wall -Wextra -Werror -Wno-unused-parameter -ffp-contract=off -Isrc/runtime -Isrc/platform/win32 -Isrc/rhi -Itools/d3d9_proxy -Isrc/platform/window -I/opt/homebrew/include -I$LIFT -I$OUT/gen"
 CFLAGS="-std=c11 -O2 -g -Wall -Werror -ffp-contract=off -Isrc/runtime -I$LIFT"
 # an object is rebuilt when its source or ANY header it may include is newer (the window and renderer headers
 # too: a stale object with an old class layout still links and then misbehaves — it cost a window on 2026-10-07)
@@ -84,8 +82,8 @@ done
 for p in ${pids[@]+"${pids[@]}"}; do wait "$p"; done
 # the Metal renderer (ADR-004) comes from the CMake build: the game's live Direct3D calls go to it (d3d9_live.cpp)
 bash scripts/build.sh bo1_metal bo1_shaders bo1_window >/dev/null
-clang++ "$OUT"/obj/*.o "$LIFT"/obj/lifted_*.o build/libbo1_metal.a build/libbo1_shaders.a build/libbo1_window.a "$UNICORN/lib/libunicorn.2.dylib" \
+clang++ "$OUT"/obj/*.o "$LIFT"/obj/lifted_*.o build/libbo1_metal.a build/libbo1_shaders.a build/libbo1_window.a \
   /opt/homebrew/lib/libSDL3.dylib /opt/homebrew/lib/libavformat.dylib /opt/homebrew/lib/libavcodec.dylib /opt/homebrew/lib/libavutil.dylib /opt/homebrew/lib/libFAudio.dylib \
   -framework Metal -framework Foundation -framework CoreGraphics -framework ImageIO -framework QuartzCore \
-  -Wl,-rpath,"$PWD/$UNICORN/lib" -o "$OUT/$BIN"
+  -o "$OUT/$BIN"
 echo "built $OUT/$BIN"

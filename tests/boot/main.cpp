@@ -6,7 +6,7 @@
 //   artifacts/boot/bo1_boot [--exe PATH] [--seconds N] [--steam-selftest]      (--seconds 0 = no limit)
 //   env: BO1_VERBOSE=0..3, BO1_IMPORT_STATS=1, BO1_GAME_DIR=artifacts/game,
 //        BO1_WINDOW=1 (real window), BO1_KEYS="ms:vk,…", BO1_CMDS="ms|command;…" (user32_headless.cpp),
-//        BO1_D3D=null, BO1_D3D_DUMP=dir (d3d9_live.cpp), BO1_STEAM_ABSENT=1, BO1_EMULATED_STEAM_DLL=1,
+//        BO1_D3D=null, BO1_D3D_DUMP=dir (d3d9_live.cpp), BO1_STEAM_ABSENT=1,
 //        BO1_BINK=off (no movies, bink_ffmpeg.cpp), BO1_AUDIO=off (no XAudio2, xaudio2_faudio.cpp);
 //        SDL_AUDIO_DRIVER=dummy keeps an unattended run silent, =disk writes the mix to SDL_AUDIO_DISK_OUTPUT_FILE
 //   scripts/run_native.sh = windowed run, scripts/boot_try.sh = headless test run.
@@ -33,7 +33,6 @@
 using namespace bo1;
 
 namespace bo1 {
-bool emu_module_attach(Cpu *cpu, const std::string &guest_path, const std::string &dll_name); // x86_module.cpp
 }
 
 extern "C" {
@@ -184,11 +183,7 @@ int main(int argc, char **argv) {
         }).detach();
     }
     int rc = thread_run_main(im.stack_reserve, [&](Cpu *cpu) {
-        // Steam is served by the local stand-in (src/platform/win32/steam_local.cpp, ADR-015). The ADR-010
-        // experiment — the shipped steam_api.dll, interpreted, its initialisers run before the entry point like
-        // under the Windows loader — stays reachable with BO1_EMULATED_STEAM_DLL=1 (it stops itself).
-        if (getenv("BO1_EMULATED_STEAM_DLL") && !emu_module_attach(cpu, "C:\\bo1\\steam_api.dll", "steam_api.dll"))
-            fprintf(stderr, "[bo1] steam_api.dll did not initialise\n");
+        // Steam is served by the local stand-in (src/platform/win32/steam_local.cpp, ADR-015).
         if (steam_test) process_exit((uint32_t)steam_selftest(cpu));
         guest_call(cpu, im.entry, {});
     }, host_main);

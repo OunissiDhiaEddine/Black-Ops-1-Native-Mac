@@ -44,7 +44,6 @@ There is no console command that saves (`savegame` is a script call): RE_NOTES "
 | `BO1_VERBOSE=0..3` | shim and game debug output in the log |
 | `BO1_IMPORT_STATS=1` | import call counts at exit |
 | `BO1_STEAM_ABSENT=1` | diagnostics: the stand-in answers "Steam is not running" |
-| `BO1_EMULATED_STEAM_DLL=1` | the superseded ADR-010 path (shipped DLL in the x86 interpreter; it stops itself) |
 | `BO1_NO_NET=1` | sockets exist but carry no traffic |
 | `BO1_CPUS=n` | processor count reported to the game |
 | `BO1_GAME_DIR`, `BO1_HOME_DIR` | the guest's `C:\bo1` (default `artifacts/game`) and home (default `artifacts/boot/home`) |

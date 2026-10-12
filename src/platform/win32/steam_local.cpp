@@ -15,7 +15,6 @@
 // reported instead of being answered with a guess.
 //
 //   BO1_STEAM_ABSENT=1        diagnostics: answer "Steam is not running" (SteamAPI_Init fails).
-//   BO1_EMULATED_STEAM_DLL=1  load the shipped DLL in the x86 interpreter instead (tests/boot/main.cpp).
 #include <deque>
 #include <map>
 #include <mutex>

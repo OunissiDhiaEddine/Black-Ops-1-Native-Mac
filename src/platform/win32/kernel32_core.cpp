@@ -37,9 +37,6 @@ static std::string base_name_lower(std::string s) {
 static uint32_t module_find(const std::string &name) {
     std::string n = base_name_lower(name);
     if (n == "blackops.exe") return image_info().base;
-    std::string emu;
-    for (unsigned i = 0; uint32_t b = emu_module_by_index(i, &emu); i++)
-        if (emu == n) return b;
     for (size_t i = 0; i < sizeof(kModules) / sizeof(kModules[0]); i++)
         if (n == kModules[i]) return kModuleBase + (uint32_t)i * 0x1000;
     return 0;
@@ -51,20 +48,11 @@ uint32_t module_list(uint32_t *out, uint32_t max) {
         n++;
     };
     add(image_info().base);
-    for (unsigned i = 0; uint32_t b = emu_module_by_index(i, nullptr); i++) add(b);
-    for (size_t i = 0; i < sizeof(kModules) / sizeof(kModules[0]); i++) {
-        bool emulated = false; // a DLL that is really loaded (emulated) must not also appear as a name-only handle
-        std::string name;
-        for (unsigned k = 0; emu_module_by_index(k, &name); k++) emulated |= name == kModules[i];
-        if (!emulated) add(kModuleBase + (uint32_t)i * 0x1000);
-    }
+    for (size_t i = 0; i < sizeof(kModules) / sizeof(kModules[0]); i++) add(kModuleBase + (uint32_t)i * 0x1000);
     return n;
 }
 std::string module_path(uint32_t h) {
     if (h == 0 || h == image_info().base) return std::string(kGuestGameDir) + "\\BlackOps.exe";
-    std::string name;
-    for (unsigned i = 0; uint32_t b = emu_module_by_index(i, &name); i++)
-        if (b == h) return std::string(kGuestGameDir) + "\\" + name;
     uint32_t i = (h - kModuleBase) / 0x1000;
     if (h >= kModuleBase && i < sizeof(kModules) / sizeof(kModules[0])) return std::string("C:\\windows\\system32\\") + kModules[i];
     return "";
