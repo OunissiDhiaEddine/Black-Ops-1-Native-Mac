@@ -92,6 +92,15 @@ There is no console command that saves (`savegame` is a script call): RE_NOTES "
   After a change of the shader translator the keys change: old libraries are simply never asked for again
   (delete the directory now and then).
 
+### The personal app and its DMG (P8)
+`scripts/make_app.sh [--dmg]` (in the main folder, after `scripts/build_boot.sh`) -> `artifacts/app/Black Ops.app` and
+`artifacts/app/BlackOps-Mac.dmg`. The app holds `bo1_boot`, the 17 Homebrew libraries it links (install names made
+relative to the bundle), the compiled shader cache as it is at that moment, and a launcher script. It holds no game
+files: at first start the launcher asks for the folder of the installed game and builds a folder of links to it in
+`~/Library/Application Support/Black Ops Mac/game` with its own `players/` (saves, settings); the log of a run is
+`log.txt` there. Ad-hoc signed, for this user only — the binary is the recompiled game, so neither app nor DMG is
+ever published (`CLAUDE.md` rule 1). A shader that is not in the seeded cache compiles in the game at first use.
+
 ### Machine and toolchain (as of 2026-10-06)
 - Apple M1 (arm64, **16 KiB pages**), 8 GB RAM, macOS 27.0.1, Xcode 27.0.
 - Homebrew: cmake, ninja, ffmpeg, sdl3 3.4.18, faudio 26.10, mingw-w64, ghidra, openjdk@21, sevenzip.
