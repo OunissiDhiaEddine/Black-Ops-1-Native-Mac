@@ -1,7 +1,7 @@
 # RUNBOOK — run, build and regression-test the native build
 
 Reference page: commands, switches, expected results, the architecture map and the pitfalls. It holds no status.
-What is done, what is open and the next step are in `LOG.md` (STATE block) and `TASKS.md`; rules are in `CLAUDE.md`.
+What is open is listed in `README.md`, what was done is in `git log`; rules are in `CLAUDE.md`. Task numbers (`T-0xx`) on this page and in the code name tasks of the task list that was removed on 2026-10-12 (`git log -- TASKS.md`).
 Change this page in the same commit that changes a command, a switch or an expected result.
 
 ## Run it

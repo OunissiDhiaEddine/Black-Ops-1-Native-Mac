@@ -10,8 +10,7 @@ game's files from a copy you own, and everything made from them stays on your Ma
 ## What works
 The single-player campaign: intro movies, menus, sound, saves, window and full screen, keyboard, mouse, trackpad
 and gamepad. Every campaign mission starts and plays on an M1 with 8 GB; nobody has played the whole campaign
-through yet. Multiplayer and the Steam services (achievements, friends, DLC) are out of scope. Open work is
-listed in [TASKS.md](TASKS.md).
+through yet. Multiplayer and the Steam services (achievements, friends, DLC) are out of scope.
 
 ## How it works
 | Part | Where | What it does |
@@ -79,12 +78,20 @@ asks for it, and keeps saves and settings in `~/Library/Application Support/Blac
 ## Working on it
 - [docs/RUNBOOK.md](docs/RUNBOOK.md): how to run, the switches, the tests and what they should print, how to find a bug.
 - [docs/RE_NOTES.md](docs/RE_NOTES.md): what is known about the game's internals, each item with how sure it is.
-- [docs/DECISIONS.md](docs/DECISIONS.md) and [docs/PLAN.md](docs/PLAN.md): why it is built this way.
-- [LOG.md](LOG.md) and [TASKS.md](TASKS.md): the state of the work. [CLAUDE.md](CLAUDE.md) holds the rules the project is run by.
+- [docs/DECISIONS.md](docs/DECISIONS.md): why it is built this way.
+- [CLAUDE.md](CLAUDE.md): the rules the project is run by.
 
 Quick checks after a change are steps 6 above and, for `src/native` or the recompiler, `scripts/test_native.sh`.
 `scripts/difftest.sh` runs recompiled functions against an x86 emulator. `scripts/replay_check.sh` compares the
 renderer with recorded frames of the original; those recordings hold game data and are not in this repository.
+
+## Open work
+- Play mission 1 to its end in the window. The hand-over to the next mission is confirmed only in unattended runs, and only for the first of the five story interludes.
+- Measure the frame rate of the big fights in a real window (`BO1_FRAME_STATS=300 scripts/run_native.sh`). Unattended, they hold the game's 62.5 fps cap.
+- A real mouse and controller rumble are untested. Keyboard, trackpad and gamepad work.
+- The very bright opening of the Hue City mission has not been compared with the original.
+- If a measurement shows the processor as the limit: more hand-written replacements for the render thread's hot functions (`src/native/`).
+- The shaders of a level compile at its first visit and make it stutter once.
 
 ## Legal
 This is an unofficial interoperability project for people who own the game. It is not affiliated with or endorsed
