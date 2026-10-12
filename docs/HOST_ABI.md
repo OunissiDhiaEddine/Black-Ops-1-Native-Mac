@@ -75,7 +75,7 @@ table maps `T_i` to a host thunk. Guest code never executes bytes there; it only
   The generated thunk reads `args = guest_to_host(cpu->esp + 4)`, calls the C function, stores the
   result in `eax` (and `edx` for 64-bit results), pops the return address, and for stdcall adds
   `4*nargs` to `esp`. Argument counts come from one table that is checked against the SDK headers
-  the same way `tools/d3d9_proxy` does it (`nw()` over the prototype) — no hand-counted stacks.
+  the same way the trace recorder did it (`nw()` over the prototype) — no hand-counted stacks.
 - Shims must preserve `ebx, esi, edi, ebp` and may clobber `eax, ecx, edx` and flags, exactly like
   the originals. They must **not** touch the guest stack below `esp`.
 - Last-error lives in the guest TEB (`teb+0x34`); shims set it only where Windows does. The

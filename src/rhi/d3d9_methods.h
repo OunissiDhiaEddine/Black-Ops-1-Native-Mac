@@ -1,6 +1,7 @@
-// Vtable slot lists for the D3D9 interfaces the proxy hooks. Single source of truth for
-// thunks.S (slot -> thunk) and proxy.cpp (slot -> name). proxy.cpp static_asserts every
-// entry against the Vtbl structs in the SDK header, so a wrong index cannot compile.
+// Vtable slot lists of the Direct3D 9 interfaces the game uses. Single source of truth for the call
+// records (d3d9_call.h), the live shim, the trace replay and tools/trace_reader.py. Every entry was
+// checked against the Vtbl structs of the SDK header when the traces were recorded (the recorder is in
+// git history: tools/d3d9_proxy, removed 2026-10-12).
 #pragma once
 
 #define IDIRECT3D9_METHODS(X) \
@@ -111,7 +112,7 @@
     X(0, QueryInterface) X(1, AddRef) X(2, Release) X(3, GetDevice) X(4, GetDeclaration)
 #define IDIRECT3DVERTEXDECLARATION9_COUNT 5
 
-// Interface ids: index into the proxy's interface table, first byte of every trace record,
+// Interface ids: index into the interface table, first byte of every trace record,
 // and the first macro argument of FOR_EACH_IFACE. Keep in sync with docs/TRACE_FORMAT.md.
 #define IFACE_D3D9 0
 #define IFACE_DEVICE 1

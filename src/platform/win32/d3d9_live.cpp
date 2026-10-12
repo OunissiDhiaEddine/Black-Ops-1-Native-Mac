@@ -2,7 +2,7 @@
 // objects (d3d9_null.cpp keeps the objects, their reference counts and the lockable memory) is turned
 // into the same call record the trace replay feeds the renderer (src/rhi/d3d9_call.h,
 // docs/TRACE_FORMAT.md) and handed to the Metal renderer right after it returned. The records are built
-// the way the tracing proxy builds them (tools/d3d9_proxy/proxy.cpp), so the renderer sees a live game
+// the way the trace recorder built them (docs/TRACE_FORMAT.md), so the renderer sees a live game
 // exactly as it sees a recorded one. One difference, on purpose: an object's Release reaches the renderer
 // when the object is really destroyed (on_destroy), not when the game drops its last reference.
 //
@@ -441,7 +441,7 @@ void d3d9_live_attach() {
         {"IDirect3DVertexShader9", IFACE_VSHADER}, {"IDirect3DPixelShader9", IFACE_PSHADER}, {"IDirect3DVertexDeclaration9", IFACE_VDECL},
     };
     for (const auto &i : kIfaces) com_observe(i.name, i.id << 16, observe);
-    // the calls a frame consists of bypass `observe` (slot numbers: tools/d3d9_proxy/d3d9_methods.h)
+    // the calls a frame consists of bypass `observe` (slot numbers: src/rhi/d3d9_methods.h)
     static const struct { unsigned slot; ComObserver fn; } kDevice[] = {
         {57, on_set_render_state}, {65, on_set_texture}, {69, on_set_sampler_state}, {82, on_draw_indexed},
         {87, on_set_vertex_declaration}, {92, on_set_vertex_shader}, {94, on_set_vs_constants}, {100, on_set_stream_source},

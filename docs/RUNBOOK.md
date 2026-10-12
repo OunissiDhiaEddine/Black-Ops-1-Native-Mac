@@ -1,7 +1,7 @@
 # RUNBOOK — run, build and regression-test the native build
 
 Reference page: commands, switches, expected results, the architecture map and the pitfalls. It holds no status.
-What is done, what is open and the next step are in `LOG.md` (STATE block) and `TASKS.md`; rules are in `CLAUDE.md`.
+What is open is listed in `README.md`, what was done is in `git log`; rules are in `CLAUDE.md`. Task numbers (`T-0xx`) on this page and in the code name tasks of the task list that was removed on 2026-10-12 (`git log -- TASKS.md`).
 Change this page in the same commit that changes a command, a switch or an expected result.
 
 ## Run it
@@ -110,8 +110,10 @@ ever published (`CLAUDE.md` rule 1). A shader that is not in the seeded cache co
 - Homebrew: cmake, ninja, ffmpeg, sdl3 3.4.18, faudio 26.10, mingw-w64, ghidra, openjdk@21, sevenzip.
   An agent session cannot run `brew install` itself: give the user the command.
 - `.venv`: pefile, capstone, lief, unicorn, numpy, pillow.
-- Wine baseline (oracle only, ADR-007): `artifacts/wine/cx` (WineCX 24.0.7), prefix `artifacts/wineprefix-cx`,
-  started with `scripts/run_baseline.sh`. Working copy of the game: `artifacts/game` (`reference/` stays read-only).
+- The Wine baseline (ADR-007) was removed on 2026-10-12. What it recorded is the reference from now on:
+  `artifacts/traces/*.bin` + `tests/golden/*/*.png` (the replay check) and `artifacts/baseline/run-*.log` (the original's
+  own log output). To record again: `git log -- scripts/run_baseline.sh tools/d3d9_proxy` has the tooling.
+  Working copy of the game: `artifacts/game` (`reference/` stays read-only).
 - A worktree thread links its inputs from the main checkout (`artifacts/lifted`, `artifacts/game`, `artifacts/traces`, `artifacts/shader_cache`,
   `.venv`, `reference`, `re/ghidra_export`, the golden PNGs) and keeps its own `build/` and `artifacts/boot/`.
   Two exceptions: a thread that writes saves or settings makes `artifacts/game` a folder of links with its own
@@ -142,7 +144,7 @@ runs and no profiles unless the result being reported depends on them, and then 
 |---|---|---|
 | one mission boot: `SDL_AUDIO_DRIVER=dummy BO1_BINK=off BO1_KEYS="35000:0x20" BO1_CMDS="50000\|devmap cuba" artifacts/boot/bo1_boot --seconds 110` | a change that only shows inside a mission (game-side code, the runtime) | "scripted command: devmap cuba", then frames; no `Com_ERROR`, no "guest stopped" |
 | `scripts/replay_check.sh` | renderer or shader-translator changes | worst SSIM cuba 0.9994, khe_sanh 0.9984, menu 0.9997, vorkuta 0.9985; no "unrecorded" lines |
-| `REPORT=re/difftest_report_all.json scripts/difftest.sh 100000 2 5 all` (~6 min, 4 cores) | changes of the lifter's instruction semantics or of `lifted.h` / `lifted_fp.h` (not for adding a `NATIVE` function, not for build-flag changes already covered by `test_native.sh`) | last line "functions failing: 9 (9 with a known-wrong reference, 0 unexplained)". Without `REPORT=` the summary overwrites the leaf-set report `re/difftest_report.json` |
+| `REPORT=artifacts/lifted/difftest_report_all.json scripts/difftest.sh 100000 2 5 all` (~6 min, 4 cores) | changes of the lifter's instruction semantics or of `lifted.h` / `lifted_fp.h` (not for adding a `NATIVE` function, not for build-flag changes already covered by `test_native.sh`) | last line "functions failing: 9 (9 with a known-wrong reference, 0 unexplained)". Without `REPORT=` the summary overwrites the leaf-set report `re/difftest_report.json` |
 | `build/test_win_messages`, `build/test_window_service` | window / input layer changes | `all checks passed` |
 | the unattended run above | movie or sound changes | three `BinkOpen` / `BinkClose` pairs with sound-track sample counts and 0 dropped, `xaudio2: first xWMA voice … decoded with FFmpeg`, no `Com_ERROR`, no "host signal" |
 | saves: `BO1_BINK=off BO1_KEYS="35000:0x20" BO1_CMDS="50000\|devmap cuba;125000\|loadgame cuba"`, 200 s | save / load changes | `players\save\cuba.svg` written, "Save game build number: 152", "=== G_LoadGame ===", then frames again; no "guest stopped" |
@@ -185,8 +187,8 @@ Design references: `docs/HOST_ABI.md` (guest/host calls), `docs/LIFTER.md`, `doc
   (`OutputDebugStringA` lines) — they are identical up to the first fault. Then lldb on `bo1_boot`: break on
   `f_<VA>`, `x0` is the `Cpu *`, the global `g_mem` is the arena base; a write watchpoint on
   `g_mem + <guest address>` finds whoever clobbers a game variable.
-- **Renderer:** `BO1_DEBUG_FRAME` / `BO1_DEBUG_DIR` with `tools/pass_dump.py`; `scripts/replay_window.sh <menu|cuba|vorkuta|khe_sanh> [first_frame]`
-  shows a recorded trace live in a window.
+- **Renderer:** `BO1_DEBUG_FRAME` / `BO1_DEBUG_DIR` with `tools/pass_dump.py`; `build/replay artifacts/traces/<menu|cuba|vorkuta|khe_sanh>.bin --backend metal --frames A-B --dump DIR`
+  replays a recorded trace and writes those frames as PNG.
 - **Where the time goes:** `sample <pid> 10 -file out.txt` on a running `bo1_boot`, then `tools/sample_tree.py out.txt "MetalRenderer::draw_indexed" 3` (callees merged over the report). A heavy scene without a hand: `BO1_CMDS="45000|loadgame <save>"` with a checkpoint save in `players/save/`.
   `scripts/perf_scene.sh <tag>` does both for the two checkpoint saves `cuba-1` (street fight, ~31,000 Direct3D calls per frame) and `cuba-2` (~15,000): frame statistics in `artifacts/boot/<tag>.log`, two profiles next to it; `BIN=<other bo1_boot>` measures another build on the same saves. Expected on the M1 at 800x600 (2026-10-10): renderer 3.8 ms per frame in `cuba-1`, 2.5 ms in `cuba-2`, 62.5 fps in both. The profiler slows the game while it samples (those windows show it). "GPU busy" in the second statistics line is the GPU's own time for the frames' command buffers (the budget is 16.7 ms per frame = 5,000 ms per 300 frames; expected 2026-10-10: ~3,000 ms in `cuba-1` at a true 2560x1600, ~2,500 ms at 1280x800); it rises when anything else uses the GPU. Since T-074 it is the time during which the GPU was executing at least one of our command buffers (a frame is several, and their spans overlap: the plain sum counted up to three times too much). "renderer ms" times draws, buffer writes and everything that goes as a record; the state setters (most of the calls) are counted but not timed since 2026-10-10, so numbers in older logs are 0.6–1.8 ms higher for the clock reads alone.
 - **What does the game do when X happens:** wrap the function in question for one build — a file in `src/native/` with
@@ -218,8 +220,8 @@ Design references: `docs/HOST_ABI.md` (guest/host calls), `docs/LIFTER.md`, `doc
   trace lacks data; trust that line before suspecting the renderer.
 - **Scripted commands wait for the message pump**: while a level loads, `BO1_CMDS` entries that fall due are held and
   then run together — on a loaded machine a `loadgame` timed "after the load" can arrive before the start save exists.
-- **`git add -A` picks up the worktree's links** (`.venv`, `reference`, `re/ghidra_export` are links there and the
-  ignore patterns name directories): add paths explicitly.
+- **Add paths explicitly, not `git add -A`**: until 2026-10-12 it picked up a worktree's links (`.venv`, `reference`,
+  `re/ghidra_export`), because the ignore patterns named directories. They match links now.
 - **Compiled shaders are remembered per folder, not per machine** (LIKELY; seen 2026-10-10): the first run from a new
   worktree compiled the menu's 271 shader functions again (50 s of stalls), and the main folder's build stalled 36 s
   on a scene that had only ever been played from a worktree. A rebuild in the same folder kept its shaders. So: run a
@@ -232,4 +234,4 @@ Design references: `docs/HOST_ABI.md` (guest/host calls), `docs/LIFTER.md`, `doc
   busy; the same scene held 60 fps an hour later. Check `uptime` and `ps -Ao pcpu,comm -r | head` first, do not
   dump frames (`BO1_D3D_DUMP`) in a timed run, and repeat a surprising result before writing it down.
 - **Withdrawn work is kept as patches** in `docs/patches/` (each names the commit it applies on in its log entry): the stall-free shader compile the user turned down on 2026-10-07 and the pipeline archive that measurement showed to be useless (T-068). The alternative setjmp / longjmp implementation of T-060 was removed on 2026-10-10 (superseded; `git log -- docs/patches` has it).
-- **CSV files under `re/` have Windows line endings** (`platform_map.csv`, `symbols.csv`): edit them in binary mode.
+- **Some CSV files under `re/` have Windows line endings** (`symbols.csv`): edit them in binary mode.

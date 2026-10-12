@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# T-035: replay every golden scenario in Metal and compare with the baseline's frames.
+# T-035: replay every recorded scenario in Metal and compare with the reference frames recorded with it.
 #   scripts/replay_check.sh [threshold]      (SSIM, default 0.95)
-# Needs: scripts/build.sh, artifacts/traces/<name>.bin and tests/golden/<name>/ from
-# scripts/capture_golden_all.sh. Writes artifacts/replay/<name>/ (frames), <name>_diff/ and
+# Needs: scripts/build.sh, artifacts/traces/<name>.bin and tests/golden/<name>/*.png. Both are recordings of the
+# original game's Direct3D 9 calls and frames (docs/TRACE_FORMAT.md); they hold game data and are not in git. Writes artifacts/replay/<name>/ (frames), <name>_diff/ and
 # re/replay_check.json (committed summary).
 set -uo pipefail
 cd "$(dirname "$0")/.."

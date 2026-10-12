@@ -24,9 +24,9 @@ list(APPEND CMAKE_PREFIX_PATH /opt/homebrew)
 find_package(SDL3 REQUIRED CONFIG)
 
 # Renderer (ADR-004): D3D9-shaped call records in (src/rhi), Metal out (src/metal). Shared by the replay
-# tool and the native runtime's d3d9 shim. The slot tables come from the proxy's header: single source of truth.
+# tool and the native runtime's d3d9 shim. The slot tables are src/rhi/d3d9_methods.h: single source of truth.
 add_library(bo1_metal STATIC src/metal/metal_renderer.mm)
-target_include_directories(bo1_metal PUBLIC src/rhi tools/d3d9_proxy)
+target_include_directories(bo1_metal PUBLIC src/rhi)
 set_source_files_properties(src/metal/metal_renderer.mm tools/sm3c/main.mm PROPERTIES COMPILE_OPTIONS "-fobjc-arc")
 target_link_libraries(bo1_metal PUBLIC bo1_shaders SDL3::SDL3 "-framework Metal" "-framework Foundation"
                       "-framework CoreGraphics" "-framework ImageIO" "-framework QuartzCore")

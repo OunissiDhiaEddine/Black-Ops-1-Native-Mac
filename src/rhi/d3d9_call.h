@@ -9,7 +9,7 @@
 
 namespace bo1::trace {
 
-// Interface ids and slot counts come from the proxy's method table: one source of truth.
+// Interface ids and slot counts come from the method table: one source of truth.
 #include "d3d9_methods.h"
 
 enum BlobTag : uint32_t {

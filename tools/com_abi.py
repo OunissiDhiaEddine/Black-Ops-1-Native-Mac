@@ -5,7 +5,7 @@
 
 Source: the interface declarations in the mingw-w64 d3d9.h (the header the d3d9 proxy is built
 against). `words` = 32-bit stack slots including `this`; every D3D9 method parameter is one slot
-(pointers, DWORDs, floats, enums). Cross-checks: slot numbers against tools/d3d9_proxy/d3d9_methods.h
+(pointers, DWORDs, floats, enums). Cross-checks: slot numbers against src/rhi/d3d9_methods.h
 (which the proxy static_asserts against the SDK vtable structs).
 """
 import csv
@@ -45,7 +45,7 @@ def main() -> int:
     ifaces = parse(HEADERS[-1].read_text(errors="replace"))
     # slot lists the proxy already verified against the SDK
     proxy = {}
-    txt = (ROOT / "tools" / "d3d9_proxy" / "d3d9_methods.h").read_text()
+    txt = (ROOT / "src" / "rhi" / "d3d9_methods.h").read_text()
     shared = {m.group(1): m.group(2) for m in re.finditer(r"#define (\w+_METHODS)\(X\)((?:.*\\\n)*.*)\n", txt)}
     for m in re.finditer(r"#define (\w+)_METHODS\(X\)(.*?)\n#define \w+_COUNT (\d+)", txt, re.S):
         body = m.group(2)

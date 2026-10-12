@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Reader for the d3d9 proxy's binary trace (docs/TRACE_FORMAT.md).
+"""Reader for the recorded D3D9 call traces (docs/TRACE_FORMAT.md).
 
   .venv/bin/python tools/trace_reader.py TRACE.bin            summary (calls, bytes per method)
   .venv/bin/python tools/trace_reader.py TRACE.bin --dump N   print the first N records
   .venv/bin/python tools/trace_reader.py TRACE.bin --census OUT.json   full census for T-015
 
-Interface and method names come from tools/d3d9_proxy/d3d9_methods.h (single source of truth).
+Interface and method names come from src/rhi/d3d9_methods.h (single source of truth).
 """
 import argparse
 import json
@@ -17,7 +17,7 @@ from collections import Counter, defaultdict
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-METHODS_H = ROOT / "tools" / "d3d9_proxy" / "d3d9_methods.h"
+METHODS_H = ROOT / "src" / "rhi" / "d3d9_methods.h"
 BLOB_TAGS = {1: "OUT", 2: "DATA", 3: "STRUCT", 4: "RECT_A", 5: "RECT_B", 6: "BYTECODE", 7: "ELEMENTS",
              8: "PP", 9: "LOCK", 10: "DATA_B"}
 LOCK_FIELDS = ("format width height depth pitch slice_pitch lock_flags has_rect left top right bottom "

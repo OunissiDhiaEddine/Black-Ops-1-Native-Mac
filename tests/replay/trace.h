@@ -1,4 +1,4 @@
-// Reader for the D3D9 call trace written by tools/d3d9_proxy (docs/TRACE_FORMAT.md, v1 and v2).
+// Reader for the recorded D3D9 call traces (docs/TRACE_FORMAT.md, v1 and v2).
 #pragma once
 #include <cstddef>
 #include <cstdint>
