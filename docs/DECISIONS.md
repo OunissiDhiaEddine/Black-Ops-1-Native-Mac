@@ -117,3 +117,9 @@ User, 2026-10-12, on the six open points of the clean-up (LOG 2026-10-10 20:55, 
 5. **Nothing deleted from `artifacts/`** (`artifacts/shaders`, the 2026-10-05 baseline shots and logs, ~195 MiB together): 14 GiB are free, and the baseline files are evidence older entries cite.
 6. **`tools/macos/winlist_all.swift` removed** (nothing calls it; in `git log`).
 
+## Housekeeping decisions of 2026-10-12, second round: clean-up before publishing (user: "delete anything that is not just source code needed to build the app or to maintaine and bug fix , mean stuff like translation layers")
+1. **ADR-007's Wine install is removed**, with its prefix and the capture tooling (`scripts/run_baseline.sh`, `tools/d3d9_proxy/`; in `git log`). ADR-007 itself is unchanged as a record. What the baseline recorded remains the reference: `artifacts/traces/`, `tests/golden/`, `artifacts/baseline/run-*.log`. Recording again means installing Wine again: ask the user.
+2. **Point 5 of the first round is reversed:** scratch files of finished tasks under `artifacts/` were deleted (list: LOG 2026-10-12, T-078).
+3. **`docs/patches/` still stays** (point 2 of the first round).
+4. **The repository is published as source only.** The app, the DMG, the compiled shaders, the program image and the lifted code never go to a remote.
+
