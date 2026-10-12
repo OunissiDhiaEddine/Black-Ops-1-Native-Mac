@@ -1,7 +1,0 @@
-{
- "shaders": 6845, "vs": 260, "ps": 6585, "translated": 6845, "compiled": 6845,
- "seconds": 855.52, "instructions": 1142172, "msl_bytes": 68328151,
- "translate_errors": {
- },
- "compile_error_kinds": 0
-}

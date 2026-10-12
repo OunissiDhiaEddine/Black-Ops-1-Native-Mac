@@ -4,7 +4,7 @@
   .venv/bin/python tools/trace_census.py TRACE.bin [--name menu] [--shaders DIR]
 
 Outputs
-  re/d3d9_census_<name>.json   machine-readable census (no asset data: counts and enums only)
+  artifacts/census/<name>.json machine-readable census (no asset data: counts and enums only)
   stdout                       markdown summary for docs/RE_NOTES.md
   DIR/<sha1>.{vs,ps}           with --shaders: the unique shader bytecode blobs (game data ->
                                keep under artifacts/, never commit)
@@ -307,7 +307,8 @@ def main() -> int:
         "failed_calls": [[n, hr, c] for (n, hr), c in failures.most_common()],
         "present_parameters_words": list(present_pp) if present_pp else None,
     }
-    out = ROOT / "re" / f"d3d9_census_{args.name}.json"
+    out = ROOT / "artifacts" / "census" / f"{args.name}.json"
+    out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(census, indent=1) + "\n")
 
     p = print

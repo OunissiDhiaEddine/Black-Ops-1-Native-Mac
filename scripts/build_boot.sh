@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # Build the headless boot runtime (T-045): lifted image + runtime + Win32 shims -> artifacts/boot/bo1_boot.
-#   scripts/build_boot.sh            (the lifted objects come from scripts/difftest.sh / artifacts/lifted/obj)
+#   scripts/build_boot.sh            (the lifted objects come from scripts/build_lifted.sh: artifacts/lifted/obj)
 set -euo pipefail
 cd "$(dirname "$0")/.."
 OUT=artifacts/boot
 LIFT="${BO1_LIFT:-artifacts/lifted}"   # BO1_LIFT=artifacts/lifted_a2: the A2 audit tree (scripts/build_lifted.sh --a2-check)
 BIN=bo1_boot; [ "$LIFT" = artifacts/lifted ] || BIN="bo1_boot_$(basename "$LIFT" | sed s/lifted_//)"
 mkdir -p "$OUT/obj" "$OUT/gen"
-ls "$LIFT"/obj/lifted_*.o > /dev/null 2>&1 || { echo "no lifted objects: run scripts/difftest.sh first"; exit 1; }
+ls "$LIFT"/obj/lifted_*.o > /dev/null 2>&1 || { echo "no lifted objects: run scripts/build_lifted.sh first"; exit 1; }
 
 # import ABI table (re/import_abi.csv -> C initialisers); nargs = stack slots, -1 = cdecl
 .venv/bin/python - > "$OUT/gen/import_abi.inc" <<'PY'
@@ -17,7 +17,7 @@ for r in csv.DictReader(open("re/import_abi.csv")):
     print(f'    {{{r["iat_va"]}u, "{r["dll"]}", "{r["function"]}", {n}}},')
 PY
 
-# D3D9 vtable layout (re/d3d9_abi.csv) and the adapter answers recorded from the baseline (re/d3d9_adapter_probe.json)
+# D3D9 vtable layout (re/d3d9_abi.csv) and the adapter answers the game got from Direct3D 9 in the reference recording (re/d3d9_adapter_probe.json)
 .venv/bin/python - > "$OUT/gen/d3d9_abi.inc" <<'PY'
 import csv
 for r in csv.DictReader(open("re/d3d9_abi.csv")):
@@ -52,7 +52,7 @@ print(f'static const uint32_t kProbeAdapterCount = {d["adapter_count"]};')
 PY
 
 # -O2: the Direct3D shims sit on the path of every draw call (P6); the lifted code has its own flags (scripts/build_lifted.sh)
-CXXFLAGS="-std=c++20 -O2 -g -Wall -Wextra -Werror -Wno-unused-parameter -ffp-contract=off -Isrc/runtime -Isrc/platform/win32 -Isrc/rhi -Itools/d3d9_proxy -Isrc/platform/window -I/opt/homebrew/include -I$LIFT -I$OUT/gen"
+CXXFLAGS="-std=c++20 -O2 -g -Wall -Wextra -Werror -Wno-unused-parameter -ffp-contract=off -Isrc/runtime -Isrc/platform/win32 -Isrc/rhi -Isrc/platform/window -I/opt/homebrew/include -I$LIFT -I$OUT/gen"
 CFLAGS="-std=c11 -O2 -g -Wall -Werror -ffp-contract=off -Isrc/runtime -I$LIFT"
 # an object is rebuilt when its source or ANY header it may include is newer (the window and renderer headers
 # too: a stale object with an old class layout still links and then misbehaves — it cost a window on 2026-10-07)

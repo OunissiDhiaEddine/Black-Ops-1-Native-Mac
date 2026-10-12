@@ -1,7 +1,7 @@
 # D3D9 trace format (v2; v1 is still readable)
 
-Written by `tools/d3d9_proxy` when `BO1_TRACE_FILE` is set (`scripts/run_baseline.sh --trace --record`),
-read by `tools/trace_reader.py`. Little-endian, 32-bit guest pointers. One file per run in
+Written by the Direct3D 9 proxy DLL that sat in front of the original game ("the proxy" below; removed with
+the Wine baseline on 2026-10-12, `git log -- tools/d3d9_proxy`), read by `tests/replay/` and `tools/trace_reader.py`. Little-endian, 32-bit guest pointers. One file per run in
 `artifacts/traces/` (gitignored: it contains game assets).
 
 ## File header (40 bytes)
@@ -25,7 +25,7 @@ One record per COM method call on a hooked interface, in the order the calls wer
 | 1 | u8 | `flags` — bit 0: `result` is valid (the call was recorded after it returned) |
 | 2 | u8 | `depth` — number of hooked calls in progress on this thread when this call was made. **v2: exact** (every call is tracked from entry to return), so `depth > 0` means the call was made by the D3D9 implementation itself while servicing a game call, or is a tail call out of one; replayers skip those. In v1 only calls recorded on return were counted |
 | 3 | u8 | `nblobs` |
-| 4 | u16 | `slot` — vtable slot = method (names: `tools/d3d9_proxy/d3d9_methods.h`) |
+| 4 | u16 | `slot` — vtable slot = method (names: `src/rhi/d3d9_methods.h`) |
 | 6 | u16 | `nwords` |
 | 8 | u32 | `tid` — Windows thread id |
 | 12 | u32 | `result` — HRESULT / ULONG return value, if flag bit 0 |

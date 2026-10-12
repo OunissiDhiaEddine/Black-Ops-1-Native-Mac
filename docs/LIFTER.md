@@ -232,7 +232,7 @@ The same generated C, compiled for x86_64 and run under Rosetta 2 on the same 26
 - at **-O1**: one more difference (0x0092C780), traced to a **miscompile in Apple clang 21.0.0's
   x86_64 backend**: `c->eax = load32(p); c->eax = (c->eax & 0xFFFFFF00) | g[c->eax];` stores the
   zero-extended byte and drops the upper 24 bits. Reduced, UB-free reproducer:
-  `tests/diff/compiler_bugs/x86_64_byte_insert_after_load.c` (arm64 is correct at every level).
+  `tests/diff/compiler_bugs/x86_64_byte_insert_after_load.c` in `git log` (removed 2026-10-12; arm64 is correct at every level).
   So an optimised x86_64 build is not a usable oracle with this toolchain; the arm64 build is what the
   differential tests validate.
 

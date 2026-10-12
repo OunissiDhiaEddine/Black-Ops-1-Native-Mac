@@ -4,7 +4,7 @@
 #   scripts/ghidra_analyze.sh --export   re-run only the export script on the existing project
 #   scripts/ghidra_analyze.sh --seed     create functions from re/seeds.csv (tools/seed_functions.py),
 #                                        re-analyse, re-export. Pipeline for full coverage:
-#                                        (no arg) -> seed_functions.py -> --seed -> coverage_gaps.py
+#                                        (no arg) -> seed_functions.py -> --seed
 # Outputs: re/ghidra_projects/bo1 (project, gitignored), re/ghidra_export/*.csv (gitignored),
 #          re/ghidra_summary.json (committed), artifacts/ghidra/analyze.log
 set -euo pipefail

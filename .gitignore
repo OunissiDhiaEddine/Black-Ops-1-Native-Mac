@@ -1,18 +1,28 @@
-reference/
-artifacts/
-re/ghidra_projects/
+# The game, and everything made from it, never goes into git (CLAUDE.md rule 1).
+# (no trailing slash: in a worktree these are links to the main folder)
+/reference
+/artifacts
+/re/ghidra_projects
+/re/ghidra_export
 *.exe
 *.dll
 *.ff
 *.iwd
+*.bik
 *.bin
-tests/golden/*.png
+*.image
+*.metallib
+*.app/
+*.dmg
 tests/golden/**/*.png
-build/
-.DS_Store
-.venv/
+
+# Build outputs and local tooling
+/build
+/.venv
 __pycache__/
-re/ghidra_export/
-src/lifted/*
-!src/lifted/.gitkeep
-artifacts/lifted/
+*.o
+*.a
+*.dSYM/
+.DS_Store
+.claude/worktrees/
+.claude/settings.local.json

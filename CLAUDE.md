@@ -13,6 +13,7 @@ Success = campaign boots to main menu, loads a mission, plays at >= 60 fps on an
 | File | Holds | Changes |
 |---|---|---|
 | `CLAUDE.md` | rules, repo map (this file) | rarely |
+| `README.md` | what the project is and how to build the app from one's own copy of the game (the public front page) | when the build steps change |
 | `LOG.md` | STATE block (the resume point, overwritten) + append-only session log | after every task |
 | `TASKS.md` | NOW, the OPEN table, then the record of finished work with its evidence | after every task |
 | `docs/RUNBOOK.md` | how to run, build and regression-test; switches; architecture map; debugging; pitfalls | when a command or expected result changes |
@@ -25,7 +26,7 @@ Success = campaign boots to main menu, loads a mission, plays at >= 60 fps on an
 One fact lives in one place. Status goes in `LOG.md` / `TASKS.md`, commands in `docs/RUNBOOK.md`, knowledge in `docs/RE_NOTES.md`; the others link to it instead of repeating it.
 
 ## Ground rules
-1. **Scope.** Personal-use interoperability research on the owner's installed copy. Do NOT commit or distribute game binaries, assets, lifted code, or raw decompiler output. `reference/`, `artifacts/` and `src/lifted/` are gitignored; keep it that way.
+1. **Scope.** Personal-use interoperability research on the owner's installed copy. Do NOT commit or distribute game binaries, assets, lifted code, or raw decompiler output. `reference/` and `artifacts/` (the lifted code, the compiled shaders, the app and its DMG all live there) are gitignored; keep it that way. The repository is meant to be public: source only.
 2. **Log after every task.** The user can run out of tokens at any moment. After EVERY completed task: update `LOG.md` (STATE block + new entry) and `TASKS.md` (status + evidence: command output, screenshot path, test result), then `git commit`. Never batch up logging for "the end".
 4. **Never guess silently.** Unknown address/struct/behaviour -> write it in `docs/RE_NOTES.md` with a confidence tag (`CONFIRMED` / `LIKELY` / `GUESS`) and how it was verified.
 6. **Originals are read-only.** Never modify files in `reference/`. Work on copies in `artifacts/`.
@@ -45,33 +46,34 @@ The STATE block holds only what changes from checkpoint to checkpoint: date/time
 
 ## Settled by the user (do not reopen without asking)
 - **Steam = ADR-015** (2026-10-06): a local, offline stand-in inside the runtime. It reports no DLC on purpose. Unknown Steam methods trap with their slot number: add them only with evidence from the game's call site (`tools/steam_sites.py`). The shipped `steam_api.dll` is not loaded, modified or analysed. The user will not install the Steam client.
-- **Wine is only the oracle** (ADR-007): `scripts/run_baseline.sh`, golden frames in `tests/golden/`, traces in `artifacts/traces/`. The user's Windows PC is a last resort.
+- **Wine was only the oracle** (ADR-007) and is gone since 2026-10-12 (user: clean-up before publishing). What it recorded stays as the reference: traces in `artifacts/traces/`, frames in `tests/golden/`, run logs in `artifacts/baseline/`. The capture tooling (`scripts/run_baseline.sh`, `tools/d3d9_proxy/`) is in `git log`; bringing Wine back needs the user's OK. The user's Windows PC is a last resort.
 - **Installs:** an agent session cannot run `brew install` itself — give the user the command, then verify with `brew list --versions <name>`.
 
 ## Repo map
 ```
 CLAUDE.md                 this file (AGENTS.md points here)
+README.md                 what this is, how to build it from your own copy of the game
 LOG.md                    STATE block (overwritten) + append-only session log  <- resume point
 TASKS.md                  backlog with IDs, status, evidence
 docs/                     RUNBOOK, DECISIONS, RE_NOTES, PLAN, HOST_ABI, LIFTER, TRACE_FORMAT, LOG_ARCHIVE (table above)
 re/                       symbols.csv (single source of truth), Ghidra projects/scripts exports
-tools/                    analysis tooling (python, ghidra scripts, d3d9 proxy logger, lifter)
+tools/                    the lifter, Ghidra scripts, the shader tool (sm3c) and analysis scripts (python)
 src/runtime/              guest memory model, CPU-state helpers, lifted-code support
 src/platform/             Win32/DirectX/Steam-API replacement shims (SDL3 / AppKit / CoreAudio)
 src/rhi/                  minimal renderer interface (what the game actually needs from D3D9)
 src/metal/                Metal backend for rhi + shader cache
 src/shaders/              SM3 -> MSL translation + hand-written MSL
-src/lifted/               GENERATED code from the lifter (never hand-edit; regenerate)
 src/native/               hand-written 64-bit replacements for lifted functions (strangler fig): NATIVE(<va>), docs/LIFTER.md §8
-tests/golden/             reference frames + metrics from the Wine/DXVK baseline (gitignored if large)
+tests/golden/             reference frames + metrics recorded from the original game (the PNG frames are not in git)
 tests/diff/               per-function differential tests (original x86 vs lifted)
 tests/replay/             D3D9 trace replay harness for renderer development
 tests/window/             unit tests of the SDL3 window layer (events -> Win32 messages, window service)
 tests/native/             src/native against the lifted functions it replaces; scripts/test_native.sh
 tests/boot/               the native runtime's entry point (bo1_boot) + Steam self-test; built by scripts/build_boot.sh
 reference/                USER'S ORIGINAL GAME FILES (gitignored, read-only)
-artifacts/                build outputs, traces, captures, shader_cache (Metal libraries compiled by scripts/shader_cache.sh) (gitignored)
-scripts/                  bootstrap.sh, build.sh, run_baseline.sh, ...; run_native.sh = play the native build in a window
+artifacts/                everything generated (gitignored): lifted/ = the code the lifter generates (never hand-edit; regenerate), boot/ = the runtime binary and run logs,
+                          shader_cache/ = Metal libraries compiled by scripts/shader_cache.sh, app/ = the personal app and DMG, game/ = working copy of the game, traces/
+scripts/                  ghidra_analyze.sh, build_lifted.sh, build_boot.sh, make_app.sh = the build (README.md); run_native.sh = play the native build in a window; the tests
 ```
 
 ## Conventions
@@ -82,4 +84,4 @@ scripts/                  bootstrap.sh, build.sh, run_baseline.sh, ...; run_nati
 - Commit messages: `P<phase>/<TASK-ID>: <what> [evidence: ...]`.
 
 ## Toolbox (check what's installed with scripts/doctor.sh before assuming)
-Ghidra (headless + scripts), Python: pefile, capstone, lief, unicorn; Frida; Xcode Metal frame capture + Instruments; CrossOver or Wine (wine32on64) + DXVK/MoltenVK for the *reference baseline only*; FFmpeg (Bink video/audio decoding).
+Ghidra (headless + scripts), Python: pefile, capstone, lief, unicorn; Xcode Metal frame capture + Instruments; Homebrew: cmake, ninja, sdl3, faudio, ffmpeg (Bink video/audio decoding).
